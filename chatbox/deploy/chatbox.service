@@ -5,9 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=xxw
-WorkingDirectory=/home/xxw/桌面/0917/chatbox
-ExecStart=/home/xxw/桌面/0917/chatbox/tools/run_server.sh --listen 127.0.0.1 --port 9100 --io-threads 4 --worker-threads 4 --max-connections 500 --max-conn-per-ip 50 --proxy-protocol
+User=ubuntu
+WorkingDirectory=/home/ubuntu/chatbox
+ExecStart=/home/ubuntu/chatbox/tools/run_server.sh --listen 127.0.0.1 --port 9100 --io-threads 4 --worker-threads 4 --max-connections 500 --max-conn-per-ip 50 --proxy-protocol
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=65535

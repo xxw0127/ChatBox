@@ -76,12 +76,12 @@ LoginPage::LoginPage(QWidget* parent) : QWidget(parent) {
     form->setHorizontalSpacing(12);
     form->setVerticalSpacing(8);
 
-    host_edit_ = new QLineEdit("frp-oil.com", card);
+    host_edit_ = new QLineEdit("121.5.168.189", card);
     host_edit_->setObjectName("ServerHostEdit");
     port_spin_ = new QSpinBox(card);
     port_spin_->setObjectName("ServerPortSpin");
     port_spin_->setRange(1, 65535);
-    port_spin_->setValue(15318);
+    port_spin_->setValue(9443);
     tls_check_ = new QCheckBox("TLS 加密连接", card);
     tls_check_->setObjectName("ServerTlsCheck");
     tls_check_->setChecked(true);
@@ -104,8 +104,8 @@ LoginPage::LoginPage(QWidget* parent) : QWidget(parent) {
     nickname_edit_->setPlaceholderText("注册时填写");
 
     QSettings settings;
-    host_edit_->setText(settings.value("server/host", "frp-oil.com").toString());
-    port_spin_->setValue(settings.value("server/port", 15318).toInt());
+    host_edit_->setText(settings.value("server/host", "121.5.168.189").toString());
+    port_spin_->setValue(settings.value("server/port", 9443).toInt());
     tls_check_->setChecked(settings.value("server/tls", true).toBool());
 
     form->addRow("用户名", username_edit_);

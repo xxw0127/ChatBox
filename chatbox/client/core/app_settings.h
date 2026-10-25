@@ -14,6 +14,12 @@ namespace client {
 // is safe.
 bool migrateLegacySettings(QSettings& current, QSettings& legacy);
 
+// Moves the old public server (frp-oil.com:15318) to the 0.2.3 endpoint
+// (121.5.168.189:9443). Old session tokens belong to the old host, so the
+// session group is cleared to force a fresh login. Custom endpoints are not
+// touched.
+bool migrateServerEndpoint(QSettings& settings);
+
 }  // namespace client
 }  // namespace chatbox
 

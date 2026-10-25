@@ -207,6 +207,7 @@ private slots:
     void fallbackAvatarPaletteIsSingleSource();
     void appTitleUsesBrandName();
     void settingsMigrationCopiesLegacyStore();
+    void settingsMigrationMovesOldServerEndpoint();
     void settingsMigrationNeverOverwritesCurrent();
     void brandIdentifiersAreUnified();
     void installerTemplateTargetsChatboxExe();
@@ -2348,6 +2349,28 @@ void TestClientCore::settingsMigrationCopiesLegacyStore() {
     }
 }
 
+void TestClientCore::settingsMigrationMovesOldServerEndpoint() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QSettings settings(dir.filePath(QStringLiteral("migrate.ini")),
+                       QSettings::IniFormat);
+    settings.setValue(QStringLiteral("server/host"), QStringLiteral("frp-oil.com"));
+    settings.setValue(QStringLiteral("server/port"), 15318);
+    settings.setValue(QStringLiteral("session/token"), QStringLiteral("old-token"));
+    QVERIFY(chatbox::client::migrateServerEndpoint(settings));
+    QCOMPARE(settings.value(QStringLiteral("server/host")).toString(),
+             QStringLiteral("121.5.168.189"));
+    QCOMPARE(settings.value(QStringLiteral("server/port")).toInt(), 9443);
+    QVERIFY(!settings.contains(QStringLiteral("session/token")));
+
+    // A custom endpoint must not be overwritten.
+    QSettings custom(dir.filePath(QStringLiteral("custom.ini")),
+                     QSettings::IniFormat);
+    custom.setValue(QStringLiteral("server/host"), QStringLiteral("example.test"));
+    custom.setValue(QStringLiteral("server/port"), 12345);
+    QVERIFY(!chatbox::client::migrateServerEndpoint(custom));
+}
+
 // The migration only ever fills an empty store: values written after the
 // rename (for example a token refreshed by the new build) must win.
 void TestClientCore::settingsMigrationNeverOverwritesCurrent() {
@@ -2984,8 +3007,8 @@ void TestClientCore::loginPageHidesServerFieldsBehindMoreDots() {
     QVERIFY(host != nullptr);
     QVERIFY(port != nullptr);
     QVERIFY(tls != nullptr);
-    QCOMPARE(host->text(), QStringLiteral("frp-oil.com"));
-    QCOMPARE(port->value(), 15318);
+    QCOMPARE(host->text(), QStringLiteral("121.5.168.189"));
+    QCOMPARE(port->value(), 9443);
     QVERIFY(tls->isChecked());
 
     toggle->click();
@@ -3351,8 +3374,8 @@ void TestClientCore::settingsDialogDefaultsToPublicServer() {
              QStringLiteral("保存"));
     QCOMPARE(buttons->button(QDialogButtonBox::Cancel)->text(),
              QStringLiteral("取消"));
-    QCOMPARE(host->text(), QStringLiteral("frp-oil.com"));
-    QCOMPARE(port->value(), 15318);
+    QCOMPARE(host->text(), QStringLiteral("121.5.168.189"));
+    QCOMPARE(port->value(), 9443);
     QVERIFY(tls->isChecked());
 }
 

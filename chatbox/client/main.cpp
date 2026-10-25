@@ -31,7 +31,7 @@ int main(int argc, char** argv) {
     QApplication application(argc, argv);
     QCoreApplication::setOrganizationName("ChatBox");
     QCoreApplication::setApplicationName("ChatBox");
-    QCoreApplication::setApplicationVersion("0.2.2");
+    QCoreApplication::setApplicationVersion("0.2.3");
     new chatbox::client::FocusRingFilter(&application);
 
     // One instance only: two clients would race on the same settings store and
@@ -81,6 +81,9 @@ int main(int argc, char** argv) {
                          QStringLiteral("ChatroomClient"));
         if (chatbox::client::migrateLegacySettings(current, legacy)) {
             qInfo("settings migrated from the pre-ChatBox store");
+        }
+        if (chatbox::client::migrateServerEndpoint(current)) {
+            qInfo("server endpoint migrated to 121.5.168.189:9443");
         }
     }
     chatbox::client::theme::applyThemeFromSettings(&application);

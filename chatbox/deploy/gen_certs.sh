@@ -10,7 +10,9 @@ sudo mkdir -p "${CERT_DIR}"
 if [ ! -f "${CERT_DIR}/ca.crt" ]; then
     sudo openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
         -keyout "${CERT_DIR}/ca.key" -out "${CERT_DIR}/ca.crt" \
-        -subj "/CN=ChatBox Dev CA"
+        -subj "/CN=ChatBox Dev CA" \
+        -addext "basicConstraints=critical,CA:TRUE" \
+        -addext "keyUsage=critical,keyCertSign,cRLSign"
 fi
 
 # 覆盖服务器证书前备份；CA 始终保留，客户端不需要重新分发 ca.crt。

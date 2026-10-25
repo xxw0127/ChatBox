@@ -1630,7 +1630,7 @@ void MainWindow::loadSession() {
     if (token.isEmpty()) {
         return;
     }
-    host_ = settings.value("session/host", "192.168.2.240").toString();
+    host_ = settings.value("session/host", "121.5.168.189").toString();
     port_ = static_cast<quint16>(settings.value("session/port", 9443).toUInt());
     use_tls_ = settings.value("session/tls", true).toBool();
     token_ = token;
