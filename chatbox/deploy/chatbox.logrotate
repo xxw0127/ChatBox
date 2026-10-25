@@ -1,5 +1,5 @@
-/home/xxw/桌面/0917/chatbox/logs/chatbox.log {
-    su xxw xxw
+/home/ubuntu/chatbox/logs/chatbox.log {
+    su ubuntu ubuntu
     daily
     rotate 7
     size 100M
@@ -7,7 +7,7 @@
     notifempty
     compress
     delaycompress
-    create 0640 xxw xxw
+    create 0640 ubuntu ubuntu
     postrotate
         systemctl kill -s USR1 chatbox.service || true
     endscript
