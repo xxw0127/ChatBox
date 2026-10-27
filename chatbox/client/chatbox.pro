@@ -39,6 +39,7 @@ SOURCES += \
     core/contact_store.cpp \
     core/update_manifest.cpp \
     core/update_service.cpp \
+    core/update_installer.cpp \
     core/avatar_utils.cpp \
     core/avatar_cache.cpp \
     core/history_store.cpp \
@@ -85,6 +86,7 @@ HEADERS += \
     core/contact_store.h \
     core/update_manifest.h \
     core/update_service.h \
+    core/update_installer.h \
     core/avatar_utils.h \
     core/avatar_cache.h \
     core/history_store.h \

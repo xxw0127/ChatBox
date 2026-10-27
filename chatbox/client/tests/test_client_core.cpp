@@ -55,6 +55,7 @@
 #include "core/message_time.h"
 #include "core/outbox.h"
 #include "core/ui_theme.h"
+#include "core/update_installer.h"
 #include "core/update_manifest.h"
 #include "core/update_service.h"
 #include "core/user_profile.h"
@@ -220,6 +221,8 @@ private slots:
     void updateServiceUsesPinnedCa();
     void updateDialogHasRequiredActions();
     void startupSchedulesOneUpdateCheck();
+    void updateInstallerValidatesPackage();
+    void updateHelperHasRollbackSafety();
     void settingsMigrationNeverOverwritesCurrent();
     void brandIdentifiersAreUnified();
     void installerTemplateTargetsChatboxExe();
@@ -2459,6 +2462,41 @@ void TestClientCore::startupSchedulesOneUpdateCheck() {
     const QString source = readMainWindowSource();
     QVERIFY(source.contains(QStringLiteral("QTimer::singleShot(1500")));
     QVERIFY(source.contains(QStringLiteral("&MainWindow::checkForUpdates")));
+}
+
+void TestClientCore::updateInstallerValidatesPackage() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QString error;
+    QVERIFY(!chatbox::client::validateUpdateDirectory(dir.path(), &error));
+    QVERIFY(!error.isEmpty());
+
+    QVERIFY(QDir(dir.path()).mkpath(QStringLiteral("sqldrivers")));
+    QFile exe(QDir(dir.path()).filePath(QStringLiteral("chatbox.exe")));
+    QVERIFY(exe.open(QIODevice::WriteOnly));
+    exe.close();
+    QFile sql(QDir(dir.path()).filePath(QStringLiteral("Qt5Sql.dll")));
+    QVERIFY(sql.open(QIODevice::WriteOnly));
+    sql.close();
+    QFile network(QDir(dir.path()).filePath(QStringLiteral("Qt5Network.dll")));
+    QVERIFY(network.open(QIODevice::WriteOnly));
+    network.close();
+    QFile sqlite(QDir(dir.path()).filePath(QStringLiteral("sqldrivers/qsqlite.dll")));
+    QVERIFY(sqlite.open(QIODevice::WriteOnly));
+    sqlite.close();
+    QVERIFY(chatbox::client::validateUpdateDirectory(dir.path(), &error));
+}
+
+void TestClientCore::updateHelperHasRollbackSafety() {
+    const QString helper =
+        readClientSource(QStringLiteral("resources/update_helper.ps1"));
+    QVERIFY2(!helper.isEmpty(), "update_helper.ps1 must be readable");
+    QVERIFY(helper.contains(QStringLiteral("Wait-Process")));
+    QVERIFY(helper.contains(QStringLiteral("Copy-Item")));
+    QVERIFY(helper.contains(QStringLiteral("update-in-progress")));
+    QVERIFY(helper.contains(QStringLiteral("Start-Sleep -Seconds 5")));
+    QVERIFY(helper.contains(QStringLiteral("robocopy")));
+    QVERIFY(helper.contains(QStringLiteral("backup-")));
 }
 
 void TestClientCore::settingsMigrationMovesOldServerEndpoint() {

@@ -5,6 +5,7 @@
 #include <QMessageBox>
 
 #include "core/client_config.h"
+#include "core/update_installer.h"
 #include "core/update_service.h"
 #include "ui/update_dialog.h"
 
@@ -15,6 +16,11 @@ void MainWindow::checkForUpdates() {
         return;
     }
     update_check_started_ = true;
+    const QString previous_result = chatbox::client::consumeUpdateResult();
+    if (!previous_result.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("更新失败"),
+                             QStringLiteral("上次更新未完成：%1").arg(previous_result));
+    }
     update_service_ = new UpdateService(this);
     connect(update_service_, &UpdateService::updateAvailable, this,
             &MainWindow::showUpdateAvailable);
@@ -78,10 +84,36 @@ void MainWindow::onUpdateFailed(const QString& reason) {
 }
 
 void MainWindow::installDownloadedUpdate() {
-    // Implemented by the updater helper task; keep the download UI usable in
-    // the intermediate build while that helper is wired in.
-    qInfo("update downloaded: %s", qPrintable(downloaded_update_zip_));
-    if (update_dialog_ != nullptr) {
-        update_dialog_->setBusy(false);
+    if (update_dialog_ == nullptr) {
+        return;
     }
+    QString error;
+    if (!chatbox::client::canInstallUpdates(&error)) {
+        update_dialog_->setBusy(false);
+        QMessageBox::warning(this, QStringLiteral("无法更新"), error);
+        return;
+    }
+    const QString staging =
+        QDir::tempPath() + QStringLiteral("/ChatBox/staging-") +
+        pending_update_.version;
+    QDir(staging).removeRecursively();
+    QString extracted_root;
+    if (!chatbox::client::extractUpdateZip(downloaded_update_zip_, staging,
+                                           &extracted_root, &error)) {
+        update_dialog_->setBusy(false);
+        QMessageBox::warning(this, QStringLiteral("更新包无效"), error);
+        return;
+    }
+    const QString target = QCoreApplication::applicationDirPath();
+    if (!chatbox::client::launchUpdateHelper(
+            static_cast<quint64>(QCoreApplication::applicationPid()),
+            extracted_root, target,
+            QDir(target).filePath(QStringLiteral("chatbox.exe")), &error)) {
+        update_dialog_->setBusy(false);
+        QMessageBox::warning(this, QStringLiteral("无法启动更新"), error);
+        return;
+    }
+    update_dialog_->hide();
+    setStatus(QStringLiteral("正在安装更新，客户端将重新启动..."));
+    QCoreApplication::quit();
 }
