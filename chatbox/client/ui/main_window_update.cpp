@@ -21,6 +21,12 @@ void MainWindow::checkForUpdates() {
         QMessageBox::warning(this, QStringLiteral("更新失败"),
                              QStringLiteral("上次更新未完成：%1").arg(previous_result));
     }
+    if (chatbox::client::consumeUpdateInterrupted()) {
+        QMessageBox::warning(
+            this, QStringLiteral("更新被中断"),
+            QStringLiteral("上次更新在替换文件时被中断，当前程序可能不完整。"
+                           "如果启动或登录异常，请重新安装客户端。"));
+    }
     update_service_ = new UpdateService(this);
     connect(update_service_, &UpdateService::updateAvailable, this,
             &MainWindow::showUpdateAvailable);
@@ -46,6 +52,10 @@ void MainWindow::showUpdateAvailable(
         update_dialog_ = new UpdateDialog(manifest, this);
         connect(update_dialog_, &UpdateDialog::updateRequested, this,
                 &MainWindow::onUpdateRequested);
+        connect(update_dialog_, &UpdateDialog::cancelRequested, this,
+                &MainWindow::onUpdateCancelled);
+        connect(update_dialog_, &QDialog::rejected, this,
+                &MainWindow::onUpdateDialogRejected);
     }
     update_dialog_->show();
     update_dialog_->raise();
@@ -53,9 +63,11 @@ void MainWindow::showUpdateAvailable(
 }
 
 void MainWindow::onUpdateRequested() {
-    if (update_service_ == nullptr || update_dialog_ == nullptr) {
+    if (update_service_ == nullptr || update_dialog_ == nullptr ||
+        update_download_active_) {
         return;
     }
+    update_download_active_ = true;
     const QString directory =
         QDir::tempPath() + QStringLiteral("/ChatBox/update");
     QDir().mkpath(directory);
@@ -72,15 +84,43 @@ void MainWindow::onUpdateProgress(qint64 received, qint64 total) {
 }
 
 void MainWindow::onUpdateDownloaded(const QString& zip_path) {
+    if (!update_download_active_) {
+        return;
+    }
+    update_download_active_ = false;
     downloaded_update_zip_ = zip_path;
     installDownloadedUpdate();
 }
 
 void MainWindow::onUpdateFailed(const QString& reason) {
+    update_download_active_ = false;
     if (update_dialog_ != nullptr) {
         update_dialog_->setBusy(false);
     }
     setStatus(QStringLiteral("更新失败: %1").arg(reason), true);
+    qWarning("update download failed: %s", qPrintable(reason));
+}
+
+void MainWindow::onUpdateCancelled() {
+    if (!update_download_active_) {
+        return;
+    }
+    update_download_active_ = false;
+    if (update_service_ != nullptr) {
+        update_service_->cancel();
+    }
+    if (update_dialog_ != nullptr) {
+        update_dialog_->setBusy(false);
+    }
+    setStatus(QStringLiteral("已取消更新"));
+}
+
+void MainWindow::onUpdateDialogRejected() {
+    // Closing the prompt with the title-bar X must not leave a background
+    // download that later replaces the client behind the user's back.
+    if (update_download_active_) {
+        onUpdateCancelled();
+    }
 }
 
 void MainWindow::installDownloadedUpdate() {

@@ -23,6 +23,10 @@ bool launchUpdateHelper(quint64 process_id, const QString& source_dir,
                         const QString& target_dir, const QString& executable,
                         QString* error);
 
+// True when a previous helper was killed mid-replacement. The marker is
+// removed so the warning appears once.
+bool consumeUpdateInterrupted();
+
 // Reads and removes the failure marker left by the helper.
 QString consumeUpdateResult();
 

@@ -31,12 +31,22 @@ foreach ($directory in @("certs", "platforms", "styles", "imageformats", "sqldri
 }
 Copy-Item (Join-Path $root "README.md") $target -Force
 
-# A package missing the SQL module or the SQLite driver would start but fail
-# to open the local history database, so refuse to ship it.
-foreach ($required in @("chatbox.exe", "Qt5Sql.dll", "Qt5Network.dll", "sqldrivers\qsqlite.dll", "imageformats\qjpeg.dll")) {
+# A package missing the platform plugin, TLS stack, CA, SQL module or SQLite
+# driver would start (or fail) in ways the updater cannot recover from, so
+# refuse to ship it.
+foreach ($required in @(
+    "chatbox.exe", "Qt5Core.dll", "Qt5Gui.dll", "Qt5Widgets.dll",
+    "Qt5Sql.dll", "Qt5Network.dll", "platforms\qwindows.dll",
+    "sqldrivers\qsqlite.dll", "certs\ca.crt", "imageformats\qjpeg.dll"
+)) {
     $path = Join-Path $target $required
-    if (-not (Test-Path $path)) {
+    if (-not (Test-Path $path -PathType Leaf)) {
         throw "package is incomplete: $required is missing from $target"
+    }
+}
+foreach ($pattern in @("libssl-*.dll", "libcrypto-*.dll")) {
+    if (-not (Get-ChildItem -Path $target -Filter $pattern -File | Select-Object -First 1)) {
+        throw "package is incomplete: $pattern is missing from $target"
     }
 }
 

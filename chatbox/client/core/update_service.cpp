@@ -16,6 +16,7 @@ namespace client {
 namespace {
 
 constexpr qint64 kMaxManifestBytes = 64 * 1024;
+constexpr qint64 kMaxUpdateBytes = 200 * 1024 * 1024;
 
 QNetworkRequest makeRequest(const QUrl& url, const QString& ca_path, bool* ca_ok) {
     QNetworkRequest request(url);
@@ -23,6 +24,10 @@ QNetworkRequest makeRequest(const QUrl& url, const QString& ca_path, bool* ca_ok
                          QNetworkRequest::NoLessSafeRedirectPolicy);
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
                          QNetworkRequest::AlwaysNetwork);
+    request.setMaximumRedirectsAllowed(3);
+    // Idle timeout: a stalled TLS transfer must not leave the dialog busy
+    // forever. Large packages still pass as long as data keeps arriving.
+    request.setTransferTimeout(60000);
     const QList<QSslCertificate> certificates = QSslCertificate::fromPath(ca_path);
     if (certificates.isEmpty()) {
         *ca_ok = false;
@@ -147,6 +152,12 @@ void UpdateService::downloadUpdate(const UpdateManifest& manifest,
         if (chunk.isEmpty()) {
             return;
         }
+        if (download_received_ + chunk.size() > kMaxUpdateBytes) {
+            download_reply_ = nullptr;
+            reply->abort();
+            failDownload(QStringLiteral("更新包过大"));
+            return;
+        }
         if (download_file_.write(chunk) != chunk.size()) {
             download_reply_ = nullptr;
             reply->abort();
@@ -167,11 +178,16 @@ void UpdateService::downloadUpdate(const UpdateManifest& manifest,
         const QString network_error =
             reply->error() == QNetworkReply::NoError ? QString()
                                                      : reply->errorString();
+        const QUrl final_url = reply->url();
         const QByteArray rest = reply->readAll();
         reply->deleteLater();
         download_reply_ = nullptr;
         if (!network_error.isEmpty()) {
             failDownload(QStringLiteral("下载更新失败: %1").arg(network_error));
+            return;
+        }
+        if (!isTrustedManifestUrl(final_url)) {
+            failDownload(QStringLiteral("更新地址不安全"));
             return;
         }
         if (!rest.isEmpty()) {
@@ -194,15 +210,20 @@ void UpdateService::downloadUpdate(const UpdateManifest& manifest,
 }
 
 void UpdateService::cancel() {
+    // abort() can emit finished() synchronously; the finished handler clears
+    // the QPointer. Capture a raw pointer and clear the member first so this
+    // function never dereferences a pointer the handler just nulled.
     if (manifest_reply_ != nullptr) {
-        manifest_reply_->abort();
-        manifest_reply_->deleteLater();
+        QNetworkReply* reply = manifest_reply_;
         manifest_reply_ = nullptr;
+        reply->abort();
+        reply->deleteLater();
     }
     if (download_reply_ != nullptr) {
-        download_reply_->abort();
-        download_reply_->deleteLater();
+        QNetworkReply* reply = download_reply_;
         download_reply_ = nullptr;
+        reply->abort();
+        reply->deleteLater();
     }
     cleanupDownload();
 }
@@ -227,10 +248,6 @@ void UpdateService::cleanupDownload() {
     download_path_.clear();
     download_received_ = 0;
     download_hash_.reset();
-}
-
-void UpdateService::finishDownload() {
-    cleanupDownload();
 }
 
 }  // namespace client

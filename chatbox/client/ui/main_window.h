@@ -92,6 +92,8 @@ private slots:
     void onUpdateProgress(qint64 received, qint64 total);
     void onUpdateDownloaded(const QString& zip_path);
     void onUpdateFailed(const QString& reason);
+    void onUpdateCancelled();
+    void onUpdateDialogRejected();
     void installDownloadedUpdate();
     void onContactContextMenu(const QPoint& position);
     void onFriendContextMenu(const QPoint& position);
@@ -260,6 +262,7 @@ private:
     chatbox::client::UpdateManifest pending_update_;
     QString downloaded_update_zip_;
     bool update_check_started_ = false;
+    bool update_download_active_ = false;
     quint64 action_bar_message_id_ = 0;
     MessageInput* input_edit_ = nullptr;
     QLabel* message_byte_counter_ = nullptr;

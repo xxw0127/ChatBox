@@ -335,7 +335,7 @@ cd D:\OpenCode_WorkSpace\chatbox\client\tests
 ```powershell
 cd D:\OpenCode_WorkSpace\chatbox\client
 .\package_client.ps1
-# 输出 dist\chatbox-0.2.0-win64.zip
+# 输出 release\chatbox-0.2.5-win64.zip
 ```
 
 已支持登录/注册、房间、群聊、私聊、用户搜索、服务端好友申请/列表/备注、个人主页（查看他人/编辑自己）、头像上传与清除、昵称/签名修改与在线好友推送、引用回复、@提及、消息撤回、消息搜索、消息发送状态与失败重发、聊天气泡与本地时间、连接横幅、私聊未读角标与托盘提醒、历史分页、Token 自动登录、设置页、客户端日志、退出登录、心跳和断线重连；界面为浅色 Telegram 风格三栏布局。

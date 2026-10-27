@@ -220,8 +220,11 @@ private slots:
     void updateServiceRejectsUntrustedManifestUrl();
     void updateServiceUsesPinnedCa();
     void updateDialogHasRequiredActions();
+    void updateDialogShowsCancelDuringDownload();
     void startupSchedulesOneUpdateCheck();
     void updateInstallerValidatesPackage();
+    void updateMarkersRoundTrip();
+    void historyDirectoryInsideInstallRejected();
     void updateHelperHasRollbackSafety();
     void updateServerSiteUsesHttps();
     void settingsMigrationNeverOverwritesCurrent();
@@ -2407,6 +2410,21 @@ void TestClientCore::updateManifestRejectsInvalid() {
     json.replace(QByteArray(64, 'a'), QByteArray(63, 'a'));
     QVERIFY(!chatbox::client::parseUpdateManifest(json, &error).valid);
 
+    // The version is used as a temp path component: path separators and
+    // suffixes must not survive validation.
+    json = prefix;
+    json.replace("\"0.2.4\"", "\"0.2.5/../../..\"");
+    QVERIFY(!chatbox::client::parseUpdateManifest(json, &error).valid);
+    json = prefix;
+    json.replace("\"0.2.4\"", "\"0.2.5\\\\..\\\\..\"");
+    QVERIFY(!chatbox::client::parseUpdateManifest(json, &error).valid);
+    json = prefix;
+    json.replace("\"0.2.4\"", "\"0.2.5-beta\"");
+    QVERIFY(!chatbox::client::parseUpdateManifest(json, &error).valid);
+    json = prefix;
+    json.replace("\"0.2.4\"", "\"\"");
+    QVERIFY(!chatbox::client::parseUpdateManifest(json, &error).valid);
+
     QVERIFY(!chatbox::client::parseUpdateManifest(QByteArray(65537, ' '), &error).valid);
 }
 
@@ -2439,6 +2457,8 @@ void TestClientCore::updateServiceUsesPinnedCa() {
     QVERIFY(!source.contains(QStringLiteral("setPeerVerifyMode(QSslSocket::VerifyNone)")));
     QVERIFY(header.contains(QStringLiteral("QCryptographicHash")));
     QVERIFY(source.contains(QStringLiteral("download_hash_")));
+    QVERIFY(source.contains(QStringLiteral("setTransferTimeout")));
+    QVERIFY(source.contains(QStringLiteral("setMaximumRedirectsAllowed")));
 }
 
 void TestClientCore::updateDialogHasRequiredActions() {
@@ -2451,12 +2471,43 @@ void TestClientCore::updateDialogHasRequiredActions() {
     QVERIFY(dialog.findChild<QProgressBar*>(QStringLiteral("UpdateProgressBar")) != nullptr);
     QVERIFY(dialog.findChild<QPushButton*>(QStringLiteral("UpdateNowButton")) != nullptr);
     QVERIFY(dialog.findChild<QPushButton*>(QStringLiteral("UpdateLaterButton")) != nullptr);
+    auto* cancel =
+        dialog.findChild<QPushButton*>(QStringLiteral("UpdateCancelButton"));
+    QVERIFY(cancel != nullptr);
+    QVERIFY(cancel->isHidden());
 
     const QString source =
         readClientSource(QStringLiteral("ui/main_window_update.cpp"));
     QVERIFY2(!source.isEmpty(), "ui/main_window_update.cpp must be readable");
     QVERIFY(source.contains(QStringLiteral("update_dialog_->show()")));
     QVERIFY(!source.contains(QStringLiteral("update_dialog_->exec()")));
+}
+
+void TestClientCore::updateDialogShowsCancelDuringDownload() {
+    chatbox::client::UpdateManifest manifest;
+    manifest.version = QStringLiteral("0.2.5");
+    UpdateDialog dialog(manifest);
+    auto* cancel =
+        dialog.findChild<QPushButton*>(QStringLiteral("UpdateCancelButton"));
+    auto* later =
+        dialog.findChild<QPushButton*>(QStringLiteral("UpdateLaterButton"));
+    auto* progress =
+        dialog.findChild<QProgressBar*>(QStringLiteral("UpdateProgressBar"));
+    QVERIFY(cancel != nullptr);
+    QVERIFY(later != nullptr);
+    QVERIFY(progress != nullptr);
+    QVERIFY(cancel->isHidden());
+
+    dialog.setBusy(true);
+    QVERIFY(!cancel->isHidden());
+    QVERIFY(later->isHidden());
+    dialog.setDownloadProgress(50, 100);
+    QCOMPARE(progress->value(), 50);
+
+    dialog.setBusy(false);
+    QVERIFY(cancel->isHidden());
+    QVERIFY(!later->isHidden());
+    QVERIFY(progress->isHidden());
 }
 
 void TestClientCore::startupSchedulesOneUpdateCheck() {
@@ -2472,20 +2523,80 @@ void TestClientCore::updateInstallerValidatesPackage() {
     QVERIFY(!chatbox::client::validateUpdateDirectory(dir.path(), &error));
     QVERIFY(!error.isEmpty());
 
-    QVERIFY(QDir(dir.path()).mkpath(QStringLiteral("sqldrivers")));
-    QFile exe(QDir(dir.path()).filePath(QStringLiteral("chatbox.exe")));
-    QVERIFY(exe.open(QIODevice::WriteOnly));
-    exe.close();
-    QFile sql(QDir(dir.path()).filePath(QStringLiteral("Qt5Sql.dll")));
-    QVERIFY(sql.open(QIODevice::WriteOnly));
-    sql.close();
-    QFile network(QDir(dir.path()).filePath(QStringLiteral("Qt5Network.dll")));
-    QVERIFY(network.open(QIODevice::WriteOnly));
-    network.close();
-    QFile sqlite(QDir(dir.path()).filePath(QStringLiteral("sqldrivers/qsqlite.dll")));
-    QVERIFY(sqlite.open(QIODevice::WriteOnly));
-    sqlite.close();
-    QVERIFY(chatbox::client::validateUpdateDirectory(dir.path(), &error));
+    const QStringList required = {
+        QStringLiteral("chatbox.exe"),
+        QStringLiteral("Qt5Core.dll"),
+        QStringLiteral("Qt5Gui.dll"),
+        QStringLiteral("Qt5Widgets.dll"),
+        QStringLiteral("Qt5Sql.dll"),
+        QStringLiteral("Qt5Network.dll"),
+        QStringLiteral("platforms/qwindows.dll"),
+        QStringLiteral("sqldrivers/qsqlite.dll"),
+        QStringLiteral("certs/ca.crt"),
+        QStringLiteral("libssl-4-x64.dll"),
+        QStringLiteral("libcrypto-4-x64.dll"),
+    };
+    auto touch = [&dir](const QString& relative) {
+        const QString path = QDir(dir.path()).filePath(relative);
+        QVERIFY(QDir().mkpath(QFileInfo(path).absolutePath()));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.close();
+    };
+    for (const QString& relative : required) {
+        touch(relative);
+    }
+    QVERIFY2(chatbox::client::validateUpdateDirectory(dir.path(), &error),
+             qPrintable(error));
+
+    const QString platform = QDir(dir.path()).filePath(
+        QStringLiteral("platforms/qwindows.dll"));
+    QVERIFY(QFile::remove(platform));
+    QVERIFY(!chatbox::client::validateUpdateDirectory(dir.path(), &error));
+    touch(QStringLiteral("platforms/qwindows.dll"));
+
+    const QString ssl = QDir(dir.path()).filePath(
+        QStringLiteral("libssl-4-x64.dll"));
+    QVERIFY(QFile::remove(ssl));
+    QVERIFY(!chatbox::client::validateUpdateDirectory(dir.path(), &error));
+}
+
+void TestClientCore::updateMarkersRoundTrip() {
+    const QString base = QDir::tempPath() + QStringLiteral("/ChatBox");
+    QVERIFY(QDir().mkpath(base));
+    const QString result_path =
+        base + QStringLiteral("/update-result.txt");
+    const QString marker_path =
+        base + QStringLiteral("/update-in-progress");
+    QFile::remove(result_path);
+    QFile::remove(marker_path);
+
+    QFile result(result_path);
+    QVERIFY(result.open(QIODevice::WriteOnly));
+    result.write("\xEF\xBB\xBF" "failed to replace files");
+    result.close();
+    QCOMPARE(chatbox::client::consumeUpdateResult(),
+             QStringLiteral("failed to replace files"));
+    QVERIFY(!QFile::exists(result_path));
+
+    QFile marker(marker_path);
+    QVERIFY(marker.open(QIODevice::WriteOnly));
+    marker.write("1");
+    marker.close();
+    QVERIFY(chatbox::client::consumeUpdateInterrupted());
+    QVERIFY(!QFile::exists(marker_path));
+    QVERIFY(!chatbox::client::consumeUpdateInterrupted());
+}
+
+void TestClientCore::historyDirectoryInsideInstallRejected() {
+    const QString install = QCoreApplication::applicationDirPath();
+    QVERIFY(chatbox::client::isHistoryDirectoryInsideInstall(install));
+    QVERIFY(chatbox::client::isHistoryDirectoryInsideInstall(
+        install + QStringLiteral("/history")));
+    QVERIFY(!chatbox::client::isHistoryDirectoryInsideInstall(
+        QDir::tempPath()));
+    QVERIFY(!chatbox::client::isHistoryDirectoryInsideInstall(
+        install + QStringLiteral("/../sibling")));
 }
 
 void TestClientCore::updateServerSiteUsesHttps() {
@@ -2502,8 +2613,11 @@ void TestClientCore::updateServerSiteUsesHttps() {
     QVERIFY(publish.open(QIODevice::ReadOnly | QIODevice::Text));
     const QString script = QString::fromUtf8(publish.readAll());
     QVERIFY(script.contains(QStringLiteral("scp")));
-    QVERIFY(script.contains(QStringLiteral("sha256")));
+    QVERIFY(script.contains(QStringLiteral("sha256sum")));
     QVERIFY(script.contains(QStringLiteral("121.5.168.189")));
+    QVERIFY(script.contains(QStringLiteral("latest.json.tmp")));
+    QVERIFY(script.contains(QStringLiteral("releases/$Version")));
+    QVERIFY(script.contains(QStringLiteral("$LASTEXITCODE")));
 }
 
 void TestClientCore::updateHelperHasRollbackSafety() {
@@ -2516,6 +2630,11 @@ void TestClientCore::updateHelperHasRollbackSafety() {
     QVERIFY(helper.contains(QStringLiteral("Start-Sleep -Seconds 5")));
     QVERIFY(helper.contains(QStringLiteral("robocopy")));
     QVERIFY(helper.contains(QStringLiteral("backup-")));
+    QVERIFY(helper.contains(QStringLiteral("backup_complete")));
+    for (const QChar ch : helper) {
+        QVERIFY2(ch.unicode() < 128,
+                 "update_helper.ps1 must stay ASCII for PowerShell 5.1");
+    }
 }
 
 void TestClientCore::settingsMigrationMovesOldServerEndpoint() {

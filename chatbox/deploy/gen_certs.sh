@@ -27,10 +27,10 @@ sudo openssl req -newkey rsa:2048 -sha256 -nodes \
     -keyout "${CERT_DIR}/chat.key" -out "${CERT_DIR}/chat.csr" \
     -subj "/CN=chatbox.local"
 
-# 服务器 LAN 地址固定为 192.168.2.240；换网段时用 SAN_IP=... 覆盖默认值。
-# SAN_DNS 支持逗号分隔的多个域名，例如 chatbox.local,frp-oil.com。
+# 生产公网地址固定为 121.5.168.189；换机器时用 SAN_IP=... 覆盖默认值。
+# SAN_DNS 支持逗号分隔的多个域名，例如 chatbox.local。
 # 只轮换服务器证书不会影响客户端已信任的 ca.crt。
-SAN_IP=${SAN_IP:-192.168.2.240}
+SAN_IP=${SAN_IP:-121.5.168.189}
 SAN_DNS=${SAN_DNS:-chatbox.local,frp-oil.com}
 
 san="IP:${SAN_IP}"

@@ -41,7 +41,13 @@ UpdateManifest parseUpdateManifest(const QByteArray& json, QString* error) {
     }
 
     manifest.version = object.value(QStringLiteral("version")).toString().trimmed();
-    if (manifest.version.isEmpty() || QVersionNumber::fromString(manifest.version).isNull()) {
+    // The version becomes a temp path component. QVersionNumber accepts a
+    // numeric prefix and ignores a suffix such as "/../../..", so require the
+    // whole string to be dot-separated digits before using it in a path.
+    static const QRegularExpression version_pattern(
+        QStringLiteral("^[0-9]+(\\.[0-9]+){1,3}$"));
+    if (!version_pattern.match(manifest.version).hasMatch() ||
+        QVersionNumber::fromString(manifest.version).isNull()) {
         setError(error, QStringLiteral("更新版本号无效"));
         return manifest;
     }

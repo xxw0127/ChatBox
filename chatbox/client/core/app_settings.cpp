@@ -1,5 +1,7 @@
 #include "core/app_settings.h"
 
+#include <QCoreApplication>
+#include <QDir>
 #include <QStringList>
 #include <QVariant>
 
@@ -31,7 +33,8 @@ bool migrateServerEndpoint(QSettings& settings) {
     const QString host = settings.value(QStringLiteral("server/host")).toString();
     const int port = settings.value(QStringLiteral("server/port"), 0).toInt();
     const bool tls = settings.value(QStringLiteral("server/tls"), true).toBool();
-    if (host == QString::fromLatin1(kServerHost) && port == kServerPort && tls) {
+    if (host == QString::fromLatin1(kServerHost) && port == kServerPort &&
+        tls == kServerTls) {
         return false;
     }
     // The product endpoint is now a compile-time constant. This also covers the
@@ -39,10 +42,23 @@ bool migrateServerEndpoint(QSettings& settings) {
     settings.setValue(QStringLiteral("server/host"),
                       QString::fromLatin1(kServerHost));
     settings.setValue(QStringLiteral("server/port"), kServerPort);
-    settings.setValue(QStringLiteral("server/tls"), true);
+    settings.setValue(QStringLiteral("server/tls"), kServerTls);
     settings.remove(QStringLiteral("session"));
     settings.sync();
     return true;
+}
+
+bool isHistoryDirectoryInsideInstall(const QString& directory) {
+    const QString install = QDir::cleanPath(
+        QDir(QCoreApplication::applicationDirPath()).absolutePath());
+    const QString target =
+        QDir::cleanPath(QDir(directory).absolutePath());
+    if (target.compare(install, Qt::CaseInsensitive) == 0) {
+        return true;
+    }
+    const QString prefix =
+        install.endsWith(QLatin1Char('/')) ? install : install + QLatin1Char('/');
+    return target.startsWith(prefix, Qt::CaseInsensitive);
 }
 
 }  // namespace client

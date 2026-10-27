@@ -8,9 +8,14 @@ void MainWindow::onLoginRequested(const QString& host, quint16 port, const QStri
         reconnect_timer_->stop();
         reconnect_scheduled_ = false;
     }
-    host_ = host;
-    port_ = port;
-    use_tls_ = tls;
+    if (host != QString::fromLatin1(chatbox::client::kServerHost) ||
+        port != chatbox::client::kServerPort ||
+        tls != chatbox::client::kServerTls) {
+        qWarning("ignoring non-production endpoint from login page");
+    }
+    host_ = QString::fromLatin1(chatbox::client::kServerHost);
+    port_ = chatbox::client::kServerPort;
+    use_tls_ = chatbox::client::kServerTls;
     username_ = username;
     password_ = password;
     pending_auth_ = PendingAuth::Login;
@@ -31,9 +36,14 @@ void MainWindow::onRegisterRequested(const QString& host, quint16 port,
         reconnect_timer_->stop();
         reconnect_scheduled_ = false;
     }
-    host_ = host;
-    port_ = port;
-    use_tls_ = tls;
+    if (host != QString::fromLatin1(chatbox::client::kServerHost) ||
+        port != chatbox::client::kServerPort ||
+        tls != chatbox::client::kServerTls) {
+        qWarning("ignoring non-production endpoint from register page");
+    }
+    host_ = QString::fromLatin1(chatbox::client::kServerHost);
+    port_ = chatbox::client::kServerPort;
+    use_tls_ = chatbox::client::kServerTls;
     username_ = username;
     password_ = password;
     nickname_ = nickname;

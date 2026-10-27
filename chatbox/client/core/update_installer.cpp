@@ -6,22 +6,35 @@
 #include <QFileInfo>
 #include <QProcess>
 #include <QStandardPaths>
-#include <QTemporaryDir>
+#include <QTemporaryFile>
 
 namespace chatbox {
 namespace client {
 
 namespace {
 
+// A runnable portable client needs the Qt core/GUI/widgets modules, the
+// Windows platform plugin, the SQL driver for local history, the HTTPS stack
+// with OpenSSL, and the pinned CA. Accepting only chatbox.exe would let a
+// broken package pass the five-second liveness check.
 const QStringList kRequiredFiles = {
     QStringLiteral("chatbox.exe"),
+    QStringLiteral("Qt5Core.dll"),
+    QStringLiteral("Qt5Gui.dll"),
+    QStringLiteral("Qt5Widgets.dll"),
     QStringLiteral("Qt5Sql.dll"),
     QStringLiteral("Qt5Network.dll"),
+    QStringLiteral("platforms/qwindows.dll"),
     QStringLiteral("sqldrivers/qsqlite.dll"),
+    QStringLiteral("certs/ca.crt"),
 };
 
 QString resultMarkerPath() {
     return QDir::tempPath() + QStringLiteral("/ChatBox/update-result.txt");
+}
+
+QString interruptedMarkerPath() {
+    return QDir::tempPath() + QStringLiteral("/ChatBox/update-in-progress");
 }
 
 void setError(QString* error, const QString& message) {
@@ -45,15 +58,13 @@ bool canInstallUpdates(QString* reason) {
         setError(reason, QStringLiteral("系统缺少 PowerShell，无法安装更新"));
         return false;
     }
-    const QString probe = QDir(QCoreApplication::applicationDirPath())
-                              .filePath(QStringLiteral(".chatbox-write-test"));
-    QFile file(probe);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    QTemporaryFile probe(QDir(QCoreApplication::applicationDirPath())
+                             .filePath(QStringLiteral(".chatbox-write-XXXXXX")));
+    probe.setAutoRemove(true);
+    if (!probe.open()) {
         setError(reason, QStringLiteral("客户端目录不可写，请移动到可写目录后重试"));
         return false;
     }
-    file.close();
-    QFile::remove(probe);
     return true;
 #else
     Q_UNUSED(reason);
@@ -62,12 +73,20 @@ bool canInstallUpdates(QString* reason) {
 }
 
 bool validateUpdateDirectory(const QString& directory, QString* error) {
+    const QDir root(directory);
     for (const QString& relative : kRequiredFiles) {
-        const QString path = QDir(directory).filePath(relative);
-        if (!QFileInfo::exists(path)) {
+        if (!QFileInfo(root.filePath(relative)).isFile()) {
             setError(error, QStringLiteral("更新包缺少 %1").arg(relative));
             return false;
         }
+    }
+    const QStringList ssl =
+        root.entryList({QStringLiteral("libssl-*.dll")}, QDir::Files);
+    const QStringList crypto =
+        root.entryList({QStringLiteral("libcrypto-*.dll")}, QDir::Files);
+    if (ssl.isEmpty() || crypto.isEmpty()) {
+        setError(error, QStringLiteral("更新包缺少 OpenSSL 运行库"));
+        return false;
     }
     return true;
 }
@@ -178,6 +197,15 @@ bool launchUpdateHelper(quint64 process_id, const QString& source_dir,
     setError(error, QStringLiteral("当前平台不支持自动更新"));
     return false;
 #endif
+}
+
+bool consumeUpdateInterrupted() {
+    const QString marker = interruptedMarkerPath();
+    if (!QFileInfo::exists(marker)) {
+        return false;
+    }
+    QFile::remove(marker);
+    return true;
 }
 
 QString consumeUpdateResult() {

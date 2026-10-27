@@ -44,17 +44,27 @@ UpdateDialog::UpdateDialog(const chatbox::client::UpdateManifest& manifest,
     later_button_ = buttons->addButton(QStringLiteral("稍后"),
                                        QDialogButtonBox::RejectRole);
     later_button_->setObjectName(QStringLiteral("UpdateLaterButton"));
+    // ActionRole keeps this button from closing the dialog, so the user can
+    // retry after a cancelled download.
+    cancel_button_ = buttons->addButton(QStringLiteral("取消下载"),
+                                         QDialogButtonBox::ActionRole);
+    cancel_button_->setObjectName(QStringLiteral("UpdateCancelButton"));
+    cancel_button_->hide();
     layout->addWidget(buttons);
 
     connect(update_button_, &QPushButton::clicked, this,
             &UpdateDialog::updateRequested);
     connect(later_button_, &QPushButton::clicked, this, &QDialog::reject);
+    connect(cancel_button_, &QPushButton::clicked, this,
+            &UpdateDialog::cancelRequested);
 }
 
 void UpdateDialog::setDownloadProgress(qint64 received, qint64 total) {
     progress_bar_->show();
     update_button_->setEnabled(false);
-    later_button_->setEnabled(false);
+    later_button_->hide();
+    cancel_button_->show();
+    cancel_button_->setEnabled(true);
     if (total > 0) {
         progress_bar_->setRange(0, 100);
         progress_bar_->setValue(static_cast<int>(received * 100 / total));
@@ -65,9 +75,17 @@ void UpdateDialog::setDownloadProgress(qint64 received, qint64 total) {
 
 void UpdateDialog::setBusy(bool busy) {
     update_button_->setEnabled(!busy);
-    later_button_->setEnabled(!busy);
-    if (!busy) {
+    if (busy) {
+        progress_bar_->show();
+        progress_bar_->setRange(0, 0);
+        later_button_->hide();
+        cancel_button_->show();
+        cancel_button_->setEnabled(true);
+    } else {
         progress_bar_->hide();
+        later_button_->show();
+        later_button_->setEnabled(true);
+        cancel_button_->hide();
     }
 }
 

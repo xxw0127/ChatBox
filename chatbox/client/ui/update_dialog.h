@@ -23,12 +23,14 @@ public:
 
 signals:
     void updateRequested();
+    void cancelRequested();
 
 private:
     QLabel* notes_label_ = nullptr;
     QProgressBar* progress_bar_ = nullptr;
     QPushButton* update_button_ = nullptr;
     QPushButton* later_button_ = nullptr;
+    QPushButton* cancel_button_ = nullptr;
 };
 
 #endif  // CHATBOX_CLIENT_UI_UPDATE_DIALOG_H

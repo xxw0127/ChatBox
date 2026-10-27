@@ -39,7 +39,6 @@ signals:
 private:
     void failCheck(const QString& reason);
     void failDownload(const QString& reason);
-    void finishDownload();
     void cleanupDownload();
 
     QNetworkAccessManager* manager_ = nullptr;

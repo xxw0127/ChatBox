@@ -22,6 +22,7 @@
 #include <QUrl>
 #include <QVBoxLayout>
 
+#include "core/app_settings.h"
 #include "core/autostart.h"
 #include "core/client_config.h"
 #include "core/client_log.h"
@@ -259,6 +260,12 @@ void SettingsDialog::changeHistoryDirectory() {
     const QString target = QDir(picked).absolutePath();
     if (target.compare(current, Qt::CaseInsensitive) == 0) {
         QMessageBox::information(this, "更改目录", "已经是当前使用的目录");
+        return;
+    }
+    if (chatbox::client::isHistoryDirectoryInsideInstall(target)) {
+        QMessageBox::warning(
+            this, "更改目录",
+            "本地聊天记录不能放在客户端安装目录内，否则更新时会丢失。请选择其他目录。");
         return;
     }
 
