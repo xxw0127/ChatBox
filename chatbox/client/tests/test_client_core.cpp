@@ -223,6 +223,7 @@ private slots:
     void startupSchedulesOneUpdateCheck();
     void updateInstallerValidatesPackage();
     void updateHelperHasRollbackSafety();
+    void updateServerSiteUsesHttps();
     void settingsMigrationNeverOverwritesCurrent();
     void brandIdentifiersAreUnified();
     void installerTemplateTargetsChatboxExe();
@@ -2485,6 +2486,24 @@ void TestClientCore::updateInstallerValidatesPackage() {
     QVERIFY(sqlite.open(QIODevice::WriteOnly));
     sqlite.close();
     QVERIFY(chatbox::client::validateUpdateDirectory(dir.path(), &error));
+}
+
+void TestClientCore::updateServerSiteUsesHttps() {
+    const QString base = QCoreApplication::applicationDirPath() +
+                         QStringLiteral("/../../..");
+    QFile nginx(base + QStringLiteral("/deploy/nginx-update.conf"));
+    QVERIFY(nginx.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString config = QString::fromUtf8(nginx.readAll());
+    QVERIFY(config.contains(QStringLiteral("listen 443 ssl")));
+    QVERIFY(config.contains(QStringLiteral("alias /var/www/chatbox-updates/")));
+    QVERIFY(!config.contains(QStringLiteral("autoindex on")));
+
+    QFile publish(base + QStringLiteral("/tools/publish_update.ps1"));
+    QVERIFY(publish.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString script = QString::fromUtf8(publish.readAll());
+    QVERIFY(script.contains(QStringLiteral("scp")));
+    QVERIFY(script.contains(QStringLiteral("sha256")));
+    QVERIFY(script.contains(QStringLiteral("121.5.168.189")));
 }
 
 void TestClientCore::updateHelperHasRollbackSafety() {
