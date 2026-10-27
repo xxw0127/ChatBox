@@ -3,7 +3,9 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QMessageBox>
+#include <QSettings>
 
+#include "core/app_settings.h"
 #include "core/client_config.h"
 #include "core/update_installer.h"
 #include "core/update_service.h"
@@ -125,6 +127,21 @@ void MainWindow::onUpdateDialogRejected() {
 
 void MainWindow::installDownloadedUpdate() {
     if (update_dialog_ == nullptr) {
+        return;
+    }
+    QSettings settings;
+    const QString configured =
+        settings.value(QStringLiteral("settings/history/path")).toString().trimmed();
+    const QString history_directory =
+        configured.isEmpty() ? chatbox::client::HistoryStore::defaultDirectory()
+                             : configured;
+    if (chatbox::client::isHistoryDirectoryInsideInstall(history_directory)) {
+        update_dialog_->setBusy(false);
+        QMessageBox::warning(
+            this, QStringLiteral("无法自动更新"),
+            QStringLiteral("本地聊天记录目录位于客户端安装目录内，更新会删除聊天记录。"
+                           "请先在“设置 → 本地聊天记录”中把目录改到安装目录之外，"
+                           "再重试更新。"));
         return;
     }
     QString error;

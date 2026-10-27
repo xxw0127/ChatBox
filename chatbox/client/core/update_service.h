@@ -22,10 +22,16 @@ class UpdateService : public QObject {
 
 public:
     explicit UpdateService(QObject* parent = nullptr);
+    // Test seam: take ownership of an injected manager. Production uses the
+    // default constructor and its own QNetworkAccessManager.
+    explicit UpdateService(QNetworkAccessManager* manager,
+                           QObject* parent = nullptr);
     ~UpdateService() override;
 
     void checkForUpdates(const QString& manifest_url, const QString& ca_path);
-    void downloadUpdate(const UpdateManifest& manifest, const QString& target_path);
+    void downloadUpdate(const UpdateManifest& manifest,
+                        const QString& target_path,
+                        const QString& ca_path = QString());
     void cancel();
 
 signals:

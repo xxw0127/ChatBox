@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFileInfo>
 #include <QStringList>
 #include <QVariant>
 
@@ -48,11 +49,21 @@ bool migrateServerEndpoint(QSettings& settings) {
     return true;
 }
 
+namespace {
+
+QString canonicalOrAbsolute(const QString& path) {
+    const QFileInfo info(path);
+    const QString canonical = info.canonicalFilePath();
+    return QDir::cleanPath(canonical.isEmpty() ? QDir(path).absolutePath()
+                                               : canonical);
+}
+
+}  // namespace
+
 bool isHistoryDirectoryInsideInstall(const QString& directory) {
-    const QString install = QDir::cleanPath(
-        QDir(QCoreApplication::applicationDirPath()).absolutePath());
-    const QString target =
-        QDir::cleanPath(QDir(directory).absolutePath());
+    const QString install =
+        canonicalOrAbsolute(QCoreApplication::applicationDirPath());
+    const QString target = canonicalOrAbsolute(directory);
     if (target.compare(install, Qt::CaseInsensitive) == 0) {
         return true;
     }

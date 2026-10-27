@@ -25,6 +25,9 @@ $zipName = Split-Path -Leaf $ClientRelease
 if ($zipName -notmatch '^[A-Za-z0-9._-]+\.zip$') {
     throw "unsafe ZIP file name: $zipName"
 }
+if ($zipName -ne "chatbox-$Version-win64.zip") {
+    throw "ZIP name '$zipName' does not match version $Version"
+}
 $hash = (Get-FileHash $ClientRelease -Algorithm SHA256).Hash.ToLower()
 
 $publishDir = Join-Path $root "release\update-$Version"
@@ -63,6 +66,12 @@ set -euo pipefail
 sudo mkdir -p /var/www/chatbox-updates/releases/$Version
 sudo install -m 644 '$remote/$zipName' /var/www/chatbox-updates/$zipName
 sudo install -m 644 '$remote/$zipName' /var/www/chatbox-updates/releases/$Version/$zipName
+actual=`$(sudo sha256sum /var/www/chatbox-updates/$zipName | cut -d' ' -f1)
+if [ "`$actual" != "$hash" ]; then
+    echo "remote SHA-256 mismatch: expected $hash, got `$actual" >&2
+    exit 1
+fi
+# The live manifest is replaced only after the uploaded ZIP is verified.
 sudo install -m 644 '$remote/latest.json' /var/www/chatbox-updates/releases/$Version/manifest.json
 sudo install -m 644 '$remote/latest.json' /var/www/chatbox-updates/latest.json.tmp
 sudo mv /var/www/chatbox-updates/latest.json.tmp /var/www/chatbox-updates/latest.json
@@ -71,7 +80,7 @@ ls -t chatbox-*-win64.zip 2>/dev/null | tail -n +4 | while IFS= read -r old; do
     sudo rm -f -- "`$old"
 done
 sudo rm -rf '$remote'
-sudo sha256sum /var/www/chatbox-updates/$zipName | cut -d' ' -f1
+echo "`$actual"
 "@
 # Write LF explicitly: PowerShell's default text pipeline can add CR, which
 # breaks bash scripts and cut expressions on the Linux side.

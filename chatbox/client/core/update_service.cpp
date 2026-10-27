@@ -50,6 +50,12 @@ bool isTrustedManifestUrl(const QUrl& url) {
 UpdateService::UpdateService(QObject* parent)
     : QObject(parent), manager_(new QNetworkAccessManager(this)) {}
 
+// The injected manager stays owned by the caller (tests put it on the stack).
+UpdateService::UpdateService(QNetworkAccessManager* manager, QObject* parent)
+    : QObject(parent),
+      manager_(manager != nullptr ? manager
+                                  : new QNetworkAccessManager(this)) {}
+
 UpdateService::~UpdateService() {
     cancel();
 }
@@ -118,7 +124,8 @@ void UpdateService::checkForUpdates(const QString& manifest_url,
 }
 
 void UpdateService::downloadUpdate(const UpdateManifest& manifest,
-                                   const QString& target_path) {
+                                   const QString& target_path,
+                                   const QString& ca_path) {
     if (downloading_ || download_reply_ != nullptr || !manifest.valid ||
         target_path.isEmpty()) {
         return;
@@ -133,10 +140,12 @@ void UpdateService::downloadUpdate(const UpdateManifest& manifest,
         return;
     }
     bool ca_ok = false;
-    const QNetworkRequest request =
-        makeRequest(manifest.url, QCoreApplication::applicationDirPath() +
-                                      QStringLiteral("/certs/ca.crt"),
-                    &ca_ok);
+    const QString resolved_ca =
+        ca_path.isEmpty()
+            ? QCoreApplication::applicationDirPath() +
+                  QStringLiteral("/certs/ca.crt")
+            : ca_path;
+    const QNetworkRequest request = makeRequest(manifest.url, resolved_ca, &ca_ok);
     if (!ca_ok) {
         failDownload(QStringLiteral("找不到更新证书"));
         return;
@@ -191,6 +200,10 @@ void UpdateService::downloadUpdate(const UpdateManifest& manifest,
             return;
         }
         if (!rest.isEmpty()) {
+            if (download_received_ + rest.size() > kMaxUpdateBytes) {
+                failDownload(QStringLiteral("更新包过大"));
+                return;
+            }
             if (download_file_.write(rest) != rest.size()) {
                 failDownload(QStringLiteral("写入更新包失败"));
                 return;

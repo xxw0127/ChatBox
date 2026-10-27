@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
@@ -19,7 +20,11 @@
 #include <QListWidget>
 #include <QMimeData>
 #include <QMouseEvent>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QPlainTextEdit>
+#include <QProcess>
 #include <QPixmap>
 #include <QPushButton>
 #include <QProgressBar>
@@ -29,9 +34,11 @@
 #include <QSpinBox>
 #include <QSqlDatabase>
 #include <QSqlQuery>
+#include <QStandardPaths>
 #include <QStringList>
 #include <QTemporaryDir>
 #include <QTextBlock>
+#include <QTimer>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextFragment>
@@ -138,6 +145,84 @@ chatbox::client::ChatMessage confirmedMessage(quint64 id, quint64 target,
 
 }  // namespace
 
+namespace {
+
+QString testCaPath() {
+    return QCoreApplication::applicationDirPath() +
+           QStringLiteral("/../../certs/ca.crt");
+}
+
+// Emits finished() synchronously from abort(), which is the Qt behavior that
+// used to null-deref in UpdateService::cancel().
+class AbortSignalsFinishedReply : public QNetworkReply {
+public:
+    explicit AbortSignalsFinishedReply(QObject* parent = nullptr)
+        : QNetworkReply(parent) {
+        open(QIODevice::ReadOnly | QIODevice::Unbuffered);
+        setUrl(QUrl(QStringLiteral(
+            "https://121.5.168.189/updates/chatbox-0.2.5-win64.zip")));
+    }
+    void abort() override { emit finished(); }
+    qint64 readData(char*, qint64) override { return -1; }
+    qint64 bytesAvailable() const override { return 0; }
+};
+
+class AbortSignalsFinishedManager : public QNetworkAccessManager {
+public:
+    QNetworkReply* createRequest(Operation, const QNetworkRequest&,
+                                 QIODevice*) override {
+        return new AbortSignalsFinishedReply(this);
+    }
+};
+
+class FixedBodyReply : public QNetworkReply {
+public:
+    FixedBodyReply(const QByteArray& body, QObject* parent)
+        : QNetworkReply(parent), body_(body) {
+        open(QIODevice::ReadOnly | QIODevice::Unbuffered);
+        setUrl(QUrl(QStringLiteral(
+            "https://121.5.168.189/updates/chatbox-0.2.5-win64.zip")));
+        setHeader(QNetworkRequest::ContentLengthHeader, body_.size());
+        QTimer::singleShot(0, this, [this] {
+            emit readyRead();
+            emit finished();
+        });
+    }
+    void abort() override { emit finished(); }
+    qint64 readData(char* data, qint64 max_size) override {
+        const qint64 left = body_.size() - offset_;
+        const qint64 count = qMin(left, max_size);
+        if (count <= 0) {
+            return -1;
+        }
+        std::memcpy(data, body_.constData() + offset_,
+                    static_cast<size_t>(count));
+        offset_ += count;
+        return count;
+    }
+    qint64 bytesAvailable() const override { return body_.size() - offset_; }
+    bool isSequential() const override { return true; }
+
+private:
+    QByteArray body_;
+    qint64 offset_ = 0;
+};
+
+class FixedBodyManager : public QNetworkAccessManager {
+public:
+    explicit FixedBodyManager(const QByteArray& body, QObject* parent = nullptr)
+        : QNetworkAccessManager(parent), body_(body) {}
+    QNetworkReply* createRequest(Operation, const QNetworkRequest&,
+                                 QIODevice*) override {
+        return new FixedBodyReply(body_, this);
+    }
+
+private:
+    QByteArray body_;
+};
+
+}  // namespace
+
 class TestClientCore : public QObject {
     Q_OBJECT
 
@@ -219,10 +304,13 @@ private slots:
     void updateVersionComparison();
     void updateServiceRejectsUntrustedManifestUrl();
     void updateServiceUsesPinnedCa();
+    void updateServiceCancelIsSafe();
+    void updateServiceRejectsShaMismatch();
     void updateDialogHasRequiredActions();
     void updateDialogShowsCancelDuringDownload();
     void startupSchedulesOneUpdateCheck();
     void updateInstallerValidatesPackage();
+    void updateInstallerExtractsZip();
     void updateMarkersRoundTrip();
     void historyDirectoryInsideInstallRejected();
     void updateHelperHasRollbackSafety();
@@ -2461,6 +2549,58 @@ void TestClientCore::updateServiceUsesPinnedCa() {
     QVERIFY(source.contains(QStringLiteral("setMaximumRedirectsAllowed")));
 }
 
+void TestClientCore::updateServiceCancelIsSafe() {
+    QVERIFY(QFileInfo(testCaPath()).isFile());
+    AbortSignalsFinishedManager manager;
+    chatbox::client::UpdateService service(&manager);
+    QSignalSpy failed(&service,
+                      &chatbox::client::UpdateService::downloadFailed);
+    QSignalSpy finished(&service,
+                        &chatbox::client::UpdateService::downloadFinished);
+
+    chatbox::client::UpdateManifest manifest;
+    manifest.valid = true;
+    manifest.version = QStringLiteral("0.2.5");
+    manifest.url = QUrl(QStringLiteral(
+        "https://121.5.168.189/updates/chatbox-0.2.5-win64.zip"));
+    manifest.sha256 = QString(64, QLatin1Char('a'));
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString target = dir.filePath(QStringLiteral("cancel.zip"));
+    service.downloadUpdate(manifest, target, testCaPath());
+    QVERIFY(QFile::exists(target));
+
+    service.cancel();
+    QCOMPARE(failed.count(), 0);
+    QCOMPARE(finished.count(), 0);
+    QVERIFY(!QFile::exists(target));
+}
+
+void TestClientCore::updateServiceRejectsShaMismatch() {
+    QVERIFY(QFileInfo(testCaPath()).isFile());
+    FixedBodyManager manager(QByteArray("this is not the expected archive"));
+    chatbox::client::UpdateService service(&manager);
+    QSignalSpy failed(&service,
+                      &chatbox::client::UpdateService::downloadFailed);
+    QSignalSpy finished(&service,
+                        &chatbox::client::UpdateService::downloadFinished);
+
+    chatbox::client::UpdateManifest manifest;
+    manifest.valid = true;
+    manifest.version = QStringLiteral("0.2.5");
+    manifest.url = QUrl(QStringLiteral(
+        "https://121.5.168.189/updates/chatbox-0.2.5-win64.zip"));
+    manifest.sha256 = QString(64, QLatin1Char('0'));
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString target = dir.filePath(QStringLiteral("mismatch.zip"));
+    service.downloadUpdate(manifest, target, testCaPath());
+
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 5000);
+    QCOMPARE(finished.count(), 0);
+    QVERIFY(!QFile::exists(target));
+}
+
 void TestClientCore::updateDialogHasRequiredActions() {
     chatbox::client::UpdateManifest manifest;
     manifest.version = QStringLiteral("0.2.5");
@@ -2559,6 +2699,75 @@ void TestClientCore::updateInstallerValidatesPackage() {
         QStringLiteral("libssl-4-x64.dll"));
     QVERIFY(QFile::remove(ssl));
     QVERIFY(!chatbox::client::validateUpdateDirectory(dir.path(), &error));
+}
+
+void TestClientCore::updateInstallerExtractsZip() {
+    const QString tar = QStandardPaths::findExecutable(QStringLiteral("tar.exe"));
+    QVERIFY(!tar.isEmpty());
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    auto touch = [](const QString& path) {
+        QDir().mkpath(QFileInfo(path).absolutePath());
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly)) {
+            return false;
+        }
+        file.close();
+        return true;
+    };
+    const QStringList required = {
+        QStringLiteral("chatbox.exe"),
+        QStringLiteral("Qt5Core.dll"),
+        QStringLiteral("Qt5Gui.dll"),
+        QStringLiteral("Qt5Widgets.dll"),
+        QStringLiteral("Qt5Sql.dll"),
+        QStringLiteral("Qt5Network.dll"),
+        QStringLiteral("platforms/qwindows.dll"),
+        QStringLiteral("sqldrivers/qsqlite.dll"),
+        QStringLiteral("certs/ca.crt"),
+        QStringLiteral("libssl-4-x64.dll"),
+        QStringLiteral("libcrypto-4-x64.dll"),
+    };
+    const QString source = dir.filePath(QStringLiteral("source"));
+    const QString package = source + QStringLiteral("/chatbox-0.2.5-win64");
+    for (const QString& relative : required) {
+        QVERIFY(touch(package + QLatin1Char('/') + relative));
+    }
+    const QString zip = dir.filePath(QStringLiteral("chatbox-0.2.5-win64.zip"));
+    QProcess archive;
+    archive.setProgram(tar);
+    archive.setArguments({QStringLiteral("-a"), QStringLiteral("-cf"), zip,
+                          QStringLiteral("-C"), source,
+                          QStringLiteral("chatbox-0.2.5-win64")});
+    archive.start();
+    QVERIFY(archive.waitForFinished(60000));
+    QCOMPARE(archive.exitStatus(), QProcess::NormalExit);
+    QCOMPARE(archive.exitCode(), 0);
+
+    QString root;
+    QString error;
+    QVERIFY2(chatbox::client::extractUpdateZip(
+                 zip, dir.filePath(QStringLiteral("staging")), &root, &error),
+             qPrintable(error));
+    QCOMPARE(QFileInfo(root).fileName(), QStringLiteral("chatbox-0.2.5-win64"));
+    QVERIFY(QFileInfo(root + QStringLiteral("/chatbox.exe")).isFile());
+
+    const QString bad_source = dir.filePath(QStringLiteral("bad"));
+    const QString bad_package =
+        bad_source + QStringLiteral("/chatbox-0.2.5-win64");
+    QVERIFY(touch(bad_package + QStringLiteral("/chatbox.exe")));
+    const QString bad_zip = dir.filePath(QStringLiteral("bad.zip"));
+    QProcess bad_archive;
+    bad_archive.setProgram(tar);
+    bad_archive.setArguments({QStringLiteral("-a"), QStringLiteral("-cf"),
+                              bad_zip, QStringLiteral("-C"), bad_source,
+                              QStringLiteral("chatbox-0.2.5-win64")});
+    bad_archive.start();
+    QVERIFY(bad_archive.waitForFinished(60000));
+    QCOMPARE(bad_archive.exitCode(), 0);
+    QVERIFY(!chatbox::client::extractUpdateZip(
+        bad_zip, dir.filePath(QStringLiteral("bad-staging")), &root, &error));
 }
 
 void TestClientCore::updateMarkersRoundTrip() {

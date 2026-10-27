@@ -40,8 +40,11 @@ try {
     $backup = Join-Path $env:TEMP ("ChatBox\backup-" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
     New-Item -ItemType Directory -Force -Path (Split-Path $backup) | Out-Null
     Copy-Item -LiteralPath $TargetDir -Destination $backup -Recurse -Force
-    if (-not (Test-Path -LiteralPath (Join-Path $backup 'chatbox.exe'))) {
-        throw 'backup copy did not produce a complete client'
+    foreach ($required in @('chatbox.exe', 'Qt5Core.dll', 'Qt5Gui.dll',
+                            'Qt5Widgets.dll', 'Qt5Network.dll', 'certs\ca.crt')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $backup $required))) {
+            throw "backup copy is missing $required"
+        }
     }
     $backup_complete = $true
     New-Item -ItemType Directory -Force -Path (Split-Path $marker) | Out-Null
