@@ -31,6 +31,7 @@ ui_*.h
 
 # ================= 本地工具 / 环境 =================
 .opencode/
+.worktrees/
 *.log
 Thumbs.db
 desktop.ini
