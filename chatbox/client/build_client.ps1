@@ -34,7 +34,7 @@ try {
 }
 
 New-Item -ItemType Directory -Force -Path $release | Out-Null
-foreach ($name in @("Qt5Core.dll", "Qt5Gui.dll", "Qt5Widgets.dll", "Qt5Sql.dll")) {
+foreach ($name in @("Qt5Core.dll", "Qt5Gui.dll", "Qt5Widgets.dll", "Qt5Sql.dll", "Qt5Network.dll")) {
     Copy-Item (Join-Path $QtDir "bin\$name") $release -Force
 }
 foreach ($name in @("libssl-4-x64.dll", "libcrypto-4-x64.dll")) {

@@ -55,6 +55,7 @@
 #include "core/outbox.h"
 #include "core/ui_theme.h"
 #include "core/update_manifest.h"
+#include "core/update_service.h"
 #include "core/user_profile.h"
 #include "ui/chat_view.h"
 #include "ui/empty_state.h"
@@ -213,6 +214,8 @@ private slots:
     void updateManifestParsesValid();
     void updateManifestRejectsInvalid();
     void updateVersionComparison();
+    void updateServiceRejectsUntrustedManifestUrl();
+    void updateServiceUsesPinnedCa();
     void settingsMigrationNeverOverwritesCurrent();
     void brandIdentifiersAreUnified();
     void installerTemplateTargetsChatboxExe();
@@ -2405,6 +2408,29 @@ void TestClientCore::updateVersionComparison() {
     QVERIFY(!chatbox::client::isNewerVersion("0.2.4", "0.2.4"));
     QVERIFY(!chatbox::client::isNewerVersion("0.2.5", "0.2.4"));
     QVERIFY(!chatbox::client::isNewerVersion("0.2.4", "not-a-version"));
+}
+
+void TestClientCore::updateServiceRejectsUntrustedManifestUrl() {
+    chatbox::client::UpdateService service;
+    QSignalSpy failed(&service, &chatbox::client::UpdateService::checkFailed);
+    service.checkForUpdates(QStringLiteral("http://121.5.168.189/updates/latest.json"),
+                            QString());
+    QCOMPARE(failed.count(), 1);
+    QVERIFY(!failed.takeFirst().at(0).toString().isEmpty());
+}
+
+void TestClientCore::updateServiceUsesPinnedCa() {
+    const QString source =
+        readClientSource(QStringLiteral("core/update_service.cpp"));
+    const QString header =
+        readClientSource(QStringLiteral("core/update_service.h"));
+    QVERIFY2(!source.isEmpty(), "core/update_service.cpp must be readable");
+    QVERIFY2(!header.isEmpty(), "core/update_service.h must be readable");
+    QVERIFY(source.contains(QStringLiteral("QSslConfiguration")));
+    QVERIFY(source.contains(QStringLiteral("QSslCertificate")));
+    QVERIFY(!source.contains(QStringLiteral("setPeerVerifyMode(QSslSocket::VerifyNone)")));
+    QVERIFY(header.contains(QStringLiteral("QCryptographicHash")));
+    QVERIFY(source.contains(QStringLiteral("download_hash_")));
 }
 
 void TestClientCore::settingsMigrationMovesOldServerEndpoint() {

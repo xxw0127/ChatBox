@@ -1,4 +1,4 @@
-QT += core gui widgets testlib sql
+QT += core gui widgets testlib sql network
 CONFIG += console c++17
 CONFIG -= app_bundle
 TEMPLATE = app
@@ -22,6 +22,7 @@ SOURCES += \
     ../core/message_renderer.cpp \
     ../core/contact_store.cpp \
     ../core/update_manifest.cpp \
+    ../core/update_service.cpp \
     ../core/avatar_utils.cpp \
     ../core/avatar_cache.cpp \
     ../core/history_store.cpp \
@@ -49,6 +50,7 @@ HEADERS += \
     ../core/ui_theme.h \
     ../core/contact_store.h \
     ../core/update_manifest.h \
+    ../core/update_service.h \
     ../core/avatar_utils.h \
     ../core/avatar_cache.h \
     ../core/history_store.h \
