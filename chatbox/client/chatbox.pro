@@ -37,6 +37,7 @@ SOURCES += \
     core/outbox.cpp \
     core/message_renderer.cpp \
     core/contact_store.cpp \
+    core/update_manifest.cpp \
     core/avatar_utils.cpp \
     core/avatar_cache.cpp \
     core/history_store.cpp \
@@ -79,6 +80,7 @@ HEADERS += \
     core/message_renderer.h \
     core/ui_theme.h \
     core/contact_store.h \
+    core/update_manifest.h \
     core/avatar_utils.h \
     core/avatar_cache.h \
     core/history_store.h \

@@ -54,6 +54,7 @@
 #include "core/message_time.h"
 #include "core/outbox.h"
 #include "core/ui_theme.h"
+#include "core/update_manifest.h"
 #include "core/user_profile.h"
 #include "ui/chat_view.h"
 #include "ui/empty_state.h"
@@ -209,6 +210,9 @@ private slots:
     void appTitleUsesBrandName();
     void settingsMigrationCopiesLegacyStore();
     void settingsMigrationMovesOldServerEndpoint();
+    void updateManifestParsesValid();
+    void updateManifestRejectsInvalid();
+    void updateVersionComparison();
     void settingsMigrationNeverOverwritesCurrent();
     void brandIdentifiersAreUnified();
     void installerTemplateTargetsChatboxExe();
@@ -2348,6 +2352,59 @@ void TestClientCore::settingsMigrationCopiesLegacyStore() {
         QSettings legacy(dir.filePath(QStringLiteral("empty-legacy.ini")), QSettings::IniFormat);
         QVERIFY(!chatbox::client::migrateLegacySettings(current, legacy));
     }
+}
+
+void TestClientCore::updateManifestParsesValid() {
+    const QByteArray json = R"({
+        "schema": 1,
+        "version": "0.2.4",
+        "url": "https://121.5.168.189/updates/chatbox-0.2.4-win64.zip",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "notes": "test release",
+        "published_at": "2026-10-27T12:00:00Z"
+    })";
+    QString error;
+    const chatbox::client::UpdateManifest manifest =
+        chatbox::client::parseUpdateManifest(json, &error);
+    QVERIFY2(manifest.valid, qPrintable(error));
+    QCOMPARE(manifest.version, QStringLiteral("0.2.4"));
+    QCOMPARE(manifest.url.host(), QStringLiteral("121.5.168.189"));
+    QCOMPARE(manifest.notes, QStringLiteral("test release"));
+    QCOMPARE(manifest.sha256.size(), 64);
+}
+
+void TestClientCore::updateManifestRejectsInvalid() {
+    const QByteArray prefix = R"({
+        "schema": 1,
+        "version": "0.2.4",
+        "url": "https://121.5.168.189/updates/chatbox-0.2.4-win64.zip",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    })";
+    QString error;
+    QVERIFY(!chatbox::client::parseUpdateManifest("{", &error).valid);
+    QVERIFY(!error.isEmpty());
+
+    QByteArray json = prefix;
+    json.replace("121.5.168.189", "evil.example");
+    QVERIFY(!chatbox::client::parseUpdateManifest(json, &error).valid);
+
+    json = prefix;
+    json.replace("https://", "http://");
+    QVERIFY(!chatbox::client::parseUpdateManifest(json, &error).valid);
+
+    json = prefix;
+    json.replace(QByteArray(64, 'a'), QByteArray(63, 'a'));
+    QVERIFY(!chatbox::client::parseUpdateManifest(json, &error).valid);
+
+    QVERIFY(!chatbox::client::parseUpdateManifest(QByteArray(65537, ' '), &error).valid);
+}
+
+void TestClientCore::updateVersionComparison() {
+    QVERIFY(chatbox::client::isNewerVersion("0.2.3", "0.2.4"));
+    QVERIFY(chatbox::client::isNewerVersion("0.2.3", "0.3.0"));
+    QVERIFY(!chatbox::client::isNewerVersion("0.2.4", "0.2.4"));
+    QVERIFY(!chatbox::client::isNewerVersion("0.2.5", "0.2.4"));
+    QVERIFY(!chatbox::client::isNewerVersion("0.2.4", "not-a-version"));
 }
 
 void TestClientCore::settingsMigrationMovesOldServerEndpoint() {
