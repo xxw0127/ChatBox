@@ -20,6 +20,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             settings.value(QStringLiteral("settings/member_panel"), false).toBool();
     }
     buildUi();
+    QTimer::singleShot(1500, this, &MainWindow::checkForUpdates);
 
     auto* message_search_shortcut =
         new QShortcut(QKeySequence(QStringLiteral("Ctrl+F")), this);

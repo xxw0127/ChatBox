@@ -17,6 +17,7 @@
 #include "core/history_store.h"
 #include "core/message_store.h"
 #include "core/outbox.h"
+#include "core/update_manifest.h"
 #include "core/user_profile.h"
 
 class LoginPage;
@@ -46,7 +47,14 @@ class QToolButton;
 class FriendRequestDialog;
 class MessageSearchDialog;
 class SettingsDialog;
+class UpdateDialog;
 class UserSearchDialog;
+
+namespace chatbox {
+namespace client {
+class UpdateService;
+}  // namespace client
+}  // namespace chatbox
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -78,6 +86,13 @@ private slots:
                                 const QByteArray& avatar_jpeg);
     void onMemberDoubleClicked(QListWidgetItem* item);
     void onContactActivated(QListWidgetItem* item);
+    void checkForUpdates();
+    void showUpdateAvailable(const chatbox::client::UpdateManifest& manifest);
+    void onUpdateRequested();
+    void onUpdateProgress(qint64 received, qint64 total);
+    void onUpdateDownloaded(const QString& zip_path);
+    void onUpdateFailed(const QString& reason);
+    void installDownloadedUpdate();
     void onContactContextMenu(const QPoint& position);
     void onFriendContextMenu(const QPoint& position);
     void onMemberContextMenu(const QPoint& position);
@@ -240,6 +255,11 @@ private:
     QStackedWidget* chat_stack_ = nullptr;
     EmptyState* chat_empty_state_ = nullptr;
     MessageActionBar* message_action_bar_ = nullptr;
+    chatbox::client::UpdateService* update_service_ = nullptr;
+    UpdateDialog* update_dialog_ = nullptr;
+    chatbox::client::UpdateManifest pending_update_;
+    QString downloaded_update_zip_;
+    bool update_check_started_ = false;
     quint64 action_bar_message_id_ = 0;
     MessageInput* input_edit_ = nullptr;
     QLabel* message_byte_counter_ = nullptr;

@@ -22,6 +22,7 @@
 #include <QPlainTextEdit>
 #include <QPixmap>
 #include <QPushButton>
+#include <QProgressBar>
 #include <QRegularExpression>
 #include <QScrollBar>
 #include <QSettings>
@@ -64,6 +65,7 @@
 #include "ui/message_action_bar.h"
 #include "ui/profile_dialog.h"
 #include "ui/settings_dialog.h"
+#include "ui/update_dialog.h"
 #include "ui/account_switcher_dialog.h"
 
 namespace {
@@ -216,6 +218,8 @@ private slots:
     void updateVersionComparison();
     void updateServiceRejectsUntrustedManifestUrl();
     void updateServiceUsesPinnedCa();
+    void updateDialogHasRequiredActions();
+    void startupSchedulesOneUpdateCheck();
     void settingsMigrationNeverOverwritesCurrent();
     void brandIdentifiersAreUnified();
     void installerTemplateTargetsChatboxExe();
@@ -2431,6 +2435,30 @@ void TestClientCore::updateServiceUsesPinnedCa() {
     QVERIFY(!source.contains(QStringLiteral("setPeerVerifyMode(QSslSocket::VerifyNone)")));
     QVERIFY(header.contains(QStringLiteral("QCryptographicHash")));
     QVERIFY(source.contains(QStringLiteral("download_hash_")));
+}
+
+void TestClientCore::updateDialogHasRequiredActions() {
+    chatbox::client::UpdateManifest manifest;
+    manifest.version = QStringLiteral("0.2.5");
+    manifest.notes = QStringLiteral("更新说明");
+    UpdateDialog dialog(manifest);
+    QVERIFY(!dialog.isModal());
+    QVERIFY(dialog.findChild<QLabel*>(QStringLiteral("UpdateNotesLabel")) != nullptr);
+    QVERIFY(dialog.findChild<QProgressBar*>(QStringLiteral("UpdateProgressBar")) != nullptr);
+    QVERIFY(dialog.findChild<QPushButton*>(QStringLiteral("UpdateNowButton")) != nullptr);
+    QVERIFY(dialog.findChild<QPushButton*>(QStringLiteral("UpdateLaterButton")) != nullptr);
+
+    const QString source =
+        readClientSource(QStringLiteral("ui/main_window_update.cpp"));
+    QVERIFY2(!source.isEmpty(), "ui/main_window_update.cpp must be readable");
+    QVERIFY(source.contains(QStringLiteral("update_dialog_->show()")));
+    QVERIFY(!source.contains(QStringLiteral("update_dialog_->exec()")));
+}
+
+void TestClientCore::startupSchedulesOneUpdateCheck() {
+    const QString source = readMainWindowSource();
+    QVERIFY(source.contains(QStringLiteral("QTimer::singleShot(1500")));
+    QVERIFY(source.contains(QStringLiteral("&MainWindow::checkForUpdates")));
 }
 
 void TestClientCore::settingsMigrationMovesOldServerEndpoint() {

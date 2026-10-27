@@ -60,6 +60,8 @@ SOURCES += \
     ui/main_window_tray.cpp \
     ui/message_search_dialog.cpp \
     ui/settings_dialog.cpp \
+    ui/update_dialog.cpp \
+    ui/main_window_update.cpp \
     ui/user_search_dialog.cpp \
     ui/profile_dialog.cpp
 
@@ -103,6 +105,7 @@ HEADERS += \
     ui/main_window_support.h \
     ui/message_search_dialog.h \
     ui/settings_dialog.h \
+    ui/update_dialog.h \
     ui/user_search_dialog.h \
     ui/profile_dialog.h
 

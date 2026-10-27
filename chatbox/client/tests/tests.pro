@@ -34,6 +34,7 @@ SOURCES += \
     ../ui/login_page.cpp \
     ../ui/more_dots.cpp \
     ../ui/settings_dialog.cpp \
+    ../ui/update_dialog.cpp \
     ../ui/account_switcher_dialog.cpp
 HEADERS += \
     ../core/app_settings.h \
@@ -63,6 +64,7 @@ HEADERS += \
     ../ui/login_page.h \
     ../ui/more_dots.h \
     ../ui/settings_dialog.h \
+    ../ui/update_dialog.h \
     ../ui/account_switcher_dialog.h
 
 win32: LIBS += -lcrypt32
