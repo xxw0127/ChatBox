@@ -7,8 +7,6 @@ class QCheckBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
-class QSpinBox;
-class QToolButton;
 
 class LoginPage : public QWidget {
     Q_OBJECT
@@ -20,13 +18,8 @@ public:
     void setBusy(bool busy);
     void clearPassword();
     void resetToLogin();
-    void setServerSettings(const QString& host, quint16 port, bool tls);
     // 切换账号时预填用户名，用户只需要补密码。
     void setUsername(const QString& username);
-    // Rebuilds icons that rasterise a theme colour (more-dots). Reloading the
-    // stylesheet repaints QSS widgets but cannot reach a baked QPixmap.
-    void refreshThemeIcons();
-
 signals:
     void loginRequested(const QString& host, quint16 port, const QString& username,
                         const QString& password, bool tls);
@@ -44,8 +37,6 @@ private:
     void setRegisterMode(bool enabled);
     void reloadSavedCredentials();
 
-    QLineEdit* host_edit_ = nullptr;
-    QSpinBox* port_spin_ = nullptr;
     QLineEdit* username_edit_ = nullptr;
     QLineEdit* password_edit_ = nullptr;
     QLabel* nickname_label_ = nullptr;
@@ -53,9 +44,6 @@ private:
     QCheckBox* auto_login_check_ = nullptr;
     QCheckBox* remember_password_check_ = nullptr;
     bool register_mode_ = false;
-    QCheckBox* tls_check_ = nullptr;
-    QWidget* advanced_panel_ = nullptr;
-    QToolButton* advanced_toggle_ = nullptr;
     QPushButton* login_button_ = nullptr;
     QPushButton* register_button_ = nullptr;
     QPushButton* cancel_button_ = nullptr;

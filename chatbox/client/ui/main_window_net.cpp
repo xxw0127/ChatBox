@@ -1630,9 +1630,9 @@ void MainWindow::loadSession() {
     if (token.isEmpty()) {
         return;
     }
-    host_ = settings.value("session/host", "121.5.168.189").toString();
-    port_ = static_cast<quint16>(settings.value("session/port", 9443).toUInt());
-    use_tls_ = settings.value("session/tls", true).toBool();
+    host_ = QString::fromLatin1(chatbox::client::kServerHost);
+    port_ = chatbox::client::kServerPort;
+    use_tls_ = chatbox::client::kServerTls;
     token_ = token;
     user_id_ = settings.value("session/user_id").toULongLong();
     nickname_ = settings.value("session/nickname").toString();

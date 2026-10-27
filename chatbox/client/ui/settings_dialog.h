@@ -7,9 +7,7 @@
 class QCheckBox;
 class QComboBox;
 class QLabel;
-class QLineEdit;
 class QPushButton;
-class QSpinBox;
 
 // 设置对话框：除了服务器/通知/自启动外，还负责展示并管理本机的
 // 聊天记录副本（存放目录、占用大小、清理）。
@@ -28,8 +26,7 @@ public:
     void setHistoryInfo(const QString& directory, qint64 size_bytes, bool available);
 
 signals:
-    void settingsSaved(const QString& host, quint16 port, bool tls, bool notifications,
-                       bool system_popup, bool autostart);
+    void settingsSaved(bool notifications, bool system_popup, bool autostart);
     void appearanceChanged();
     // 用户在设置里选择退出当前账号；真正的断开由 MainWindow 执行。
     void logoutRequested();
@@ -48,9 +45,6 @@ private slots:
     void openClearHistoryDialog();
 
 private:
-    QLineEdit* host_edit_ = nullptr;
-    QSpinBox* port_spin_ = nullptr;
-    QCheckBox* tls_check_ = nullptr;
     QCheckBox* notifications_check_ = nullptr;
     QCheckBox* system_popup_check_ = nullptr;
     QCheckBox* autostart_check_ = nullptr;

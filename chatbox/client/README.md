@@ -14,7 +14,7 @@ MinGW:   D:\Qt\Tools\mingw810_64
 OpenSSL: C:\Program Files\OpenSSL-Win64
 ```
 
-客户端默认连接 `121.5.168.189:9443`，开启 TLS 并校验 `certs\ca.crt`。登录页默认只显示用户名和密码；点“注册”进入注册态后才显示昵称，主按钮变成“注册”，次按钮变成“返回登录”。服务器/端口/TLS 收在卡片右上角的方形圆点 `⋯` 按钮里；旧版保存的 `frp-oil.com:15318` 会在首次启动时迁移到新地址，并清除旧服务器 session token。
+客户端固定连接 `121.5.168.189:9443`，开启 TLS 并校验 `certs\ca.crt`。登录页只显示用户名和密码；点“注册”进入注册态后才显示昵称，主按钮变成“注册”，次按钮变成“返回登录”。客户端不再提供服务器/IP/端口/TLS 编辑入口；旧版保存的 `frp-oil.com:15318` 会在首次启动时迁移到固定地址，并清除旧服务器 session token。
 
 密码下方有“自动登录”和“记住密码”两个勾选框：自动登录默认勾选，用保存的会话 token 在启动时恢复登录；记住密码默认不勾选，勾选后才保存用户名和密码，密码通过 Windows DPAPI 加密后存本机，不保存明文。取消自动登录会清除已保存的会话 token；取消记住密码会清除登录页凭据和该账号的 DPAPI 密码。
 
@@ -82,7 +82,7 @@ Windows 10/11 自带 UCRT；更旧的系统需要安装 VC++ 2015-2022 Redistrib
 .\build\release\chatbox.exe
 ```
 
-默认服务器地址：`121.5.168.189:9443`，TLS 已勾选；登录页的横向三点 `⋯` 展开后可改服务器、端口和 TLS。
+默认服务器地址：`121.5.168.189:9443`，TLS 固定开启；服务器地址由客户端编译配置固定，不在界面中修改。
 
 ## TLS 证书
 
@@ -205,7 +205,7 @@ cd D:\OpenCode_WorkSpace\chatbox\client\tests
 - 服务端好友备注、在线/离线分组、两行消息预览、时间/未读角标
 - 用户身份标识 `U + 8 位 user_id`，设置页可查看，搜索和好友申请中展示
 - 全量改名统一（2026-10-19）：目录 `chatbox/`、可执行文件 `chatbox.exe`、C++ 命名空间 `chatbox::client`、头文件宏 `CHATBOX_*`、QSettings `ChatBox/ChatBox`、服务端目标 `chatbox_server`、systemd 服务 `chatbox`、MySQL 库/用户 `chatbox` 全部一致；启动时自动迁移旧 QSettings（`Chatroom/ChatroomClient` → `ChatBox/ChatBox`），用户无感
-- 设置页：服务器、TLS、消息提醒、系统弹窗通知、开机自启动（静默到托盘）、外观（跟随系统/浅色/深色）、日志目录
+- 设置页：固定的服务器地址（只读）、消息提醒、系统弹窗通知、开机自启动（静默到托盘）、外观（跟随系统/浅色/深色）、日志目录
 - 会话头部（2026-10-20）：只保留 `头像 + 标题 + ⋮`；点头像进入当前私聊对象资料（房间头像无动作），⋮ 菜单含「消息搜索」与房间的「加载更早消息」，输入区不再有搜索按钮
 - 启动行为（2026-10-20）：单实例锁（第二次启动提示后退出）；托盘菜单「打开 ChatBox / 退出」；`--minimized` 启动只驻留托盘，托盘不可用时回退为正常窗口；开机自启动写入 `HKCU\...\Run\ChatBox`
 - 本地聊天记录库（2026-10-20）：单个 SQLite 文件 `history.sqlite`（默认 `%APPDATA%\ChatBox\ChatBox\history\`），按 `user_id` 分区、连接名按账号隔离（`history_<user_id>`）；只落服务端已确认的消息，写穿透 + `message_id` 去重 + 会话摘要 + 撤回同步
@@ -228,7 +228,6 @@ cd D:\OpenCode_WorkSpace\chatbox\client\tests
 - 字母头像（无头像时的回退）统一取色于 `core/avatar_utils.cpp::fallbackAvatar()`；修复前 `main_window.cpp` 自带 6 色私有表、而资料页用 8 色表，同一用户两处底色不同（证据图 `screenshots/ui-avatar-palette.png`）。
 - JPEG 头像运行时必须有 `imageformats\qjpeg.dll`；该文件由 `build_client.ps1` 复制到构建输出。
 - 窗口/托盘图标运行时读取 `resources/app.ico`，需要 `imageformats\qico.dll`（`build_client.ps1` 一并复制）；缺少该插件时窗口图标回退为 exe 内嵌图标（`app.rc` 的 `IDI_ICON1`），托盘图标可能不显示。
-- 设置页修改服务器/TLS 会结束当前会话，返回登录页并使用新地址登录。
 - 本地历史只是服务端数据的**本机副本**：在线时以服务端历史为准，重新打开会话会从服务端重新拉取并再次落盘；待发/失败消息不落盘。
 - 离线模式是只读视图：输入与发送、@ 提及、好友申请、我的资料、用户搜索、在线成员列表均不可用，离线期间除重连外不产生任何业务请求。
 - 清理只删本机副本，不动服务端数据；按 `user_id` 隔离，只清当前账号。

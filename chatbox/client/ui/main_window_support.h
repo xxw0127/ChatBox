@@ -56,6 +56,7 @@
 
 #include "core/avatar_utils.h"
 #include "core/autostart.h"
+#include "core/client_config.h"
 #include "core/client_policy.h"
 #include "core/history_store.h"
 #include "core/identity.h"

@@ -614,9 +614,6 @@ void MainWindow::refreshThemeDependentIcons() {
         search_users_button_->setIcon(
             tintedIcon(":/icons/search.png", QColor(theme::kMuted)));
     }
-    if (login_page_ != nullptr) {
-        login_page_->refreshThemeIcons();
-    }
 }
 
 void MainWindow::openSettings() {
@@ -633,12 +630,8 @@ void MainWindow::openSettings() {
     connect(&dialog, &SettingsDialog::logoutRequested, this, &MainWindow::logout,
             Qt::QueuedConnection);
     connect(&dialog, &SettingsDialog::settingsSaved, this,
-            [this](const QString& host, quint16 port, bool tls,
-                   bool notifications, bool system_popup, bool autostart) {
+            [this](bool notifications, bool system_popup, bool autostart) {
                 QSettings settings;
-                settings.setValue("server/host", host);
-                settings.setValue("server/port", port);
-                settings.setValue("server/tls", tls);
                 settings.setValue("settings/notifications", notifications);
                 settings.setValue("settings/system_popup", system_popup);
                 const bool autostart_applied = chatbox::client::setAutostartEnabled(
@@ -647,38 +640,18 @@ void MainWindow::openSettings() {
                 // write must not leave the checkbox claiming the opposite.
                 settings.setValue("settings/autostart",
                                   autostart_applied ? autostart : !autostart);
-                const bool server_changed =
-                    host != host_ || port != port_ || tls != use_tls_;
-                if (server_changed) {
-                    settings.remove("session");
-                }
                 settings.sync();
                 notifications_enabled_ = notifications;
                 system_popup_enabled_ = system_popup;
                 // Badges and the title counter follow the master switch.
                 refreshFriendListView();
-                login_page_->setServerSettings(host, port, tls);
-                if (server_changed && logged_in_) {
-                    logging_out_ = true;
-                    if (network_ != nullptr) {
-                        network_->requestStop();
-                    }
-                    clearSession();
-                    login_page_->setServerSettings(host, port, tls);
-                    login_page_->setStatus("服务器设置已保存，请重新登录");
-                    setStatus("服务器设置已保存，请重新登录", true);
-                } else if (server_changed) {
-                    setStatus("服务器设置已保存，请重新登录", true);
-                } else {
-                    setStatus("设置已保存");
-                }
+                setStatus("设置已保存");
                 if (!autostart_applied) {
                     setStatus("开机自启动设置失败（其余设置已保存）", true);
                     qWarning("autostart update failed requested=%d",
                              autostart ? 1 : 0);
                 }
-                qInfo("settings saved host=%s port=%u tls=%d notifications=%d system_popup=%d autostart=%d applied=%d",
-                      qPrintable(host), static_cast<unsigned>(port), tls ? 1 : 0,
+                qInfo("settings saved notifications=%d system_popup=%d autostart=%d applied=%d",
                       notifications ? 1 : 0, system_popup ? 1 : 0,
                       autostart ? 1 : 0, autostart_applied ? 1 : 0);
             });

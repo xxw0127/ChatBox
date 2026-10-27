@@ -3,6 +3,8 @@
 #include <QStringList>
 #include <QVariant>
 
+#include "core/client_config.h"
+
 namespace chatbox {
 namespace client {
 
@@ -22,18 +24,22 @@ bool migrateLegacySettings(QSettings& current, QSettings& legacy) {
 }
 
 bool migrateServerEndpoint(QSettings& settings) {
-    const bool old_server =
-        settings.value(QStringLiteral("server/host")).toString() ==
-            QStringLiteral("frp-oil.com") &&
-        settings.value(QStringLiteral("server/port"), 15318).toInt() == 15318;
-    if (!old_server) {
+    if (!settings.contains(QStringLiteral("server/host")) &&
+        !settings.contains(QStringLiteral("server/port"))) {
         return false;
     }
+    const QString host = settings.value(QStringLiteral("server/host")).toString();
+    const int port = settings.value(QStringLiteral("server/port"), 0).toInt();
+    const bool tls = settings.value(QStringLiteral("server/tls"), true).toBool();
+    if (host == QString::fromLatin1(kServerHost) && port == kServerPort && tls) {
+        return false;
+    }
+    // The product endpoint is now a compile-time constant. This also covers the
+    // old frp-oil.com host and any custom/LAN address saved by older builds.
     settings.setValue(QStringLiteral("server/host"),
-                      QStringLiteral("121.5.168.189"));
-    settings.setValue(QStringLiteral("server/port"), 9443);
+                      QString::fromLatin1(kServerHost));
+    settings.setValue(QStringLiteral("server/port"), kServerPort);
     settings.setValue(QStringLiteral("server/tls"), true);
-    // The old token is bound to the retired host and cannot be resumed there.
     settings.remove(QStringLiteral("session"));
     settings.sync();
     return true;

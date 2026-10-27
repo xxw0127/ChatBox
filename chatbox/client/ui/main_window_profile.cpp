@@ -103,11 +103,9 @@ void MainWindow::switchToAccount(const QString& username) {
     if (target.isEmpty() || target == username_) {
         return;
     }
-    // host/port/tls survive clearSession(), but read them first: the login
-    // request below is what re-establishes the connection.
-    const QString host = host_;
-    const quint16 port = port_;
-    const bool tls = use_tls_;
+    const QString host = QString::fromLatin1(chatbox::client::kServerHost);
+    const quint16 port = chatbox::client::kServerPort;
+    const bool tls = chatbox::client::kServerTls;
 
     QString password;
     const bool has_password =
@@ -121,7 +119,6 @@ void MainWindow::switchToAccount(const QString& username) {
     }
     clearSession();
     login_page_->resetToLogin();
-    login_page_->setServerSettings(host, port, tls);
     login_page_->setUsername(target);
     if (stack_ != nullptr) {
         stack_->setCurrentWidget(login_page_);

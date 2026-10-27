@@ -39,6 +39,7 @@
 
 #include "core/app_settings.h"
 #include "core/autostart.h"
+#include "core/client_config.h"
 #include "core/client_policy.h"
 #include "core/account_store.h"
 #include "core/credential_store.h"
@@ -241,7 +242,7 @@ private slots:
     void incomingPushesArePersistedForOtherConversations();
     void recallPushUpdatesBackgroundHistory();
     void loginPageHasNoLocalHistoryEntry();
-    void loginPageHidesServerFieldsBehindMoreDots();
+    void loginPageHasNoServerSettings();
     void layoutWeightsFollowAudit();
     void adaptiveLayoutUsesSplitter();
     void textNeverSmallerThanElevenPixels();
@@ -261,7 +262,7 @@ private slots:
     void credentialStoreEncryptsSavedPassword();
     void credentialStoreForgetsAccountSecret();
     void mainWindowUsesIncrementalAppendForIncomingMessages();
-    void settingsDialogDefaultsToPublicServer();
+    void settingsDialogHasFixedServerAddress();
     void offlineModeIsReadOnlyAndLocal();
     void settingsDialogShowsHistoryInfo();
     void settingsDialogExposesHistoryActions();
@@ -2363,12 +2364,17 @@ void TestClientCore::settingsMigrationMovesOldServerEndpoint() {
     QCOMPARE(settings.value(QStringLiteral("server/port")).toInt(), 9443);
     QVERIFY(!settings.contains(QStringLiteral("session/token")));
 
-    // A custom endpoint must not be overwritten.
+    // A custom/LAN endpoint is no longer selectable, so it is reset too.
     QSettings custom(dir.filePath(QStringLiteral("custom.ini")),
                      QSettings::IniFormat);
     custom.setValue(QStringLiteral("server/host"), QStringLiteral("example.test"));
     custom.setValue(QStringLiteral("server/port"), 12345);
-    QVERIFY(!chatbox::client::migrateServerEndpoint(custom));
+    custom.setValue(QStringLiteral("session/token"), QStringLiteral("stale"));
+    QVERIFY(chatbox::client::migrateServerEndpoint(custom));
+    QCOMPARE(custom.value(QStringLiteral("server/host")).toString(),
+             QStringLiteral("121.5.168.189"));
+    QCOMPARE(custom.value(QStringLiteral("server/port")).toInt(), 9443);
+    QVERIFY(!custom.contains(QStringLiteral("session/token")));
 }
 
 // The migration only ever fills an empty store: values written after the
@@ -2982,39 +2988,18 @@ void TestClientCore::loginPageHasNoLocalHistoryEntry() {
     QVERIFY(page.findChild<QPushButton*>(QStringLiteral("LocalHistoryButton")) == nullptr);
 }
 
-// 服务器/端口/TLS 不是每次登录都要填：默认收在登录卡片的横向三点入口里，
-// 新安装默认走公网，展开后才显示可编辑字段。
-void TestClientCore::loginPageHidesServerFieldsBehindMoreDots() {
-    QSettings settings;
-    settings.remove(QStringLiteral("server"));
-    settings.sync();
-
+// 生产服务器已固定；登录页不再给用户改 IP/端口/TLS 的入口。
+void TestClientCore::loginPageHasNoServerSettings() {
     LoginPage page;
-    auto* toggle = page.findChild<QToolButton*>(QStringLiteral("AdvancedOptionsButton"));
-    auto* panel = page.findChild<QWidget*>(QStringLiteral("AdvancedOptionsPanel"));
-    QVERIFY(toggle != nullptr);
-    QVERIFY(panel != nullptr);
-    QVERIFY(toggle->text().isEmpty());
-    QVERIFY(!toggle->icon().isNull());
-    QCOMPARE(toggle->iconSize(), QSize(20, 20));
-    QCOMPARE(toggle->width(), 32);
-    QCOMPARE(toggle->height(), 32);
-    QVERIFY(panel->isHidden());
-
-    auto* host = page.findChild<QLineEdit*>(QStringLiteral("ServerHostEdit"));
-    auto* port = page.findChild<QSpinBox*>(QStringLiteral("ServerPortSpin"));
-    auto* tls = page.findChild<QCheckBox*>(QStringLiteral("ServerTlsCheck"));
-    QVERIFY(host != nullptr);
-    QVERIFY(port != nullptr);
-    QVERIFY(tls != nullptr);
-    QCOMPARE(host->text(), QStringLiteral("121.5.168.189"));
-    QCOMPARE(port->value(), 9443);
-    QVERIFY(tls->isChecked());
-
-    toggle->click();
-    QVERIFY(!panel->isHidden());
-    toggle->click();
-    QVERIFY(panel->isHidden());
+    QVERIFY(page.findChild<QToolButton*>(QStringLiteral("AdvancedOptionsButton")) == nullptr);
+    QVERIFY(page.findChild<QWidget*>(QStringLiteral("AdvancedOptionsPanel")) == nullptr);
+    QVERIFY(page.findChild<QLineEdit*>(QStringLiteral("ServerHostEdit")) == nullptr);
+    QVERIFY(page.findChild<QSpinBox*>(QStringLiteral("ServerPortSpin")) == nullptr);
+    QVERIFY(page.findChild<QCheckBox*>(QStringLiteral("ServerTlsCheck")) == nullptr);
+    QCOMPARE(QString::fromLatin1(chatbox::client::kServerHost),
+             QStringLiteral("121.5.168.189"));
+    QCOMPARE(chatbox::client::kServerPort, quint16(9443));
+    QVERIFY(chatbox::client::kServerTls);
 }
 
 void TestClientCore::layoutWeightsFollowAudit() {
@@ -3224,18 +3209,12 @@ void TestClientCore::loginPageHasAutoLoginAndRememberPasswordOptions() {
 
 void TestClientCore::loginPageAccessibleNames() {
     LoginPage page;
-    auto* host = page.findChild<QLineEdit*>(QStringLiteral("ServerHostEdit"));
-    auto* port = page.findChild<QSpinBox*>(QStringLiteral("ServerPortSpin"));
     auto* username = page.findChild<QLineEdit*>(QStringLiteral("UsernameEdit"));
     auto* password = page.findChild<QLineEdit*>(QStringLiteral("PasswordEdit"));
     auto* nickname = page.findChild<QLineEdit*>(QStringLiteral("NicknameEdit"));
-    QVERIFY(host != nullptr);
-    QVERIFY(port != nullptr);
     QVERIFY(username != nullptr);
     QVERIFY(password != nullptr);
     QVERIFY(nickname != nullptr);
-    QCOMPARE(host->accessibleName(), QStringLiteral("服务器"));
-    QCOMPARE(port->accessibleName(), QStringLiteral("端口"));
     QCOMPARE(username->accessibleName(), QStringLiteral("用户名"));
     QCOMPARE(password->accessibleName(), QStringLiteral("密码"));
     QCOMPARE(nickname->accessibleName(), QStringLiteral("昵称"));
@@ -3352,31 +3331,24 @@ void TestClientCore::mainWindowUsesIncrementalAppendForIncomingMessages() {
     QVERIFY(add.contains(QStringLiteral("bar->value() >= bar->maximum() - 8")));
 }
 
-void TestClientCore::settingsDialogDefaultsToPublicServer() {
-    QSettings settings;
-    settings.remove(QStringLiteral("server"));
-    settings.sync();
-
+void TestClientCore::settingsDialogHasFixedServerAddress() {
     SettingsDialog dialog(QStringLiteral("U00001001"), QString(), 0, false);
-    auto* host = dialog.findChild<QLineEdit*>(QStringLiteral("ServerHostEdit"));
-    auto* port = dialog.findChild<QSpinBox*>(QStringLiteral("ServerPortSpin"));
-    auto* tls = dialog.findChild<QCheckBox*>(QStringLiteral("ServerTlsCheck"));
+    QVERIFY(dialog.findChild<QLineEdit*>(QStringLiteral("ServerHostEdit")) == nullptr);
+    QVERIFY(dialog.findChild<QSpinBox*>(QStringLiteral("ServerPortSpin")) == nullptr);
+    QVERIFY(dialog.findChild<QCheckBox*>(QStringLiteral("ServerTlsCheck")) == nullptr);
+    auto* address = dialog.findChild<QLabel*>(QStringLiteral("ServerAddressLabel"));
     auto* appearance =
         dialog.findChild<QComboBox*>(QStringLiteral("AppearanceCombo"));
     auto* buttons = dialog.findChild<QDialogButtonBox*>();
-    QVERIFY(host != nullptr);
-    QVERIFY(port != nullptr);
-    QVERIFY(tls != nullptr);
+    QVERIFY(address != nullptr);
     QVERIFY(appearance != nullptr);
     QVERIFY(buttons != nullptr);
+    QCOMPARE(address->text(), QStringLiteral("121.5.168.189:9443"));
     QCOMPARE(appearance->count(), 3);
     QCOMPARE(buttons->button(QDialogButtonBox::Save)->text(),
              QStringLiteral("保存"));
     QCOMPARE(buttons->button(QDialogButtonBox::Cancel)->text(),
              QStringLiteral("取消"));
-    QCOMPARE(host->text(), QStringLiteral("121.5.168.189"));
-    QCOMPARE(port->value(), 9443);
-    QVERIFY(tls->isChecked());
 }
 
 // 离线模式必须是只读的本地视图：所有写操作都要被挡住，

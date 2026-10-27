@@ -23,6 +23,7 @@
 #include <QVBoxLayout>
 
 #include "core/autostart.h"
+#include "core/client_config.h"
 #include "core/client_log.h"
 #include "core/ui_theme.h"
 #include "ui/dialog_buttons.h"
@@ -65,16 +66,12 @@ SettingsDialog::SettingsDialog(const QString& public_id, const QString& history_
     form->addRow("我的ID", id_label_);
 
     QSettings settings;
-    host_edit_ = new QLineEdit(
-        settings.value("server/host", "121.5.168.189").toString(), this);
-    host_edit_->setObjectName("ServerHostEdit");
-    port_spin_ = new QSpinBox(this);
-    port_spin_->setObjectName("ServerPortSpin");
-    port_spin_->setRange(1, 65535);
-    port_spin_->setValue(settings.value("server/port", 9443).toInt());
-    tls_check_ = new QCheckBox("TLS 加密连接", this);
-    tls_check_->setObjectName("ServerTlsCheck");
-    tls_check_->setChecked(settings.value("server/tls", true).toBool());
+    auto* server_address = new QLabel(
+        QStringLiteral("%1:%2").arg(QString::fromLatin1(chatbox::client::kServerHost))
+            .arg(chatbox::client::kServerPort),
+        this);
+    server_address->setObjectName("ServerAddressLabel");
+    server_address->setTextInteractionFlags(Qt::TextSelectableByMouse);
     notifications_check_ = new QCheckBox("消息提醒（任务栏闪烁/未读角标）", this);
     notifications_check_->setChecked(
         settings.value("settings/notifications", true).toBool());
@@ -102,9 +99,7 @@ SettingsDialog::SettingsDialog(const QString& public_id, const QString& history_
         }
     }
 
-    form->addRow("服务器", host_edit_);
-    form->addRow("端口", port_spin_);
-    form->addRow("连接", tls_check_);
+    form->addRow("服务器", server_address);
     form->addRow("通知", notifications_check_);
     form->addRow("", system_popup_check_);
     form->addRow("启动", autostart_check_);
@@ -233,19 +228,7 @@ void SettingsDialog::setHistoryInfo(const QString& directory, qint64 size_bytes,
 }
 
 void SettingsDialog::saveSettings() {
-    const QString host = host_edit_->text().trimmed();
-    if (host.isEmpty()) {
-        QMessageBox::warning(this, "设置", "服务器地址不能为空");
-        return;
-    }
-    quint16 port = static_cast<quint16>(port_spin_->value());
-    const bool tls = tls_check_->isChecked();
-    if (tls && port == 9100) {
-        port = 9443;
-    } else if (!tls && port == 9443) {
-        port = 9100;
-    }
-    emit settingsSaved(host, port, tls, notifications_check_->isChecked(),
+    emit settingsSaved(notifications_check_->isChecked(),
                        system_popup_check_->isChecked(),
                        autostart_check_->isChecked());
     accept();
