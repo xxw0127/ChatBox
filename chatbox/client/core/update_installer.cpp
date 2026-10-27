@@ -185,7 +185,12 @@ QString consumeUpdateResult() {
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         return QString();
     }
-    const QString result = QString::fromUtf8(file.readAll()).trimmed();
+    QString result = QString::fromUtf8(file.readAll()).trimmed();
+    // Windows PowerShell 5.1 writes UTF-8 with a BOM; strip it so the next
+    // startup warning starts with the actual message.
+    if (result.startsWith(QChar(0xFEFF))) {
+        result.remove(0, 1);
+    }
     file.close();
     QFile::remove(resultMarkerPath());
     return result;

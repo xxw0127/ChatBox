@@ -21,9 +21,13 @@ function Copy-Mirror([string]$source, [string]$target) {
     }
 }
 
+$backup = $null
 try {
     if (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) {
         Wait-Process -Id $ProcessId -Timeout 30 -ErrorAction SilentlyContinue
+        if (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) {
+            throw 'old client did not exit within 30 seconds'
+        }
     }
     Start-Sleep -Seconds 1
 
@@ -37,7 +41,7 @@ try {
     $new_process = Start-Process -FilePath $Executable -WorkingDirectory $TargetDir -PassThru
     Start-Sleep -Seconds 5
     if ($new_process.HasExited) {
-        throw '新版本启动后立即退出'
+        throw 'new version exited during startup check'
     }
 
     Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
@@ -47,21 +51,20 @@ try {
 } catch {
     $message = $_.Exception.Message
     Write-Result $message
-    if (Test-Path (Join-Path $env:TEMP 'ChatBox')) {
-        $backups = Get-ChildItem (Join-Path $env:TEMP 'ChatBox') -Directory -Filter 'backup-*' |
-            Sort-Object LastWriteTime -Descending
-        if ($backups.Count -gt 0) {
-            try {
-                Copy-Mirror $backups[0].FullName $TargetDir
-            } catch {
-                Write-Result ($message + '；回滚失败: ' + $_.Exception.Message)
-            }
+    # Only restore the snapshot taken by this run. Restoring a stale backup
+    # would silently downgrade the client to an unrelated older build.
+    if ($null -ne $backup -and (Test-Path -LiteralPath $backup)) {
+        try {
+            Copy-Mirror $backup $TargetDir
+            Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+        } catch {
+            Write-Result ($message + ' ; rollback failed: ' + $_.Exception.Message)
         }
     }
     try {
         Start-Process -FilePath $Executable -WorkingDirectory $TargetDir | Out-Null
     } catch {
-        Write-Result ($message + '；无法重新启动旧版本')
+        Write-Result ($message + ' ; could not restart the old version')
     }
     exit 1
 }

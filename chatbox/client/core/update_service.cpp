@@ -144,39 +144,50 @@ void UpdateService::downloadUpdate(const UpdateManifest& manifest,
             return;
         }
         const QByteArray chunk = reply->readAll();
+        if (chunk.isEmpty()) {
+            return;
+        }
         if (download_file_.write(chunk) != chunk.size()) {
+            download_reply_ = nullptr;
             reply->abort();
             failDownload(QStringLiteral("写入更新包失败"));
             return;
         }
         download_hash_.addData(chunk);
         download_received_ += chunk.size();
-        emit downloadProgress(download_received_, reply->header(
-                                                     QNetworkRequest::ContentLengthHeader)
-                                                     .toLongLong());
+        emit downloadProgress(
+            download_received_,
+            reply->header(QNetworkRequest::ContentLengthHeader).toLongLong());
     });
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         if (reply != download_reply_) {
             reply->deleteLater();
             return;
         }
-        if (reply->error() != QNetworkReply::NoError) {
-            const QString error = reply->errorString();
-            reply->deleteLater();
-            download_reply_ = nullptr;
-            failDownload(QStringLiteral("下载更新失败: %1").arg(error));
+        const QString network_error =
+            reply->error() == QNetworkReply::NoError ? QString()
+                                                     : reply->errorString();
+        const QByteArray rest = reply->readAll();
+        reply->deleteLater();
+        download_reply_ = nullptr;
+        if (!network_error.isEmpty()) {
+            failDownload(QStringLiteral("下载更新失败: %1").arg(network_error));
             return;
+        }
+        if (!rest.isEmpty()) {
+            if (download_file_.write(rest) != rest.size()) {
+                failDownload(QStringLiteral("写入更新包失败"));
+                return;
+            }
+            download_hash_.addData(rest);
+            download_received_ += rest.size();
         }
         download_file_.flush();
         download_file_.close();
         if (download_hash_.result().toHex() != active_manifest_.sha256) {
-            reply->deleteLater();
-            download_reply_ = nullptr;
             failDownload(QStringLiteral("更新包校验失败"));
             return;
         }
-        reply->deleteLater();
-        download_reply_ = nullptr;
         downloading_ = false;
         emit downloadFinished(download_path_);
     });
