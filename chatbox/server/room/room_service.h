@@ -32,7 +32,7 @@ public:
     RoomResult handle(const Frame& request, const RoomMember& caller);
 
 private:
-    RoomResult handleRoomList(const Frame& request);
+    RoomResult handleRoomList(const Frame& request, const RoomMember& caller);
     RoomResult handleJoinRoom(const Frame& request, const RoomMember& caller);
     RoomResult handleLeaveRoom(const Frame& request, const RoomMember& caller);
     RoomResult handleRoomMembers(const Frame& request, const RoomMember& caller);

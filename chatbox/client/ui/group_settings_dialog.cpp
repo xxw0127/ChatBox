@@ -152,8 +152,8 @@ void GroupSettingsDialog::updateActionState() {
                                   target_role == 0 && !is_self);
     unset_admin_button_->setEnabled(group_.role == 2 && target_role == 1 &&
                                     !is_self);
-    remove_button_->setEnabled(can_manage && target_id != 0 && target_role < 2 &&
-                               !is_self);
+    remove_button_->setEnabled(can_manage && !group_.is_default &&
+                               target_id != 0 && target_role < 2 && !is_self);
     transfer_button_->setEnabled(group_.role == 2 && target_id != 0 &&
                                  target_role < 2 && !is_self);
 }

@@ -45,12 +45,48 @@ void MainWindow::onGroupClicked(QListWidgetItem* item) {
         item->data(Qt::UserRole).toULongLong();
     const int status = item->data(Qt::UserRole + 2).toInt();
     if (status != 0) {
-        setStatus("该群已解散", true);
+        if (room_id != 0) {
+            selectDissolvedGroup(room_id, item->data(Qt::UserRole + 1).toString());
+        }
         return;
     }
     if (room_id != 0) {
         selectGroup(room_id, item->data(Qt::UserRole + 1).toString());
     }
+}
+
+void MainWindow::selectDissolvedGroup(quint64 room_id, const QString& name) {
+    if (room_id > static_cast<quint64>(std::numeric_limits<int>::max())) {
+        return;
+    }
+    context_type_ = ContextType::Room;
+    clearStaleListSelection(ContextType::Room);
+    current_room_id_ = static_cast<int>(room_id);
+    current_peer_id_ = 0;
+    current_peer_name_ = name;
+    context_label_->setText(QString("%1（已解散）").arg(name));
+    chat_view_->clear();
+    chat_view_->clearHoverState();
+    hideMessageActionBar();
+    input_edit_->setEnabled(false);
+    send_button_->setEnabled(false);
+    mention_button_->hide();
+    message_store_.reset(chatbox::client::ChatContext::kRoom, room_id);
+    has_more_ = false;
+    loading_older_history_ = false;
+    pending_jump_message_id_ = 0;
+    history_request_seq_ = 0;
+    next_before_id_ = 0;
+    loadInitialHistory(chatbox::client::ChatContext::kRoom, room_id);
+    renderCurrentConversation(ScrollMode::kBottom);
+    if (member_count_label_ != nullptr) {
+        member_count_label_->setText(QString("%1 · 已解散").arg(name));
+    }
+    if (member_list_ != nullptr) {
+        member_list_->clear();
+    }
+    updateRightPanelVisibility();
+    setStatus("群已解散 · 仅显示本地记录");
 }
 
 void MainWindow::selectGroup(quint64 room_id, const QString& name) {
@@ -102,7 +138,6 @@ void MainWindow::refreshGroupListView() {
         for (const chatbox::client::GroupInfo& group : dissolved) {
             auto* item = new QListWidgetItem(
                 QString("%1（已解散）").arg(group.name), group_list_);
-            item->setFlags(Qt::NoItemFlags);
             item->setData(Qt::UserRole, QVariant::fromValue<qulonglong>(group.room_id));
             item->setData(Qt::UserRole + 1, group.name);
             item->setData(Qt::UserRole + 2, group.status);
@@ -227,7 +262,11 @@ void MainWindow::openGroupSettings() {
 void MainWindow::openGroupNotifications() {
     requestGroupRequests(0);
     if (context_type_ == ContextType::Room && current_room_id_ != 0) {
-        requestGroupRequests(current_room_id_);
+        const chatbox::client::GroupInfo* group =
+            group_store_.find(static_cast<quint64>(current_room_id_));
+        if (group != nullptr && group->role >= 1) {
+            requestGroupRequests(current_room_id_);
+        }
     }
     if (group_notify_dialog_ == nullptr) {
         group_notify_dialog_ = new GroupNotifyDialog(this);
@@ -264,6 +303,8 @@ void MainWindow::markGroupRead(quint64 room_id, quint64 message_id) {
     writer.putU32(static_cast<uint32_t>(room_id));
     writer.putU64(message_id);
     sendGroupCommand(chatbox::kCmdGroupMarkRead, writer.data());
+    group_store_.setUnread(room_id, 0);
+    refreshGroupListView();
 }
 
 void MainWindow::updateGroupNoticeBadge() {

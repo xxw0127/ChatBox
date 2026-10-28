@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$Version = "0.2.5",
+    [string]$Version = "0.3.0",
     [string]$QtDir = "D:\Qt\5.15.2\mingw81_64",
     [string]$MingwDir = "D:\Qt\Tools\mingw810_64",
     [string]$OpenSSLDir = "C:\Program Files\OpenSSL-Win64"

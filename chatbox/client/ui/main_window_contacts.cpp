@@ -158,6 +158,7 @@ void MainWindow::updateRoomMemberNickname(quint64 user_id,
         QListWidgetItem* item = member_list_->item(i);
         if (item->data(Qt::UserRole).toULongLong() == user_id) {
             item->setText(nickname);
+            item->setData(Qt::UserRole + 1, nickname);
             item->setData(Qt::AccessibleTextRole, nickname + "，在线");
             item->setIcon(memberAvatarIcon(user_id, nickname, 28));
             break;
@@ -478,7 +479,10 @@ void MainWindow::onMemberContextMenu(const QPoint& position) {
     QMenu menu(this);
     QAction* profile_action = menu.addAction("查看资料");
     if (menu.exec(member_list_->mapToGlobal(position)) == profile_action) {
-        openProfile(member_id, item->text());
+        openProfile(member_id,
+                    item->data(Qt::UserRole + 1).toString().isEmpty()
+                        ? item->text()
+                        : item->data(Qt::UserRole + 1).toString());
     }
 }
 
@@ -559,7 +563,12 @@ void MainWindow::onMemberDoubleClicked(QListWidgetItem* item) {
     if (peer_id == 0 || peer_id == user_id_) {
         return;
     }
-    const QString nickname = item->text();
+    const QString nickname = item->data(Qt::UserRole + 1)
+                                 .toString()
+                                 .trimmed()
+                                 .isEmpty()
+                                 ? item->text()
+                                 : item->data(Qt::UserRole + 1).toString();
     // 已知备注优先：成员列表里的昵称不能覆盖用户自己设的备注。
     const auto view = friend_views_.constFind(peer_id);
     if (view != friend_views_.constEnd() && !view->remark.trimmed().isEmpty()) {

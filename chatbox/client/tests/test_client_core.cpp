@@ -2946,12 +2946,22 @@ void TestClientCore::rightSidebarHasRequiredPanels() {
     QVERIFY(source.contains(QStringLiteral("RightProfileCard")));
     QVERIFY(source.contains(QStringLiteral("RightGroupSearch")));
     QVERIFY(source.contains(QStringLiteral("RightPrivateSearch")));
+    QVERIFY(source.contains(QStringLiteral("RightSearchPage")));
+    QVERIFY(source.contains(QStringLiteral("RightSearchResults")));
     QVERIFY(source.contains(QStringLiteral("RightFileButton")));
     QVERIFY(!source.contains(QStringLiteral("more_menu_")));
     const QString profile =
         readClientSource(QStringLiteral("ui/main_window_profile.cpp"));
     QVERIFY(profile.contains(QStringLiteral("void MainWindow::toggleRightPanel()")));
     QVERIFY(profile.contains(QStringLiteral("right_panel_->setVisible")));
+    const QString chat =
+        readClientSource(QStringLiteral("ui/main_window_chat.cpp"));
+    QVERIFY(chat.contains(QStringLiteral("void MainWindow::startPanelSearch")));
+    const QString net =
+        readClientSource(QStringLiteral("ui/main_window_net.cpp"));
+    QVERIFY(net.contains(QStringLiteral("frame.header.flags & chatbox::kFlagError")));
+    QVERIFY(net.contains(QStringLiteral("joined_groups_.clear();")));
+    QVERIFY(net.contains(QStringLiteral("selectDissolvedGroup")));
 }
 
 void TestClientCore::scrollLoadsOlderAndJumpsToSearchHit() {
@@ -3005,11 +3015,21 @@ void TestClientCore::groupSettingsRespectsRoles() {
     QVERIFY(remove->isEnabled());
 
     group.is_default = true;
-    GroupSettingsDialog default_dialog(group, {owner}, 1);
+    member.user_id = 2;
+    GroupSettingsDialog default_dialog(group, {owner, member}, 1);
     auto* default_disband =
         default_dialog.findChild<QPushButton*>(QStringLiteral("GroupDisbandButton"));
+    auto* default_remove =
+        default_dialog.findChild<QPushButton*>(QStringLiteral("GroupRemoveMemberButton"));
+    auto* default_members =
+        default_dialog.findChild<QListWidget*>(QStringLiteral("GroupMemberAdminList"));
     QVERIFY(default_disband != nullptr);
+    QVERIFY(default_remove != nullptr);
+    QVERIFY(default_members != nullptr);
     QVERIFY(default_disband->isHidden());
+    default_members->setCurrentRow(1);
+    QVERIFY2(!default_remove->isEnabled(),
+             "default group members must not be removable");
 
     group.is_default = false;
     group.role = 0;

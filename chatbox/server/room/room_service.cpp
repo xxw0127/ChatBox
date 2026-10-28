@@ -1,5 +1,7 @@
 #include "server/room/room_service.h"
 
+#include "server/group/group_rules.h"
+
 #include <algorithm>
 #include <cctype>
 #include <ctime>
@@ -92,7 +94,7 @@ RoomResult RoomService::handle(const Frame& request, const RoomMember& caller) {
 
     switch (request.header.cmd) {
         case kCmdRoomList:
-            return handleRoomList(request);
+            return handleRoomList(request, caller);
         case kCmdJoinRoom:
             return handleJoinRoom(request, caller);
         case kCmdLeaveRoom:
@@ -108,21 +110,32 @@ RoomResult RoomService::handle(const Frame& request, const RoomMember& caller) {
     }
 }
 
-RoomResult RoomService::handleRoomList(const Frame& request) {
-    const std::vector<RoomView> views = rooms_.list();
-    if (views.size() > 0xFFFF) {
-        return RoomResult{makeError(request.header.seq, 2001, "too many rooms")};
+RoomResult RoomService::handleRoomList(const Frame& request,
+                                       const RoomMember& caller) {
+    std::string error;
+    GroupInfo group;
+    bool found = false;
+    if (!database_.findGroupById(static_cast<uint64_t>(defaultGroupId()), group,
+                                 found, error)) {
+        return RoomResult{makeError(request.header.seq, 2001, "internal error")};
     }
+    bool member = false;
+    if (found && !database_.isRoomMember(static_cast<uint64_t>(defaultGroupId()),
+                                         caller.user_id, member, error)) {
+        return RoomResult{makeError(request.header.seq, 2001, "internal error")};
+    }
+    const bool visible = found && member && group.status == GroupStatus::kActive;
 
     RoomResult result;
     result.response = makeSuccess(kCmdRoomList, request.header.seq);
     ByteWriter writer;
-    writer.putU16(static_cast<uint16_t>(views.size()));
-    for (const RoomView& view : views) {
-        writer.putU32(static_cast<uint32_t>(view.info.id));
-        writer.putString(view.info.name);
-        writer.putU32(static_cast<uint32_t>(view.info.max_members));
-        writer.putU32(static_cast<uint32_t>(view.online));
+    writer.putU16(visible ? 1 : 0);
+    if (visible) {
+        writer.putU32(static_cast<uint32_t>(group.room_id));
+        writer.putString(group.name);
+        writer.putU32(static_cast<uint32_t>(group.member_count));
+        writer.putU32(static_cast<uint32_t>(
+            rooms_.onlineCount(static_cast<int>(group.room_id))));
     }
     result.response.body = writer.data();
     return result;
@@ -136,6 +149,15 @@ RoomResult RoomService::handleJoinRoom(const Frame& request, const RoomMember& c
     }
 
     std::string error;
+    GroupInfo group;
+    bool found = false;
+    if (!database_.findGroupById(static_cast<uint64_t>(room_id), group, found,
+                                 error)) {
+        return RoomResult{makeError(request.header.seq, 2001, "internal error")};
+    }
+    if (!found || group.status != GroupStatus::kActive) {
+        return RoomResult{makeError(request.header.seq, 1006, "room not found")};
+    }
     bool member = false;
     if (!database_.isRoomMember(room_id, caller.user_id, member, error)) {
         return RoomResult{makeError(request.header.seq, 2001, "internal error")};
@@ -180,11 +202,24 @@ RoomResult RoomService::handleLeaveRoom(const Frame& request, const RoomMember& 
 }
 
 RoomResult RoomService::handleRoomMembers(const Frame& request, const RoomMember& caller) {
-    (void)caller;
     ByteReader reader(request.body.data(), request.body.size());
     int room_id = 0;
     if (!readRoomId(reader, room_id)) {
         return RoomResult{makeError(request.header.seq, 1001, "invalid room id")};
+    }
+    std::string error;
+    GroupInfo group;
+    bool found = false;
+    if (!database_.findGroupById(static_cast<uint64_t>(room_id), group, found,
+                                 error)) {
+        return RoomResult{makeError(request.header.seq, 2001, "internal error")};
+    }
+    bool member = false;
+    if (found && !database_.isRoomMember(room_id, caller.user_id, member, error)) {
+        return RoomResult{makeError(request.header.seq, 2001, "internal error")};
+    }
+    if (!found || !member || group.status != GroupStatus::kActive) {
+        return RoomResult{makeError(request.header.seq, 1006, "room not found")};
     }
 
     std::vector<RoomMember> members;
@@ -242,6 +277,15 @@ RoomResult RoomService::handleChatSend(const Frame& request, const RoomMember& c
     }
     if (!member) {
         return RoomResult{makeError(request.header.seq, 1007, "not a group member")};
+    }
+    GroupInfo group;
+    bool group_found = false;
+    if (!database_.findGroupById(static_cast<uint64_t>(room_id), group,
+                                 group_found, membership_error)) {
+        return RoomResult{makeError(request.header.seq, 2001, "internal error")};
+    }
+    if (!group_found || group.status != GroupStatus::kActive) {
+        return RoomResult{makeError(request.header.seq, 1006, "room not found")};
     }
 
     const std::string created_at = utcNow();
@@ -311,6 +355,15 @@ RoomResult RoomService::handleRecall(const Frame& request, const RoomMember& cal
     }
     if (!member) {
         return RoomResult{makeError(request.header.seq, 1007, "not a group member")};
+    }
+    GroupInfo group;
+    bool group_found = false;
+    if (!database_.findGroupById(static_cast<uint64_t>(room_id), group,
+                                 group_found, membership_error)) {
+        return RoomResult{makeError(request.header.seq, 2001, "internal error")};
+    }
+    if (!group_found || group.status != GroupStatus::kActive) {
+        return RoomResult{makeError(request.header.seq, 1006, "room not found")};
     }
     std::string error;
     if (!database_.recallRoomMessage(room_id, message_id, caller.user_id, error)) {

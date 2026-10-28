@@ -149,6 +149,7 @@ private:
     void openUserSearch();
     void openMessageSearch();
     void openMessageSearchWith(const QString& keyword);
+    void startPanelSearch(const QString& keyword);
     void requestMessageSearch(const QString& keyword);
     void refreshContacts();
     void requestProfile(quint64 user_id);
@@ -190,6 +191,7 @@ private:
     void jumpToMessage(quint64 message_id);
     void selectRoom(int room_id, const QString& name);
     void selectGroup(quint64 room_id, const QString& name);
+    void selectDissolvedGroup(quint64 room_id, const QString& name);
     void refreshGroupListView();
     void openCreateGroupDialog();
     void openJoinGroupDialog();
@@ -307,6 +309,11 @@ private:
     QStackedWidget* right_mode_stack_ = nullptr;
     QWidget* right_group_page_ = nullptr;
     QWidget* right_private_page_ = nullptr;
+    QWidget* right_search_page_ = nullptr;
+    QLineEdit* right_search_input_ = nullptr;
+    QListWidget* right_search_results_ = nullptr;
+    QLabel* right_search_status_ = nullptr;
+    quint32 panel_search_seq_ = 0;
     QLabel* member_count_label_ = nullptr;
     QLineEdit* right_group_search_ = nullptr;
     QLineEdit* right_private_search_ = nullptr;
@@ -367,6 +374,7 @@ private:
     chatbox::client::HistoryStore history_store_;
     chatbox::client::GroupStore group_store_;
     QHash<quint32, quint16> pending_group_commands_;
+    QSet<quint64> joined_groups_;
     chatbox::client::GroupInfo last_group_search_;
     chatbox::client::GroupRequestInfo last_group_request_;
     int last_group_search_membership_ = 0;
@@ -381,6 +389,10 @@ private:
     bool has_more_ = false;
     bool loading_older_history_ = false;
     quint64 pending_jump_message_id_ = 0;
+    quint32 history_request_seq_ = 0;
+    int history_request_kind_ = 0;
+    quint64 history_request_target_ = 0;
+    quint64 history_request_before_ = 0;
     bool connected_ = false;
     bool online_ = false;
     // 离线模式：只读地显示本地记录，不发任何聊天/好友/资料请求。

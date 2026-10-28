@@ -147,6 +147,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 }
                 hideMessageActionBar();
                 maybeLoadOlder();
+                if (context_type_ == ContextType::Room &&
+                    !message_store_.messages().isEmpty() &&
+                    chat_view_->verticalScrollBar()->value() >=
+                        chat_view_->verticalScrollBar()->maximum() - 4) {
+                    const chatbox::client::GroupInfo* group = group_store_.find(
+                        static_cast<quint64>(current_room_id_));
+                    if (group != nullptr && group->unread > 0) {
+                        markGroupRead(static_cast<quint64>(current_room_id_),
+                                      message_store_.messages().back().message_id);
+                    }
+                }
             });
     if (message_action_bar_ != nullptr) {
         connect(message_action_bar_, &MessageActionBar::replyRequested, this, [this] {
@@ -609,8 +620,44 @@ QWidget* MainWindow::buildChatPage() {
     right_private_search_->setPlaceholderText("搜索消息");
     private_layout->addWidget(right_private_search_);
 
+    right_search_page_ = new QWidget(right_mode_stack_);
+    right_search_page_->setObjectName("RightSearchPage");
+    auto* search_layout = new QVBoxLayout(right_search_page_);
+    search_layout->setContentsMargins(0, 0, 0, 0);
+    search_layout->setSpacing(6);
+    auto* search_header = new QHBoxLayout();
+    right_search_input_ = new QLineEdit(right_search_page_);
+    right_search_input_->setObjectName("RightSearchInput");
+    right_search_input_->setPlaceholderText("搜索消息");
+    auto* back = new QPushButton("返回", right_search_page_);
+    back->setObjectName("RightSearchBack");
+    search_header->addWidget(right_search_input_, 1);
+    search_header->addWidget(back);
+    search_layout->addLayout(search_header);
+    right_search_results_ = new QListWidget(right_search_page_);
+    right_search_results_->setObjectName("RightSearchResults");
+    search_layout->addWidget(right_search_results_, 1);
+    right_search_status_ = new QLabel(right_search_page_);
+    right_search_status_->setObjectName("RightSearchStatus");
+    search_layout->addWidget(right_search_status_);
+    connect(back, &QPushButton::clicked, this, [this] {
+        panel_search_seq_ = 0;
+        updateRightPanelVisibility();
+    });
+    connect(right_search_input_, &QLineEdit::returnPressed, this,
+            [this] { startPanelSearch(right_search_input_->text()); });
+    connect(right_search_results_, &QListWidget::itemDoubleClicked, this,
+            [this](QListWidgetItem* item) {
+                if (item == nullptr) {
+                    return;
+                }
+                jumpToMessage(item->data(Qt::UserRole).toULongLong());
+                updateRightPanelVisibility();
+            });
+
     right_mode_stack_->addWidget(right_group_page_);
     right_mode_stack_->addWidget(right_private_page_);
+    right_mode_stack_->addWidget(right_search_page_);
     right->addWidget(right_mode_stack_, 1);
     right_panel_->hide();
     splitter->addWidget(center_panel);
@@ -620,9 +667,9 @@ QWidget* MainWindow::buildChatPage() {
     splitter->setStretchFactor(2, 0);
 
     connect(right_group_search_, &QLineEdit::returnPressed, this,
-            [this] { openMessageSearchWith(right_group_search_->text()); });
+            [this] { startPanelSearch(right_group_search_->text()); });
     connect(right_private_search_, &QLineEdit::returnPressed, this,
-            [this] { openMessageSearchWith(right_private_search_->text()); });
+            [this] { startPanelSearch(right_private_search_->text()); });
     connect(right_settings_button_, &QToolButton::clicked, this,
             &MainWindow::openGroupSettings);
 

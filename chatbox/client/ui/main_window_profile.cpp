@@ -24,8 +24,11 @@ void MainWindow::updateRightPanelVisibility() {
             group_store_.find(static_cast<quint64>(current_room_id_));
         if (group != nullptr) {
             member_count_label_->setText(
-                QString("%1 · %2 人").arg(group->name).arg(group->member_count));
-            right_settings_button_->setVisible(group->role == 1 || group->role == 2);
+                group->status != 0
+                    ? QString("%1 · 已解散").arg(group->name)
+                    : QString("%1 · %2 人").arg(group->name).arg(group->member_count));
+            right_settings_button_->setVisible(
+                group->status == 0 && (group->role == 1 || group->role == 2));
         } else {
             member_count_label_->setText(current_peer_name_);
             right_settings_button_->hide();
@@ -373,7 +376,12 @@ void MainWindow::refreshMemberListAvatar(quint64 user_id) {
         QListWidgetItem* item = member_list_->item(i);
         if (item != nullptr &&
             item->data(Qt::UserRole).toULongLong() == user_id) {
-            item->setIcon(memberAvatarIcon(user_id, item->text(), 28));
+            item->setIcon(memberAvatarIcon(
+                user_id,
+                item->data(Qt::UserRole + 1).toString().isEmpty()
+                    ? item->text()
+                    : item->data(Qt::UserRole + 1).toString(),
+                28));
             break;
         }
     }

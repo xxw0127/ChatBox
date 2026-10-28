@@ -6,6 +6,7 @@
 #include "common/group_protocol.h"
 #include "common/text_utils.h"
 #include "server/group/group_rules.h"
+#include "server/util/logging.h"
 
 namespace chatbox {
 
@@ -85,6 +86,9 @@ GroupService::GroupService(MysqlConnection& database, RoomManager& rooms)
 
 GroupResult GroupService::handle(const Frame& request,
                                  const RoomMember& caller) {
+    if (caller.user_id == 0) {
+        return errorResult(request, 1002, "not logged in");
+    }
     switch (request.header.cmd) {
         case kCmdGroupList:
             return handleList(request, caller);
@@ -206,6 +210,15 @@ GroupResult GroupService::handleCreate(const Frame& request,
     if (!database_.createGroup(name, caller.user_id, group, error)) {
         return errorResult(request, kGroupConflict, error);
     }
+    RoomInfo room_info;
+    room_info.id = static_cast<int>(group.room_id);
+    room_info.name = group.name;
+    room_info.max_members = 500;
+    std::string room_error;
+    if (!rooms_.addRoom(room_info, room_error)) {
+        logMessage(LogLevel::kWarn, "group",
+                   "new group room registration failed: " + room_error);
+    }
     return responseResult(request, encodeGroupInfo(group));
 }
 
@@ -266,6 +279,7 @@ GroupResult GroupService::handleDisband(const Frame& request,
     addRoomBroadcast(result, rooms_, static_cast<int>(room_id),
                      makePush(kPushDissolved, room_id, caller.user_id,
                               static_cast<uint8_t>(role)));
+    rooms_.removeRoom(static_cast<int>(room_id));
     return result;
 }
 
@@ -570,12 +584,17 @@ GroupResult GroupService::handleMemberUpdate(const Frame& request,
         return errorResult(request, kGroupNotFound, "member not found");
     }
     if (action == 1) {
+        if (group.is_default || isDefaultGroupProtected(room_id)) {
+            return errorResult(request, kGroupPermission,
+                               "default group members cannot be removed");
+        }
         if (!canManageGroup(actor_role, target_role)) {
             return errorResult(request, kGroupPermission, "cannot remove this member");
         }
         if (!database_.removeRoomMember(room_id, target_id, error)) {
             return errorResult(request, kGroupConflict, error);
         }
+        rooms_.leave(static_cast<int>(room_id), target_id);
         GroupResult result = responseResult(request);
         addRoomBroadcast(result, rooms_, static_cast<int>(room_id),
                          makePush(kPushMemberLeft, room_id, target_id,
@@ -679,6 +698,7 @@ GroupResult GroupService::handleLeave(const Frame& request,
     if (!database_.removeRoomMember(room_id, caller.user_id, error)) {
         return errorResult(request, kGroupConflict, error);
     }
+    rooms_.leave(static_cast<int>(room_id), caller.user_id);
     GroupResult result = responseResult(request);
     addRoomBroadcast(result, rooms_, static_cast<int>(room_id),
                      makePush(kPushMemberLeft, room_id, caller.user_id,

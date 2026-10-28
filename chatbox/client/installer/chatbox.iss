@@ -4,7 +4,7 @@
 ; produces a portable ZIP instead.
 
 #define MyAppName "ChatBox"
-#define MyAppVersion "0.2.5"
+#define MyAppVersion "0.3.0"
 #define MyAppExeName "chatbox.exe"
 
 [Setup]

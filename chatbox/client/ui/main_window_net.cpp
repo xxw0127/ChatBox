@@ -54,7 +54,36 @@ void MainWindow::handleGroupList(const QByteArray& body) {
         groups.push_back(chatbox::client::groupInfoFromWire(wire));
     }
     group_store_.replaceAll(groups);
+    QSet<quint64> active_ids;
+    for (const chatbox::client::GroupInfo& group : group_store_.active()) {
+        active_ids.insert(group.room_id);
+        if (joined_groups_.contains(group.room_id)) {
+            continue;
+        }
+        chatbox::ByteWriter writer;
+        writer.putU32(static_cast<uint32_t>(group.room_id));
+        chatbox::Frame join;
+        join.header.cmd = chatbox::kCmdJoinRoom;
+        join.header.seq = next_seq_++;
+        join.body = writer.data();
+        if (sendFrame(join)) {
+            joined_groups_.insert(group.room_id);
+        }
+    }
+    joined_groups_.intersect(active_ids);
     refreshGroupListView();
+    if (context_type_ == ContextType::Room && current_room_id_ != 0) {
+        const chatbox::client::GroupInfo* current =
+            group_store_.find(static_cast<quint64>(current_room_id_));
+        if (current == nullptr) {
+            // Removed, left, or the group is gone: the server already revoked
+            // access, so drop the stale context instead of letting the user
+            // keep typing into a room that rejects every frame.
+            resetContext();
+        } else if (current->status != 0) {
+            selectDissolvedGroup(current->room_id, current->name);
+        }
+    }
     if (context_type_ == ContextType::None) {
         const QVector<chatbox::client::GroupInfo> active = group_store_.active();
         for (const chatbox::client::GroupInfo& group : active) {
@@ -101,8 +130,16 @@ void MainWindow::handleGroupMemberList(const QByteArray& body) {
         item->setIcon(memberAvatarIcon(member.user_id, member.nickname, 28));
         item->setSizeHint(QSize(0, 48));
         item->setData(Qt::UserRole, QVariant::fromValue<qulonglong>(member.user_id));
+        item->setData(Qt::UserRole + 1, member.nickname);
         item->setData(Qt::AccessibleTextRole,
                       member.nickname + (member.online ? "，在线" : "，离线"));
+        if (member.user_id == user_id_) {
+            if (!avatar_cache_.contains(member.user_id)) {
+                requestAvatar(member.user_id, 0);
+            }
+        } else {
+            requestPeerAvatar(member.user_id);
+        }
     }
     const chatbox::client::GroupInfo* group =
         group_store_.find(static_cast<quint64>(room_id));
@@ -285,6 +322,12 @@ void MainWindow::onDisconnected(const QString& reason) {
     connected_ = false;
     qWarning("disconnected: %s", qPrintable(reason));
     resuming_ = false;
+    // Presence is connection-scoped: the new connection must JOIN every
+    // active group again, and any in-flight search/history answers are stale.
+    joined_groups_.clear();
+    pending_group_commands_.clear();
+    panel_search_seq_ = 0;
+    history_request_seq_ = 0;
     if (auth_timeout_timer_ != nullptr) {
         auth_timeout_timer_->stop();
     }
@@ -490,6 +533,16 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
     }
     chatbox::ByteReader reader(frame.body.data(), frame.body.size());
 
+    if (frame.header.flags & chatbox::kFlagError) {
+        uint16_t code = 0;
+        QString message;
+        if (reader.getU16(code) && readString(reader, message)) {
+            pending_group_commands_.remove(frame.header.seq);
+            handleError(code, message, frame.header.seq);
+        }
+        return;
+    }
+
     switch (frame.header.cmd) {
         case chatbox::kCmdPing:
             break;
@@ -551,7 +604,6 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             }
             setOnline(true);
             resetContext();
-            requestRoomList();
             requestGroupList();
             requestConversations();
             requestFriendList();
@@ -649,7 +701,6 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             } else {
                 resetContext();
             }
-            requestRoomList();
             requestGroupList();
             requestConversations();
             requestFriendList();
@@ -812,10 +863,9 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             break;
         }
         case chatbox::kCmdJoinRoom:
-            // Joining a room is a silent success; the header and member list
-            // already reflect it, so do not add transient status-bar noise.
-            requestMembers(current_room_id_);
-            requestRoomList();
+            // Joining a room is a silent success; member data comes from
+            // GROUP_MEMBER_LIST, so background joins must not trigger a
+            // request for the currently selected room.
             break;
         case chatbox::kCmdRoomMembers: {
             uint32_t room_id = 0;
@@ -851,6 +901,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             // ROOM_MEMBERS payload only contains online presence, so do not
             // replace the durable list when a group is known.
             if (group_store_.find(static_cast<quint64>(room_id)) != nullptr) {
+                requestGroupMembers(static_cast<quint64>(room_id));
                 break;
             }
             if (member_count_label_ != nullptr) {
@@ -870,6 +921,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 item->setIcon(memberAvatarIcon(member_id, nickname, 28));
                 item->setSizeHint(QSize(0, 48));
                 item->setData(Qt::UserRole, QVariant::fromValue<qulonglong>(member_id));
+                item->setData(Qt::UserRole + 1, nickname);
                 item->setData(Qt::AccessibleTextRole, nickname + "，在线");
                 if (member_id == user_id_) {
                     // requestPeerAvatar() skips self; ask the same way so the
@@ -955,6 +1007,10 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             if (context_type_ == ContextType::Room &&
                 room_id == static_cast<uint32_t>(current_room_id_)) {
                 addIncomingMessage(message);
+            } else if (chatbox::client::GroupInfo* group =
+                           group_store_.find(static_cast<quint64>(room_id))) {
+                ++group->unread;
+                refreshGroupListView();
             }
             break;
         }
@@ -1104,6 +1160,9 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             break;
         }
         case chatbox::kCmdHistoryResp: {
+            if (frame.header.seq != history_request_seq_) {
+                break;
+            }
             uint8_t kind = 0;
             uint64_t target = 0;
             uint16_t count = 0;
@@ -1114,7 +1173,9 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 setStatus("历史消息格式错误", true);
                 return;
             }
-            if (!currentContextMatches(kind, target)) {
+            if (kind != history_request_kind_ ||
+                target != history_request_target_ ||
+                !currentContextMatches(kind, target)) {
                 break;
             }
             QVector<chatbox::client::ChatMessage> page;
@@ -1157,7 +1218,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 peer_names_.insert(sender_id, nickname);
             }
 
-            const bool was_older_page = loading_older_history_;
+            const bool was_older_page = history_request_before_ != 0;
             if (was_older_page) {
                 message_store_.prependHistory(page);
                 renderCurrentConversation(ScrollMode::kPreserveAnchor);
@@ -1166,8 +1227,15 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 renderCurrentConversation(ScrollMode::kBottom);
             }
             loading_older_history_ = false;
+            history_request_seq_ = 0;
+            history_request_kind_ = 0;
+            history_request_target_ = 0;
+            history_request_before_ = 0;
             has_more_ = has_more != 0;
             next_before_id_ = next_before;
+            if (kind == 1 && !was_older_page && !page.isEmpty()) {
+                markGroupRead(target, page.back().message_id);
+            }
             if (pending_jump_message_id_ != 0) {
                 const quint64 target_message = pending_jump_message_id_;
                 pending_jump_message_id_ = 0;
@@ -1264,13 +1332,19 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             break;
         }
         case chatbox::kCmdMessageSearch: {
-            if (frame.header.seq != message_search_seq_) {
+            const bool panel_search =
+                panel_search_seq_ != 0 && frame.header.seq == panel_search_seq_;
+            if (!panel_search && frame.header.seq != message_search_seq_) {
                 break;
             }
             if (message_search_timeout_timer_ != nullptr) {
                 message_search_timeout_timer_->stop();
             }
-            message_search_seq_ = 0;
+            if (panel_search) {
+                panel_search_seq_ = 0;
+            } else {
+                message_search_seq_ = 0;
+            }
             uint16_t count = 0;
             if (!reader.getU16(count)) {
                 setStatus("消息搜索响应格式错误", true);
@@ -1300,7 +1374,23 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 result.recalled = recalled != 0;
                 results.push_back(result);
             }
-            if (message_search_dialog_ != nullptr) {
+            if (panel_search) {
+                right_search_results_->clear();
+                for (const MessageSearchResult& result : results) {
+                    auto* item = new QListWidgetItem(
+                        QString("%1  %2\n%3")
+                            .arg(result.nickname, result.created_at,
+                                 result.recalled ? QString() : result.content),
+                        right_search_results_);
+                    item->setData(Qt::UserRole,
+                                  QVariant::fromValue<qulonglong>(result.message_id));
+                    item->setToolTip(QStringLiteral("双击跳转到该消息"));
+                }
+                right_search_status_->setText(
+                    results.isEmpty() ? QStringLiteral("没有匹配消息")
+                                      : QString("%1 条结果").arg(results.size()));
+                right_mode_stack_->setCurrentWidget(right_search_page_);
+            } else if (message_search_dialog_ != nullptr) {
                 message_search_dialog_->setResults(results);
                 message_search_dialog_->setBusy(false);
             }
@@ -1776,6 +1866,15 @@ void MainWindow::handleError(quint16 code, const QString& message, quint32 seq) 
         return;
     }
 
+    if (panel_search_seq_ != 0 && seq == panel_search_seq_) {
+        panel_search_seq_ = 0;
+        if (right_search_status_ != nullptr) {
+            right_search_status_->setText(QString("搜索失败: %1").arg(text));
+        }
+        setStatus(QString("搜索失败: %1").arg(text), true);
+        return;
+    }
+
     if (message_search_seq_ != 0 && seq == message_search_seq_) {
         message_search_seq_ = 0;
         if (message_search_timeout_timer_ != nullptr) {
@@ -1872,6 +1971,28 @@ void MainWindow::clearSession() {
     if (room_list_ != nullptr) {
         room_list_->clear();
     }
+    group_store_.clear();
+    pending_group_commands_.clear();
+    joined_groups_.clear();
+    group_requests_.clear();
+    group_invites_.clear();
+    right_panel_profile_ = chatbox::client::UserProfile();
+    if (group_list_ != nullptr) {
+        group_list_->clear();
+    }
+    if (group_settings_dialog_ != nullptr) {
+        group_settings_dialog_->disconnect(this);
+        group_settings_dialog_->close();
+        group_settings_dialog_->deleteLater();
+        group_settings_dialog_ = nullptr;
+    }
+    if (group_notify_dialog_ != nullptr) {
+        group_notify_dialog_->disconnect(this);
+        group_notify_dialog_->close();
+        group_notify_dialog_->deleteLater();
+        group_notify_dialog_ = nullptr;
+    }
+    updateGroupNoticeBadge();
     updateOwnProfileStrip();
     refreshUnreadTitle();
     resetContext();

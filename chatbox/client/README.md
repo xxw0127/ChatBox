@@ -67,8 +67,8 @@ cd D:\OpenCode_WorkSpace\chatbox\client
 生成：
 
 ```text
-release\chatbox-0.2.5-win64.zip
-release\chatbox-0.2.5-win64\chatbox.exe
+release\chatbox-0.3.0-win64.zip
+release\chatbox-0.3.0-win64\chatbox.exe
 ```
 
 `release\` 是唯一的最终发布目录；`build\release\` 只是编译输出，不要直接发给别人。脚本不再额外保留 `dist\` 副本。

@@ -78,6 +78,16 @@ Frame HistoryService::handle(const Frame& request, const RoomMember& caller) {
         if (!member) {
             return makeError(request.header.seq, 1007, "not in room");
         }
+        GroupInfo group;
+        bool group_found = false;
+        if (!database_.findGroupById(static_cast<uint64_t>(room_id), group,
+                                     group_found, error)) {
+            logMessage(LogLevel::kError, "history", "room status failed: " + error);
+            return makeError(request.header.seq, 2001, "internal error");
+        }
+        if (!group_found || group.status != GroupStatus::kActive) {
+            return makeError(request.header.seq, 1006, "room not found");
+        }
         uint64_t join_cursor = 0;
         if (!database_.roomJoinMessageId(room_id, caller.user_id, join_cursor,
                                          error)) {
@@ -163,6 +173,16 @@ Frame HistoryService::handleSearch(const Frame& request, const RoomMember& calle
         }
         if (!member) {
             return makeError(request.header.seq, 1007, "not in room");
+        }
+        GroupInfo group;
+        bool group_found = false;
+        if (!database_.findGroupById(static_cast<uint64_t>(room_id), group,
+                                     group_found, error)) {
+            logMessage(LogLevel::kError, "history", "room status failed: " + error);
+            return makeError(request.header.seq, 2001, "internal error");
+        }
+        if (!group_found || group.status != GroupStatus::kActive) {
+            return makeError(request.header.seq, 1006, "room not found");
         }
         uint64_t join_cursor = 0;
         if (!database_.roomJoinMessageId(room_id, caller.user_id, join_cursor,

@@ -11,7 +11,9 @@ VERSION = 1
 
 CMD_REGISTER = 0x0001
 CMD_LOGIN = 0x0002
+CMD_JOIN_ROOM = 0x0011
 CMD_CHAT_SEND = 0x0020
+CMD_CHAT_PUSH = 0x0022
 CMD_HISTORY = 0x0050
 CMD_GROUP_LIST = 0x00B0
 CMD_GROUP_CREATE = 0x00B1
@@ -215,6 +217,23 @@ def members(client, room_id):
     return response_room, items
 
 
+def join_room(client, room_id):
+    client.call(CMD_JOIN_ROOM, struct.pack(">I", room_id))
+
+
+def wait_room_push(client, room_id):
+    while True:
+        flags, cmd, seq, body = client.read_frame()
+        if flags & 0x01:
+            continue
+        if cmd != CMD_CHAT_PUSH:
+            continue
+        reader = Reader(body)
+        pushed_room = reader.u32()
+        if pushed_room == room_id:
+            return True
+
+
 def send_room_message(client, room_id, content):
     body = struct.pack(">I", room_id) + enc_str(str(uuid.uuid4())) + enc_str(content)
     _, response = client.call(CMD_CHAT_SEND, body)
@@ -252,6 +271,15 @@ def main():
     login(b, "group_b")
     login(c, "group_c")
     print("users", a_id, b_id, c_id)
+
+    anonymous = Client()
+    expect_error(lambda: anonymous.call(
+        CMD_GROUP_CREATE, enc_str("anonymous")), "unauthenticated create")
+    anonymous.sock.close()
+
+    expect_error(lambda: a.call(
+        CMD_GROUP_MEMBER_UPDATE,
+        struct.pack(">IQB", 1, c_id, 1)), "remove from default")
 
     groups = a.group_list()
     default = [g for g in groups if g["is_default"]]
@@ -293,10 +321,16 @@ def main():
     b.call(CMD_GROUP_MEMBER_UPDATE,
            struct.pack(">IQB", group["room_id"], a_id, 1))
     assert all(g["room_id"] != group["room_id"] for g in a.group_list())
+    expect_error(lambda: send_room_message(a, group["room_id"], "removed"),
+                 "removed member send")
 
     b.call(CMD_GROUP_DISBAND, struct.pack(">I", group["room_id"]))
     dissolved = [g for g in b.group_list() if g["room_id"] == group["room_id"]]
     assert dissolved and dissolved[0]["status"] == 1, dissolved
+    expect_error(lambda: send_room_message(b, group["room_id"], "dissolved"),
+                 "dissolved send")
+    expect_error(lambda: room_history_count(b, group["room_id"]),
+                 "dissolved history")
 
     group2 = create_group(a, "第二个群")
     _, body = a.call(CMD_GROUP_INVITE,
