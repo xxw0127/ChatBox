@@ -54,6 +54,9 @@ enum Command : uint16_t {
     kCmdProfileUpdate = 0x00A1,
     kCmdAvatarGet = 0x00A2,
     kCmdProfileUpdatePush = 0x00A3,
+    // Realtime friend/room presence. Kept below the group range
+    // (0x00B0-0x00CF) reserved by the multi-group work.
+    kCmdPresencePush = 0x00A4,
     kCmdError = 0x00FF,
 };
 
