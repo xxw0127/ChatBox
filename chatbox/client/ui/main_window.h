@@ -18,6 +18,7 @@
 #include "core/message_renderer.h"
 #include "core/message_store.h"
 #include "core/outbox.h"
+#include "core/presence_book.h"
 #include "core/update_manifest.h"
 #include "core/user_profile.h"
 
@@ -214,6 +215,7 @@ private:
                             quint64& target_id) const;
     void restorePendingForCurrentContext();
     void setOnline(bool online, const QString& text = QString());
+    void applyPresenceUpdate(quint64 user_id, bool online, quint64 seq);
     void handleError(quint16 code, const QString& message, quint32 seq);
     void clearSession();
     void scheduleReconnect();
@@ -337,6 +339,7 @@ private:
     quint64 current_peer_id_ = 0;
     QString current_peer_name_;
     chatbox::client::MessageStore message_store_;
+    chatbox::client::PresenceBook presence_book_;
     chatbox::client::HistoryStore history_store_;
     chatbox::client::Outbox outbox_;
     QHash<quint32, QString> pending_sequences_;

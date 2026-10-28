@@ -19,6 +19,7 @@ SOURCES += \
     ../core/message_time.cpp \
     ../core/message_store.cpp \
     ../core/outbox.cpp \
+    ../core/presence_book.cpp \
     ../core/message_renderer.cpp \
     ../core/mention_query.cpp \
     ../core/contact_store.cpp \
@@ -51,6 +52,7 @@ HEADERS += \
     ../core/message_time.h \
     ../core/message_store.h \
     ../core/outbox.h \
+    ../core/presence_book.h \
     ../core/message_renderer.h \
     ../core/mention_query.h \
     ../core/ui_theme.h \

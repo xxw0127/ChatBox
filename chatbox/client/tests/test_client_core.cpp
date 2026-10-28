@@ -63,6 +63,7 @@
 #include "core/message_time.h"
 #include "core/mention_query.h"
 #include "core/outbox.h"
+#include "core/presence_book.h"
 #include "core/ui_theme.h"
 #include "core/update_installer.h"
 #include "core/update_manifest.h"
@@ -292,6 +293,10 @@ private slots:
     void jumpLatestRestoresBottom();
     void switchConversationExitsJumpMode();
     void jumpRequestUsesTargetPlusOne();
+    void presenceBookAppliesNewerSequence();
+    void presenceBookIgnoresStaleSequence();
+    void presenceBookClearsOnDisconnect();
+    void presenceOverridesFriendListResponse();
     void contactStorePersistsAndUpdates();
     void avatarCenterCrop();
     void avatarCompressionLimit();
@@ -1921,6 +1926,43 @@ void TestClientCore::jumpRequestUsesTargetPlusOne() {
     QVERIFY2(function.contains(QStringLiteral("message_id + 1")),
              "the jump page must be fetched with before_id = target + 1 so the "
              "target is its newest record");
+}
+
+void TestClientCore::presenceBookAppliesNewerSequence() {
+    chatbox::client::PresenceBook book;
+    QVERIFY(book.apply(7, true, 10));
+    QVERIFY(book.online(7, false));
+    QVERIFY(book.apply(7, false, 11));
+    QVERIFY(!book.online(7, true));
+    QCOMPARE(book.seq(7), quint64(11));
+}
+
+void TestClientCore::presenceBookIgnoresStaleSequence() {
+    chatbox::client::PresenceBook book;
+    QVERIFY(book.apply(7, true, 10));
+    QVERIFY(!book.apply(7, false, 9));
+    QVERIFY(book.online(7, false));
+    QCOMPARE(book.seq(7), quint64(10));
+
+    // Same sequence is also stale: the state was already applied.
+    QVERIFY(!book.apply(7, false, 10));
+}
+
+void TestClientCore::presenceBookClearsOnDisconnect() {
+    chatbox::client::PresenceBook book;
+    QVERIFY(book.apply(7, false, 10));
+    book.clear();
+    QCOMPARE(book.seq(7), quint64(0));
+    QVERIFY(book.online(7, true));  // falls back to the caller's snapshot
+}
+
+void TestClientCore::presenceOverridesFriendListResponse() {
+    const QString source = readClientSource(QStringLiteral("ui/main_window_net.cpp"));
+    const QString function = sourceSection(
+        source, QStringLiteral("case chatbox::kCmdFriendList:"),
+        QStringLiteral("case chatbox::kCmdFriendRequests:"));
+    QVERIFY2(function.contains(QStringLiteral("presence_book_.online(")),
+             "friend list responses must be overlaid with newer pushes");
 }
 
 void TestClientCore::contactStorePersistsAndUpdates() {

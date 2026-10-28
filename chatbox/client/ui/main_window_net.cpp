@@ -114,6 +114,7 @@ void MainWindow::onConnected() {
 }
 
 void MainWindow::onDisconnected(const QString& reason) {
+    presence_book_.clear();
     connected_ = false;
     qWarning("disconnected: %s", qPrintable(reason));
     resuming_ = false;
@@ -831,7 +832,8 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 }
                 Q_UNUSED(last_message_id);
                 updateFriendView(peer_id, static_cast<int>(unread), nickname,
-                                 last_content, last_time, online != 0);
+                                 last_content, last_time,
+                                 presence_book_.online(peer_id, online != 0));
             }
             refreshFriendListView();
             if (context_type_ == ContextType::Private) {
@@ -1084,7 +1086,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 view.nickname = nickname;
                 view.remark = remark;
                 view.avatar_version = avatar_version;
-                view.online = online != 0;
+                view.online = presence_book_.online(friend_id, online != 0);
                 friend_views_.insert(friend_id, view);
             }
             refreshFriendListView();
@@ -1241,7 +1243,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                     QByteArray(avatar_bytes.data(),
                                static_cast<int>(avatar_bytes.size())));
             }
-            profile.online = online != 0;
+            profile.online = presence_book_.online(target_id, online != 0);
             profile.relationship = relationship;
             profile.remark = remark;
 
@@ -1367,6 +1369,23 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             requestFriendList();
             break;
         }
+        case chatbox::kCmdPresencePush: {
+            uint16_t count = 0;
+            if (!reader.getU16(count)) {
+                return;
+            }
+            for (uint16_t i = 0; i < count; ++i) {
+                uint64_t user_id = 0;
+                uint8_t online = 0;
+                uint64_t seq = 0;
+                if (!reader.getU64(user_id) || !reader.getU8(online) ||
+                    !reader.getU64(seq)) {
+                    return;
+                }
+                applyPresenceUpdate(user_id, online != 0, seq);
+            }
+            break;
+        }
         case chatbox::kCmdError: {
             uint16_t code = 0;
             QString message;
@@ -1379,6 +1398,27 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
         }
         default:
             break;
+    }
+}
+
+void MainWindow::applyPresenceUpdate(quint64 user_id, bool online, quint64 seq) {
+    if (user_id == 0 || user_id == user_id_) {
+        return;
+    }
+    if (!presence_book_.apply(user_id, online, seq)) {
+        return;
+    }
+    const auto view = friend_views_.find(user_id);
+    if (view != friend_views_.end()) {
+        if (view->online == online) {
+            return;
+        }
+        view->online = online;
+        refreshFriendListView();
+    }
+    if (profile_dialog_ != nullptr && profile_dialog_user_id_ == user_id) {
+        profile_dialog_profile_.online = online;
+        profile_dialog_->setProfile(profile_dialog_profile_, false);
     }
 }
 
@@ -1545,6 +1585,7 @@ void MainWindow::handleError(quint16 code, const QString& message, quint32 seq) 
 }
 
 void MainWindow::clearSession() {
+    presence_book_.clear();
     logged_in_ = false;
     connected_ = false;
     offline_mode_ = false;
