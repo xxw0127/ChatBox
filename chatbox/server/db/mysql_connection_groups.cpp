@@ -571,6 +571,86 @@ bool MysqlConnection::addRoomMember(uint64_t room_id, uint64_t user_id,
     if (!ensureConnected(error)) {
         return false;
     }
+    int max_members = 0;
+    {
+        Stmt lock(mysql_,
+                  "SELECT max_members FROM rooms "
+                  "WHERE id = ? AND status = 0 FOR UPDATE",
+                  error);
+        if (lock.get() == nullptr) {
+            return false;
+        }
+        uint64_t room_value = room_id;
+        MYSQL_BIND params[1] = {};
+        bindU64(params[0], room_value);
+        if (mysql_stmt_bind_param(lock.get(), params) != 0 ||
+            !execute(lock.get(), error) ||
+            mysql_stmt_store_result(lock.get()) != 0) {
+            if (error.empty()) {
+                error = mysql_stmt_error(lock.get());
+            }
+            return false;
+        }
+        bool null = false;
+        MYSQL_BIND out[1] = {};
+        out[0].buffer_type = MYSQL_TYPE_LONG;
+        out[0].buffer = &max_members;
+        out[0].is_null = &null;
+        if (mysql_stmt_bind_result(lock.get(), out) != 0) {
+            error = mysql_stmt_error(lock.get());
+            return false;
+        }
+        const int fetched = mysql_stmt_fetch(lock.get());
+        if (fetched == MYSQL_NO_DATA) {
+            error = "group not found";
+            return false;
+        }
+        if (fetched != 0 && fetched != MYSQL_DATA_TRUNCATED) {
+            error = mysql_stmt_error(lock.get());
+            return false;
+        }
+        if (null) {
+            max_members = 0;
+        }
+    }
+    if (max_members > 0) {
+        Stmt count_stmt(mysql_,
+                        "SELECT COUNT(*) FROM room_members WHERE room_id = ?",
+                        error);
+        if (count_stmt.get() == nullptr) {
+            return false;
+        }
+        uint64_t room_value = room_id;
+        MYSQL_BIND params[1] = {};
+        bindU64(params[0], room_value);
+        if (mysql_stmt_bind_param(count_stmt.get(), params) != 0 ||
+            !execute(count_stmt.get(), error) ||
+            mysql_stmt_store_result(count_stmt.get()) != 0) {
+            if (error.empty()) {
+                error = mysql_stmt_error(count_stmt.get());
+            }
+            return false;
+        }
+        int member_count = 0;
+        bool null = false;
+        MYSQL_BIND out[1] = {};
+        out[0].buffer_type = MYSQL_TYPE_LONG;
+        out[0].buffer = &member_count;
+        out[0].is_null = &null;
+        if (mysql_stmt_bind_result(count_stmt.get(), out) != 0) {
+            error = mysql_stmt_error(count_stmt.get());
+            return false;
+        }
+        const int fetched = mysql_stmt_fetch(count_stmt.get());
+        if (fetched != 0 && fetched != MYSQL_DATA_TRUNCATED) {
+            error = mysql_stmt_error(count_stmt.get());
+            return false;
+        }
+        if (!null && member_count >= max_members) {
+            error = "group is full";
+            return false;
+        }
+    }
     uint64_t cursor = 0;
     if (!maxRoomMessageId(room_id, cursor, error)) {
         return false;
@@ -1793,7 +1873,8 @@ bool MysqlConnection::createUserWithDefaultGroup(
 
     uint64_t owner_id = 0;
     {
-        Stmt stmt(mysql_, "SELECT owner_id FROM rooms WHERE id = 1", error);
+        Stmt stmt(mysql_, "SELECT owner_id FROM rooms WHERE id = 1 FOR UPDATE",
+                  error);
         if (stmt.get() == nullptr || !execute(stmt.get(), error) ||
             mysql_stmt_store_result(stmt.get()) != 0) {
             if (error.empty()) {

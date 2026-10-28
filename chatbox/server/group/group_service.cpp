@@ -207,7 +207,14 @@ GroupResult GroupService::handleCreate(const Frame& request,
         return errorResult(request, kGroupConflict, "daily group creation limit reached");
     }
     GroupInfo group;
-    if (!database_.createGroup(name, caller.user_id, group, error)) {
+    bool created = false;
+    for (int attempt = 0; attempt < 3 && !created; ++attempt) {
+        created = database_.createGroup(name, caller.user_id, group, error);
+        if (!created && error.find("Duplicate entry") == std::string::npos) {
+            break;
+        }
+    }
+    if (!created) {
         return errorResult(request, kGroupConflict, error);
     }
     RoomInfo room_info;
