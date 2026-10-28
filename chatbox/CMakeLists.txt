@@ -54,6 +54,7 @@ add_executable(chatbox_server
     server/auth/session_manager.cpp
     server/auth/auth_service.cpp
     server/business/worker_pool.cpp
+    server/group/group_rules.cpp
     server/room/room_manager.cpp
     server/room/room_service.cpp
     server/private/private_service.cpp
@@ -110,3 +111,10 @@ add_test(NAME connection_limiter COMMAND test_connection_limiter)
 add_executable(test_connection_proxy tests/test_connection_proxy.cpp)
 target_link_libraries(test_connection_proxy PRIVATE chatbox_net)
 add_test(NAME connection_proxy COMMAND test_connection_proxy)
+
+add_executable(test_group_rules
+    tests/test_group_rules.cpp
+    server/group/group_rules.cpp)
+target_include_directories(test_group_rules PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_group_rules PRIVATE chatbox_common)
+add_test(NAME group_rules COMMAND test_group_rules)

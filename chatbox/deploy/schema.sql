@@ -34,17 +34,25 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS rooms (
     id          INT UNSIGNED    NOT NULL AUTO_INCREMENT,
     name        VARCHAR(32)     NOT NULL,
-    max_members INT UNSIGNED    NOT NULL DEFAULT 1000,
+    max_members INT UNSIGNED    NOT NULL DEFAULT 500,
+    group_no    VARCHAR(12)     NOT NULL,
+    owner_id    BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    is_default  TINYINT         NOT NULL DEFAULT 0,
+    status      TINYINT         NOT NULL DEFAULT 0 COMMENT '0正常 1已解散',
+    dissolved_at DATETIME(3)    NULL,
     created_at  DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
-    UNIQUE KEY uk_name (name)
+    UNIQUE KEY uk_group_no (group_no),
+    KEY idx_room_status (status),
+    KEY idx_room_owner (owner_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-INSERT IGNORE INTO rooms (id, name, max_members) VALUES
-(1, '群聊A', 1000), (2, '大厅 2', 1000), (3, '大厅 3', 1000),
-(4, '大厅 4', 1000), (5, '大厅 5', 1000), (6, '大厅 6', 1000),
-(7, '大厅 7', 1000), (8, '大厅 8', 1000), (9, '大厅 9', 1000),
-(10, '大厅 10', 1000), (11, '技术交流', 500), (12, '闲聊', 500);
+-- Only the default hall remains. New users are inserted into room_members by
+-- the registration transaction; max_members=0 means unlimited for this room.
+INSERT IGNORE INTO rooms
+    (id, name, max_members, group_no, owner_id, is_default, status)
+VALUES
+    (1, '群聊A', 0, '10000001', 4, 1, 0);
 
 CREATE TABLE IF NOT EXISTS messages (
     id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -88,6 +96,52 @@ CREATE TABLE IF NOT EXISTS private_read_state (
     updated_at           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
                          ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, peer_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS room_members (
+    room_id          INT UNSIGNED    NOT NULL,
+    user_id          BIGINT UNSIGNED NOT NULL,
+    role             TINYINT         NOT NULL DEFAULT 0 COMMENT '0成员 1管理员 2群主',
+    joined_at        DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    join_message_id  BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    PRIMARY KEY (room_id, user_id),
+    KEY idx_room_member_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS room_read_state (
+    room_id              INT UNSIGNED    NOT NULL,
+    user_id              BIGINT UNSIGNED NOT NULL,
+    last_read_message_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    updated_at           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
+                         ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (room_id, user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS room_join_requests (
+    id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    room_id      INT UNSIGNED    NOT NULL,
+    user_id      BIGINT UNSIGNED NOT NULL,
+    message      VARCHAR(200)    NOT NULL DEFAULT '',
+    status       TINYINT         NOT NULL DEFAULT 0 COMMENT '0待处理 1通过 2拒绝',
+    created_at   DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    reviewed_by  BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    reviewed_at  DATETIME(3)     NULL,
+    PRIMARY KEY (id),
+    KEY idx_join_room_status (room_id, status),
+    KEY idx_join_user_status (user_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS room_invites (
+    id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    room_id      INT UNSIGNED    NOT NULL,
+    inviter_id   BIGINT UNSIGNED NOT NULL,
+    invitee_id   BIGINT UNSIGNED NOT NULL,
+    status       TINYINT         NOT NULL DEFAULT 0 COMMENT '0待处理 1接受 2拒绝 3撤销',
+    created_at   DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    responded_at DATETIME(3)     NULL,
+    PRIMARY KEY (id),
+    KEY idx_invite_room_status (room_id, status),
+    KEY idx_invite_invitee_status (invitee_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 CREATE TABLE IF NOT EXISTS friend_requests (
