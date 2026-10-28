@@ -252,6 +252,9 @@ void MainWindow::sendResume() {
 
 void MainWindow::setOnline(bool online, const QString& text) {
     online_ = online;
+    if (!online) {
+        closeMentionPopup();
+    }
     if (banner_row_ != nullptr) {
         if (online) {
             banner_row_->hide();
@@ -680,7 +683,8 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             if (sender_id == user_id_) {
                 break;
             }
-            if (!nickname_.isEmpty() && content.contains("@" + nickname_)) {
+            if (!nickname_.isEmpty() &&
+                (content.contains("@" + nickname_) || content.contains("@所有人"))) {
                 showMentionNotification(nickname, content);
             }
             peer_names_.insert(sender_id, nickname);

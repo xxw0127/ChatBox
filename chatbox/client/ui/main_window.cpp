@@ -507,6 +507,9 @@ QWidget* MainWindow::buildChatPage() {
     connect(input_edit_, &MessageInput::submitRequested, this, &MainWindow::onSendClicked);
     connect(input_edit_, &MessageInput::textChanged, this,
             &MainWindow::updateMessageByteCounter);
+    connect(input_edit_, &MessageInput::textChanged, this,
+            &MainWindow::updateMentionPopup);
+    input_edit_->installEventFilter(this);
     connect(mention_button_, &QPushButton::clicked, this, &MainWindow::insertMention);
     connect(reply_cancel_button_, &QPushButton::clicked, this, &MainWindow::clearReply);
 
@@ -540,6 +543,11 @@ QWidget* MainWindow::buildChatPage() {
                 });
         tray_->show();
     }
+
+    mention_popup_ = new MentionPopup(page);
+    mention_popup_->hide();
+    connect(mention_popup_, &MentionPopup::chosen, this,
+            &MainWindow::insertMentionChoice);
 
     return page;
 }
@@ -800,6 +808,31 @@ void MainWindow::setStatus(const QString& text, bool error) {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == input_edit_ && mention_popup_ != nullptr) {
+        if (event->type() == QEvent::KeyPress && mention_popup_->isVisible()) {
+            auto* key = static_cast<QKeyEvent*>(event);
+            switch (key->key()) {
+                case Qt::Key_Up:
+                    mention_popup_->moveSelection(-1);
+                    return true;
+                case Qt::Key_Down:
+                    mention_popup_->moveSelection(1);
+                    return true;
+                case Qt::Key_Return:
+                case Qt::Key_Enter:
+                case Qt::Key_Tab:
+                    mention_popup_->activateSelected();
+                    return true;
+                case Qt::Key_Escape:
+                    closeMentionPopup();
+                    return true;
+                default:
+                    break;
+            }
+        } else if (event->type() == QEvent::FocusOut) {
+            closeMentionPopup();
+        }
+    }
     if (watched == context_avatar_ && event->type() == QEvent::MouseButtonRelease) {
         auto* mouse = static_cast<QMouseEvent*>(event);
         if (mouse->button() == Qt::LeftButton &&

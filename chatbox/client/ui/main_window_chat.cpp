@@ -1,43 +1,118 @@
 #include "ui/main_window_support.h"
 
+#include <QGuiApplication>
+#include <QScreen>
+
 void MainWindow::insertMention() {
     if (offline_mode_ || !online_) {
         setStatus("当前离线，无法提及成员", true);
         return;
     }
-    if (context_type_ == ContextType::None) {
-        setStatus("请先选择一个会话", true);
+    if (context_type_ != ContextType::Room) {
+        setStatus("私聊无需 @ 提及", true);
         return;
     }
-    QString nickname;
-    if (context_type_ == ContextType::Private) {
-        nickname = current_peer_name_;
-    } else if (member_list_ != nullptr && member_list_->count() > 0) {
-        QMenu menu(this);
+    const chatbox::client::MentionToken token = chatbox::client::mentionTokenAt(
+        input_edit_->toPlainText(), input_edit_->textCursor().position());
+    mention_token_start_ = token.active ? token.start : -1;
+    openMentionPopup(token.active ? token.query : QString());
+}
+
+void MainWindow::openMentionPopup(const QString& query) {
+    if (mention_popup_ == nullptr) {
+        return;
+    }
+    if (offline_mode_ || !online_ || context_type_ != ContextType::Room) {
+        closeMentionPopup();
+        return;
+    }
+
+    QVector<MentionCandidate> candidates;
+    MentionCandidate all;
+    all.name = QString::fromUtf8("所有人");
+    all.online = true;
+    all.avatar = QPixmap::fromImage(chatbox::client::roomAvatar(28));
+    candidates.push_back(all);
+
+    if (member_list_ != nullptr) {
         for (int i = 0; i < member_list_->count(); ++i) {
             QListWidgetItem* item = member_list_->item(i);
-            if (item == nullptr || item->data(Qt::UserRole).toULongLong() == user_id_) {
+            if (item == nullptr) {
                 continue;
             }
-            QAction* action = menu.addAction(item->text());
-            action->setData(item->text());
+            const quint64 member_id = item->data(Qt::UserRole).toULongLong();
+            if (member_id == 0 || member_id == user_id_) {
+                continue;
+            }
+            MentionCandidate candidate;
+            candidate.user_id = member_id;
+            candidate.name = item->text();
+            candidate.public_id = chatbox::client::publicUserId(member_id);
+            candidate.online = true;
+            candidate.avatar =
+                memberAvatarIcon(member_id, candidate.name, 28).pixmap(28, 28);
+            candidates.push_back(candidate);
         }
-        if (menu.isEmpty()) {
-            setStatus("当前没有可提及的成员", true);
-            return;
-        }
-        QAction* selected = menu.exec(QCursor::pos());
-        if (selected == nullptr) {
-            return;
-        }
-        nickname = selected->data().toString();
     }
-    if (nickname.isEmpty()) {
-        setStatus("当前没有可提及的成员", true);
+
+    mention_popup_->setCandidates(candidates, query);
+    mention_popup_->adjustSize();
+    const QSize size = mention_popup_->size();
+    const QPoint caret =
+        input_edit_->mapToGlobal(input_edit_->cursorRect().bottomLeft());
+    int x = caret.x();
+    int y = caret.y() - size.height() - 4;
+    if (const QScreen* screen = QGuiApplication::screenAt(caret); screen != nullptr) {
+        const QRect available = screen->availableGeometry();
+        if (y < available.top() + 4) {
+            y = caret.y() + 4;
+        }
+        x = qBound(available.left() + 4, x,
+                   available.right() - size.width() - 4);
+    }
+    mention_popup_->showAt(QPoint(x, y));
+}
+
+void MainWindow::updateMentionPopup() {
+    if (mention_popup_ == nullptr || input_edit_ == nullptr) {
         return;
     }
-    input_edit_->insertPlainText("@" + nickname + " ");
+    if (offline_mode_ || !online_ || context_type_ != ContextType::Room) {
+        closeMentionPopup();
+        return;
+    }
+    const chatbox::client::MentionToken token = chatbox::client::mentionTokenAt(
+        input_edit_->toPlainText(), input_edit_->textCursor().position());
+    if (!token.active) {
+        closeMentionPopup();
+        return;
+    }
+    mention_token_start_ = token.start;
+    openMentionPopup(token.query);
+}
+
+void MainWindow::closeMentionPopup() {
+    if (mention_popup_ != nullptr && mention_popup_->isVisible()) {
+        mention_popup_->hide();
+    }
+    mention_token_start_ = -1;
+}
+
+void MainWindow::insertMentionChoice(quint64 user_id, const QString& name) {
+    (void)user_id;
+    if (input_edit_ == nullptr || name.isEmpty()) {
+        return;
+    }
+    QTextCursor cursor = input_edit_->textCursor();
+    const int caret = cursor.position();
+    if (mention_token_start_ >= 0 && mention_token_start_ < caret) {
+        cursor.setPosition(mention_token_start_);
+        cursor.setPosition(caret, QTextCursor::KeepAnchor);
+    }
+    cursor.insertText("@" + name + " ");
+    input_edit_->setTextCursor(cursor);
     input_edit_->setFocus();
+    closeMentionPopup();
 }
 
 void MainWindow::setReplyTo(const chatbox::client::ChatMessage& message) {
@@ -491,6 +566,7 @@ void MainWindow::selectRoom(int room_id, const QString& name) {
         context_avatar_->setCursor(Qt::ArrowCursor);
     }
     chat_view_->clear();
+    closeMentionPopup();
     if (input_edit_ != nullptr) {
         input_edit_->clear();
     }
@@ -559,6 +635,7 @@ void MainWindow::selectPrivate(quint64 peer_id, const QString& nickname) {
         requestPeerAvatar(peer_id);
     }
     chat_view_->clear();
+    closeMentionPopup();
     if (input_edit_ != nullptr) {
         input_edit_->clear();
     }
@@ -712,6 +789,7 @@ void MainWindow::resetContext() {
     }
     if (chat_view_ != nullptr) {
         chat_view_->clear();
+        closeMentionPopup();
     }
     if (member_list_ != nullptr) {
         member_list_->clear();

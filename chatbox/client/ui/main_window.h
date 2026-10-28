@@ -45,6 +45,7 @@ class QTextBrowser;
 class QTimer;
 class QToolButton;
 class FriendRequestDialog;
+class MentionPopup;
 class MessageSearchDialog;
 class SettingsDialog;
 class UpdateDialog;
@@ -165,6 +166,10 @@ private:
                                 quint32 avatar_version);
     void updateRoomMemberNickname(quint64 user_id, const QString& nickname);
     void insertMention();
+    void openMentionPopup(const QString& query);
+    void closeMentionPopup();
+    void updateMentionPopup();
+    void insertMentionChoice(quint64 user_id, const QString& name);
     void setReplyTo(const chatbox::client::ChatMessage& message);
     void clearReply();
     void sendRecall(quint64 message_id);
@@ -273,6 +278,8 @@ private:
     MessageInput* input_edit_ = nullptr;
     QLabel* message_byte_counter_ = nullptr;
     QPushButton* mention_button_ = nullptr;
+    MentionPopup* mention_popup_ = nullptr;
+    int mention_token_start_ = -1;
     QPushButton* send_button_ = nullptr;
     QWidget* right_panel_ = nullptr;
     QLabel* member_count_label_ = nullptr;

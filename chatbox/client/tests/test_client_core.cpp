@@ -280,6 +280,10 @@ private slots:
     void mentionPopupFiltersByNameAndId();
     void mentionPopupKeyboardSelectionEmitsChosen();
     void mentionPopupAllEntryStaysFirst();
+    void mentionButtonOpensMentionPopup();
+    void typingAtOpensMentionPopup();
+    void privateChatClosesMentionPopup();
+    void atAllNotificationMatchesEveryone();
     void contactStorePersistsAndUpdates();
     void avatarCenterCrop();
     void avatarCompressionLimit();
@@ -515,6 +519,47 @@ void TestClientCore::mentionPopupAllEntryStaysFirst() {
     QCOMPARE(popup.visibleCount(), 2);
     QCOMPARE(popup.selectedCandidate().user_id, quint64(0));
     QCOMPARE(popup.selectedCandidate().name, QString::fromUtf8("\u6240\u6709\u4eba"));
+}
+
+void TestClientCore::mentionButtonOpensMentionPopup() {
+    const QString source = readClientSource(QStringLiteral("ui/main_window_chat.cpp"));
+    const QString function = sourceSection(
+        source, QStringLiteral("void MainWindow::insertMention("),
+        QStringLiteral("void MainWindow::setReplyTo("));
+    QVERIFY2(function.contains(QStringLiteral("openMentionPopup(")),
+             "the @ button must open the popup instead of a QMenu");
+    QVERIFY2(!function.contains(QStringLiteral("menu.exec(")),
+             "the @ button must not use the old QMenu");
+}
+
+void TestClientCore::typingAtOpensMentionPopup() {
+    const QString app = readClientSource(QStringLiteral("ui/main_window.cpp"));
+    QVERIFY2(app.contains(QStringLiteral("&MainWindow::updateMentionPopup")),
+             "textChanged must refresh the mention picker");
+
+    const QString source = readClientSource(QStringLiteral("ui/main_window_chat.cpp"));
+    const QString function = sourceSection(
+        source, QStringLiteral("void MainWindow::updateMentionPopup("),
+        QStringLiteral("void MainWindow::insertMentionChoice("));
+    QVERIFY2(function.contains(QStringLiteral("mentionTokenAt(")),
+             "typing @ must be recognised");
+    QVERIFY2(function.contains(QStringLiteral("openMentionPopup(")),
+             "a recognised token must open the picker");
+}
+
+void TestClientCore::privateChatClosesMentionPopup() {
+    const QString source = readClientSource(QStringLiteral("ui/main_window_chat.cpp"));
+    const QString function = sourceSection(
+        source, QStringLiteral("void MainWindow::selectPrivate("),
+        QStringLiteral("void MainWindow::updatePrivateHeaderAvatar("));
+    QVERIFY2(function.contains(QStringLiteral("closeMentionPopup(")),
+             "switching to a private chat must close the picker");
+}
+
+void TestClientCore::atAllNotificationMatchesEveryone() {
+    const QString source = readClientSource(QStringLiteral("ui/main_window_net.cpp"));
+    QVERIFY2(source.contains(QStringLiteral("\"@\u6240\u6709\u4eba\"")),
+             "@所有人 must trigger the mention notification");
 }
 
 void TestClientCore::invalidTimestamp() {
