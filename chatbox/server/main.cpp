@@ -193,7 +193,8 @@ int main(int argc, char** argv) {
                                                    config.max_conn_per_ip);
 
     chatbox::WorkerPool worker_pool(config.worker_threads, db_config, sessions,
-                                     room_manager);
+                                     room_manager, config.files_dir,
+                                     config.ffmpeg_path, config.ffprobe_path);
     if (!worker_pool.start(error)) {
         chatbox::logMessage(LogLevel::kError, "main", "worker pool start failed: " + error);
         mysql_library_end();
@@ -243,8 +244,11 @@ int main(int argc, char** argv) {
                                      command == chatbox::kCmdProfileUpdate;
         const bool group_command =
             command >= chatbox::kCmdGroupList && command <= chatbox::kCmdGroupLeave;
+        const bool file_command =
+            command >= chatbox::kCmdFileAuth && command <= chatbox::kCmdFileDeleted;
         if (!auth_command && !room_command && !private_command && !history_command &&
-            !friend_command && !profile_command && !group_command) {
+            !friend_command && !profile_command && !group_command &&
+            !file_command) {
             const Frame response = makeErrorResponse(frame.header.seq, 1001, "unknown command");
             return connection->enqueue(chatbox::encodeFrame(response));
         }
@@ -270,8 +274,8 @@ int main(int argc, char** argv) {
             connection_id,
             [connection, frame, command, auth_command, room_command, private_command,
              history_command, friend_command, profile_command, group_command,
-             connection_id, io_thread_id, user_id, nickname, token_hash,
-             &io_thread_refs, &room_manager, &sessions](
+             file_command, connection_id, io_thread_id, user_id, nickname,
+             token_hash, &io_thread_refs, &room_manager, &sessions](
                 chatbox::WorkerContext& context) {
                 if (auth_command) {
                     chatbox::SessionBinding binding;
@@ -425,6 +429,55 @@ int main(int argc, char** argv) {
                         }
                         owner->sendFrame(connection, chatbox::encodeFrame(response));
                     });
+                    return;
+                }
+
+                if (file_command) {
+                    chatbox::FileResult result =
+                        context.file.handle(frame, caller, connection);
+                    if (result.broadcast && !result.targets.empty()) {
+                        std::unordered_map<int, std::vector<uint64_t>> groups;
+                        for (const chatbox::RoomMember& target : result.targets) {
+                            if (target.io_thread_id >= 0 &&
+                                target.io_thread_id <
+                                    static_cast<int>(io_thread_refs.size())) {
+                                groups[target.io_thread_id].push_back(
+                                    target.connection_id);
+                            }
+                        }
+                        for (auto& entry : groups) {
+                            io_thread_refs[entry.first]->postMulticast(
+                                entry.second, result.broadcast_frame);
+                        }
+                    }
+                    for (const chatbox::FileNotice& notice : result.notices) {
+                        chatbox::SessionBinding binding;
+                        if (notice.frame.empty() ||
+                            !sessions.find(notice.user_id, binding) ||
+                            binding.io_thread_id < 0 ||
+                            binding.io_thread_id >=
+                                static_cast<int>(io_thread_refs.size())) {
+                            continue;
+                        }
+                        io_thread_refs[binding.io_thread_id]->postMulticast(
+                            std::vector<uint64_t>{binding.connection_id},
+                            notice.frame);
+                    }
+                    if (io_thread_id < 0 ||
+                        io_thread_id >= static_cast<int>(io_thread_refs.size())) {
+                        return;
+                    }
+                    chatbox::IoThread* owner = io_thread_refs[io_thread_id];
+                    for (chatbox::Frame& response : result.responses) {
+                        owner->post([connection, response = std::move(response),
+                                     owner] {
+                            if (connection->closed()) {
+                                return;
+                            }
+                            owner->sendFrame(connection,
+                                             chatbox::encodeFrame(response));
+                        });
+                    }
                     return;
                 }
 

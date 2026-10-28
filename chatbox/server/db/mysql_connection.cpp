@@ -122,6 +122,8 @@ bool readHistoryPage(MYSQL_STMT* stmt, int limit, HistoryPage& page, std::string
     char reply_sender_buffer[129] = {0};
     char reply_content_buffer[2048] = {0};
     int recalled = 0;
+    int msg_type = 0;
+    uint64_t file_id = 0;
     unsigned long id_length = 0;
     unsigned long sender_length = 0;
     unsigned long nickname_length = 0;
@@ -141,7 +143,7 @@ bool readHistoryPage(MYSQL_STMT* stmt, int limit, HistoryPage& page, std::string
     bool reply_content_null = false;
     bool recalled_null = false;
 
-    MYSQL_BIND results[9] = {};
+    MYSQL_BIND results[11] = {};
     results[0].buffer_type = MYSQL_TYPE_LONGLONG;
     results[0].buffer = &id;
     results[0].buffer_length = sizeof(id);
@@ -190,6 +192,13 @@ bool readHistoryPage(MYSQL_STMT* stmt, int limit, HistoryPage& page, std::string
     results[8].buffer_length = sizeof(recalled);
     results[8].length = &recalled_length;
     results[8].is_null = &recalled_null;
+    results[9].buffer_type = MYSQL_TYPE_TINY;
+    results[9].buffer = &msg_type;
+    results[9].buffer_length = sizeof(msg_type);
+    results[10].buffer_type = MYSQL_TYPE_LONGLONG;
+    results[10].buffer = &file_id;
+    results[10].buffer_length = sizeof(file_id);
+    results[10].is_unsigned = true;
 
     if (mysql_stmt_bind_result(stmt, results) != 0) {
         error = mysql_stmt_error(stmt);
@@ -223,6 +232,8 @@ bool readHistoryPage(MYSQL_STMT* stmt, int limit, HistoryPage& page, std::string
             stringResult(reply_content_buffer, reply_content_length, reply_content_null,
                          sizeof(reply_content_buffer) - 1);
         message.recalled = !recalled_null && recalled != 0;
+        message.msg_type = static_cast<uint8_t>(msg_type);
+        message.file_id = file_id;
         rows.push_back(std::move(message));
     }
 
@@ -247,6 +258,8 @@ bool readSearchRows(MYSQL_STMT* stmt, int limit, std::vector<SearchResultRow>& r
     char content_buffer[2048] = {0};
     char created_buffer[32] = {0};
     int recalled = 0;
+    int msg_type = 0;
+    uint64_t file_id = 0;
     unsigned long id_length = 0;
     unsigned long sender_length = 0;
     unsigned long nickname_length = 0;
@@ -260,7 +273,7 @@ bool readSearchRows(MYSQL_STMT* stmt, int limit, std::vector<SearchResultRow>& r
     bool created_null = false;
     bool recalled_null = false;
 
-    MYSQL_BIND binds[6] = {};
+    MYSQL_BIND binds[8] = {};
     binds[0].buffer_type = MYSQL_TYPE_LONGLONG;
     binds[0].buffer = &id;
     binds[0].buffer_length = sizeof(id);
@@ -293,6 +306,13 @@ bool readSearchRows(MYSQL_STMT* stmt, int limit, std::vector<SearchResultRow>& r
     binds[5].buffer_length = sizeof(recalled);
     binds[5].length = &recalled_length;
     binds[5].is_null = &recalled_null;
+    binds[6].buffer_type = MYSQL_TYPE_TINY;
+    binds[6].buffer = &msg_type;
+    binds[6].buffer_length = sizeof(msg_type);
+    binds[7].buffer_type = MYSQL_TYPE_LONGLONG;
+    binds[7].buffer = &file_id;
+    binds[7].buffer_length = sizeof(file_id);
+    binds[7].is_unsigned = true;
 
     if (mysql_stmt_bind_result(stmt, binds) != 0) {
         error = mysql_stmt_error(stmt);
@@ -317,6 +337,8 @@ bool readSearchRows(MYSQL_STMT* stmt, int limit, std::vector<SearchResultRow>& r
         row.created_at = stringResult(created_buffer, created_length, created_null,
                                       sizeof(created_buffer) - 1);
         row.recalled = !recalled_null && recalled != 0;
+        row.msg_type = static_cast<uint8_t>(msg_type);
+        row.file_id = file_id;
         results.push_back(std::move(row));
     }
     error.clear();
@@ -1008,7 +1030,8 @@ bool MysqlConnection::listRoomHistory(int room_id, uint64_t after_id,
     Stmt stmt(mysql_,
               "SELECT m.id, m.sender_id, u.nickname, m.content, "
               "DATE_FORMAT(m.created_at, '%Y-%m-%d %H:%i:%s'), "
-              "m.reply_to_id, m.reply_sender_name, m.reply_content, m.recalled "
+              "m.reply_to_id, m.reply_sender_name, m.reply_content, m.recalled, "
+              "m.msg_type, m.file_id "
               "FROM messages m JOIN users u ON u.id = m.sender_id "
               "WHERE m.room_id = ? AND m.id > ? AND m.id < ? "
               "ORDER BY m.id DESC LIMIT ?",
@@ -1056,7 +1079,8 @@ bool MysqlConnection::listPrivateHistory(uint64_t user_id, uint64_t peer_id,
     Stmt stmt(mysql_,
               "SELECT m.id, m.sender_id, u.nickname, m.content, "
               "DATE_FORMAT(m.created_at, '%Y-%m-%d %H:%i:%s'), "
-              "m.reply_to_id, m.reply_sender_name, m.reply_content, m.recalled "
+              "m.reply_to_id, m.reply_sender_name, m.reply_content, m.recalled, "
+              "m.msg_type, m.file_id "
               "FROM private_messages m JOIN users u ON u.id = m.sender_id "
               "WHERE ((m.sender_id = ? AND m.receiver_id = ?) OR "
               "(m.sender_id = ? AND m.receiver_id = ?)) AND m.id < ? "
@@ -1273,7 +1297,8 @@ bool MysqlConnection::searchRoomMessages(int room_id, uint64_t after_id,
     }
     Stmt stmt(mysql_,
               "SELECT m.id, m.sender_id, u.nickname, m.content, "
-              "DATE_FORMAT(m.created_at, '%Y-%m-%d %H:%i:%s'), m.recalled "
+              "DATE_FORMAT(m.created_at, '%Y-%m-%d %H:%i:%s'), m.recalled, "
+              "m.msg_type, m.file_id "
               "FROM messages m JOIN users u ON u.id = m.sender_id "
               "WHERE m.room_id = ? AND m.id > ? AND m.content <> '' "
               "AND m.content LIKE ? ESCAPE '!' "
@@ -1317,7 +1342,8 @@ bool MysqlConnection::searchPrivateMessages(uint64_t user_id, uint64_t peer_id,
     }
     Stmt stmt(mysql_,
               "SELECT m.id, m.sender_id, u.nickname, m.content, "
-              "DATE_FORMAT(m.created_at, '%Y-%m-%d %H:%i:%s'), m.recalled "
+              "DATE_FORMAT(m.created_at, '%Y-%m-%d %H:%i:%s'), m.recalled, "
+              "m.msg_type, m.file_id "
               "FROM private_messages m JOIN users u ON u.id = m.sender_id "
               "WHERE ((m.sender_id = ? AND m.receiver_id = ?) OR "
               "(m.sender_id = ? AND m.receiver_id = ?)) "

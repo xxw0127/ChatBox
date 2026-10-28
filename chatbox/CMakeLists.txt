@@ -23,6 +23,7 @@ endif()
 add_library(chatbox_common
     common/protocol.cpp
     common/group_protocol.cpp
+    common/file_protocol.cpp
     common/text_utils.cpp
 )
 target_include_directories(chatbox_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -49,6 +50,7 @@ add_executable(chatbox_server
     server/config.cpp
     server/db/mysql_connection.cpp
     server/db/mysql_connection_groups.cpp
+    server/db/mysql_connection_files.cpp
     server/auth/password_hash.cpp
     server/auth/token.cpp
     server/auth/login_rate_limiter.cpp
@@ -59,6 +61,8 @@ add_executable(chatbox_server
     server/group/group_rules.cpp
     server/group/group_service.cpp
     server/file/file_rules.cpp
+    server/file/file_service.cpp
+    server/file/file_thumbnailer.cpp
     server/room/room_manager.cpp
     server/room/room_service.cpp
     server/private/private_service.cpp
@@ -133,3 +137,13 @@ add_executable(test_file_rules
 target_include_directories(test_file_rules PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_file_rules PRIVATE chatbox_common)
 add_test(NAME file_rules COMMAND test_file_rules)
+
+add_executable(test_file_protocol tests/test_file_protocol.cpp)
+target_link_libraries(test_file_protocol PRIVATE chatbox_common)
+add_test(NAME file_protocol COMMAND test_file_protocol)
+
+add_executable(test_file_thumbnail_logic
+    tests/test_file_thumbnail_logic.cpp
+    server/file/file_thumbnailer.cpp)
+target_include_directories(test_file_thumbnail_logic PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME file_thumbnail_logic COMMAND test_file_thumbnail_logic)

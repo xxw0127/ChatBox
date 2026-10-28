@@ -3,13 +3,14 @@
 #include <limits>
 #include <string>
 
+#include "common/file_protocol.h"
 #include "server/util/logging.h"
 
 namespace chatbox {
 
 namespace {
 
-constexpr std::size_t kMaxHistoryBody = 48 * 1024;
+constexpr std::size_t kMaxHistoryBody = 36 * 1024;
 
 std::size_t stringSize(const std::string& value) {
     return 2 + value.size();
@@ -136,6 +137,33 @@ Frame HistoryService::handle(const Frame& request, const RoomMember& caller) {
         }
     }
 
+    std::vector<uint16_t> meta_indices;
+    std::vector<FileMeta> meta_values;
+    for (std::size_t i = 0; i < page.messages.size(); ++i) {
+        if (page.messages[i].file_id == 0) {
+            continue;
+        }
+        FileEntry entry;
+        bool file_found = false;
+        if (!database_.findFileRecord(page.messages[i].file_id, entry, file_found,
+                                      error) ||
+            !file_found) {
+            continue;
+        }
+        FileMeta meta;
+        meta.file_id = entry.file_id;
+        meta.name = entry.name;
+        meta.size = entry.size;
+        meta.mime = entry.mime;
+        meta.sha256 = entry.sha256;
+        meta.thumb_available = entry.thumb_available;
+        meta.width = entry.width;
+        meta.height = entry.height;
+        meta.duration_ms = entry.duration_ms;
+        meta_indices.push_back(static_cast<uint16_t>(i));
+        meta_values.push_back(std::move(meta));
+    }
+
     std::size_t body_size = 8 + 8 + 2 + 1 + 8;
     std::size_t start = page.messages.size();
     for (std::size_t i = page.messages.size(); i > 0; --i) {
@@ -170,6 +198,20 @@ Frame HistoryService::handle(const Frame& request, const RoomMember& caller) {
         writer.putString(message.reply_sender_name);
         writer.putString(message.reply_content);
         writer.putU8(message.recalled ? 1 : 0);
+    }
+    uint16_t history_meta_count = 0;
+    for (const uint16_t index : meta_indices) {
+        if (index >= start) {
+            ++history_meta_count;
+        }
+    }
+    writer.putU16(history_meta_count);
+    for (std::size_t i = 0; i < meta_values.size(); ++i) {
+        if (meta_indices[i] < start) {
+            continue;
+        }
+        writer.putU16(static_cast<uint16_t>(meta_indices[i] - start));
+        appendFileMeta(writer, meta_values[i]);
     }
     response.body = writer.data();
     return response;
@@ -243,6 +285,33 @@ Frame HistoryService::handleSearch(const Frame& request, const RoomMember& calle
         return makeError(request.header.seq, 1001, "invalid search kind");
     }
 
+    std::vector<uint16_t> meta_indices;
+    std::vector<FileMeta> meta_values;
+    for (std::size_t i = 0; i < results.size(); ++i) {
+        if (results[i].file_id == 0) {
+            continue;
+        }
+        FileEntry entry;
+        bool file_found = false;
+        if (!database_.findFileRecord(results[i].file_id, entry, file_found,
+                                      error) ||
+            !file_found) {
+            continue;
+        }
+        FileMeta meta;
+        meta.file_id = entry.file_id;
+        meta.name = entry.name;
+        meta.size = entry.size;
+        meta.mime = entry.mime;
+        meta.sha256 = entry.sha256;
+        meta.thumb_available = entry.thumb_available;
+        meta.width = entry.width;
+        meta.height = entry.height;
+        meta.duration_ms = entry.duration_ms;
+        meta_indices.push_back(static_cast<uint16_t>(i));
+        meta_values.push_back(std::move(meta));
+    }
+
     std::size_t body_size = 2;
     std::size_t send_count = 0;
     for (const SearchResultRow& row : results) {
@@ -265,6 +334,20 @@ Frame HistoryService::handleSearch(const Frame& request, const RoomMember& calle
         writer.putString(row.content);
         writer.putString(row.created_at);
         writer.putU8(row.recalled ? 1 : 0);
+    }
+    uint16_t meta_count = 0;
+    for (const uint16_t index : meta_indices) {
+        if (index < send_count) {
+            ++meta_count;
+        }
+    }
+    writer.putU16(meta_count);
+    for (std::size_t i = 0; i < meta_values.size(); ++i) {
+        if (meta_indices[i] >= send_count) {
+            continue;
+        }
+        writer.putU16(meta_indices[i]);
+        appendFileMeta(writer, meta_values[i]);
     }
     response.body = writer.data();
     return response;

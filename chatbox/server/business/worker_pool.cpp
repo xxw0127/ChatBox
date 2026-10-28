@@ -11,11 +11,15 @@ constexpr std::size_t kMaxQueueSize = 10000;
 }  // namespace
 
 WorkerPool::WorkerPool(int thread_count, DbConfig database_config, SessionManager& sessions,
-                       RoomManager& rooms)
+                       RoomManager& rooms, std::string files_dir,
+                       std::string ffmpeg_path, std::string ffprobe_path)
     : thread_count_(thread_count),
       database_config_(std::move(database_config)),
       sessions_(sessions),
-      rooms_(rooms) {}
+      rooms_(rooms),
+      files_dir_(std::move(files_dir)),
+      ffmpeg_path_(std::move(ffmpeg_path)),
+      ffprobe_path_(std::move(ffprobe_path)) {}
 
 WorkerPool::~WorkerPool() {
     stop();
@@ -125,7 +129,9 @@ void WorkerPool::workerLoop(std::size_t index) {
     auto history = std::make_unique<HistoryService>(*database, rooms_);
     auto friend_chat = std::make_unique<FriendService>(*database, sessions_);
     auto profile = std::make_unique<ProfileService>(*database, sessions_);
-    auto group = std::make_unique<GroupService>(*database, rooms_);
+    auto group = std::make_unique<GroupService>(*database, rooms_, files_dir_);
+    auto file = std::make_unique<FileService>(*database, rooms_, files_dir_,
+                                             ffmpeg_path_, ffprobe_path_);
     {
         std::lock_guard<std::mutex> lock(startup_mutex_);
         ++ready_count_;
@@ -148,7 +154,8 @@ void WorkerPool::workerLoop(std::size_t index) {
         }
         if (task) {
             WorkerContext context{*database, *auth,        *room, *private_chat,
-                                  *history,   *friend_chat, *profile, *group};
+                                  *history,   *friend_chat, *profile, *group,
+                                  *file};
             task(context);
         }
     }
