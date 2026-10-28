@@ -79,6 +79,33 @@ void MainWindow::handleGroupMemberList(const QByteArray& body) {
         members.push_back(chatbox::client::groupMemberFromWire(wire));
     }
     group_store_.setMembers(room_id, members);
+    if (context_type_ != ContextType::Room ||
+        room_id != static_cast<uint32_t>(current_room_id_)) {
+        return;
+    }
+    member_list_->clear();
+    for (const chatbox::client::GroupMemberInfo& member : members) {
+        QString text = member.nickname;
+        if (member.role == 2) {
+            text += " · 群主";
+        } else if (member.role == 1) {
+            text += " · 管理员";
+        }
+        auto* item = new QListWidgetItem(text, member_list_);
+        item->setIcon(memberAvatarIcon(member.user_id, member.nickname, 28));
+        item->setSizeHint(QSize(0, 48));
+        item->setData(Qt::UserRole, QVariant::fromValue<qulonglong>(member.user_id));
+        item->setData(Qt::AccessibleTextRole,
+                      member.nickname + (member.online ? "，在线" : "，离线"));
+    }
+    const chatbox::client::GroupInfo* group =
+        group_store_.find(static_cast<quint64>(room_id));
+    if (member_count_label_ != nullptr) {
+        member_count_label_->setText(
+            group != nullptr
+                ? QString("%1 · %2 人").arg(group->name).arg(members.size())
+                : QString("成员 (%1)").arg(members.size()));
+    }
 }
 
 void MainWindow::handleGroupRequestList(const QByteArray& body) {
@@ -808,6 +835,12 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 room_id != static_cast<uint32_t>(current_room_id_)) {
                 break;
             }
+            // New clients use GROUP_MEMBER_LIST (durable members). The old
+            // ROOM_MEMBERS payload only contains online presence, so do not
+            // replace the durable list when a group is known.
+            if (group_store_.find(static_cast<quint64>(room_id)) != nullptr) {
+                break;
+            }
             if (member_count_label_ != nullptr) {
                 member_count_label_->setText(
                     QString("在线成员 (%1)").arg(count));
@@ -1123,7 +1156,6 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             loading_older_history_ = false;
             has_more_ = has_more != 0;
             next_before_id_ = next_before;
-            load_more_action_->setEnabled(has_more_);
             if (kind == 2 && !was_older_page) {
                 requestConversations();
             }

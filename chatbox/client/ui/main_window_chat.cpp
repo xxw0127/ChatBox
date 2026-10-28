@@ -280,6 +280,18 @@ void MainWindow::openMessageSearch() {
     message_search_dialog_->activateWindow();
 }
 
+void MainWindow::openMessageSearchWith(const QString& keyword) {
+    openMessageSearch();
+    if (message_search_dialog_ == nullptr) {
+        return;
+    }
+    const QString trimmed = keyword.trimmed();
+    message_search_dialog_->setKeyword(trimmed);
+    if (!trimmed.isEmpty()) {
+        requestMessageSearch(trimmed);
+    }
+}
+
 void MainWindow::requestMessageSearch(const QString& keyword) {
     if (message_search_dialog_ == nullptr || context_type_ == ContextType::None) {
         return;
@@ -380,7 +392,6 @@ void MainWindow::requestHistory(int kind, quint64 target, quint64 before_id) {
     writer.putU16(50);
     frame.body = writer.data();
     loading_older_history_ = before_id != 0;
-    load_more_action_->setEnabled(false);
     sendFrame(frame);
 }
 
@@ -585,6 +596,7 @@ void MainWindow::selectRoom(int room_id, const QString& name) {
     current_peer_id_ = 0;
     current_peer_name_ = name;
     context_label_->setText(name);
+    updateRightPanelVisibility();
     if (offline_mode_) {
         mention_button_->hide();
     } else {
@@ -611,7 +623,6 @@ void MainWindow::selectRoom(int room_id, const QString& name) {
                          static_cast<quint64>(room_id));
     // 分页状态先复位，再由本地首屏决定：
     // 离线时「还有没有更早的消息」完全由本地库说了算。
-    load_more_action_->setEnabled(false);
     has_more_ = false;
     loading_older_history_ = false;
     next_before_id_ = 0;
@@ -621,7 +632,12 @@ void MainWindow::selectRoom(int room_id, const QString& name) {
     renderCurrentConversation(ScrollMode::kBottom);
     member_list_->clear();
     if (member_count_label_ != nullptr) {
-        member_count_label_->setText("在线成员 (0)");
+        const chatbox::client::GroupInfo* group =
+            group_store_.find(static_cast<quint64>(room_id));
+        member_count_label_->setText(
+            group != nullptr
+                ? QString("%1 · %2 人").arg(group->name).arg(group->member_count)
+                : QStringLiteral("成员 (0)"));
     }
 
     if (offline_mode_) {
@@ -658,7 +674,12 @@ void MainWindow::selectPrivate(quint64 peer_id, const QString& nickname) {
     current_peer_id_ = peer_id;
     current_peer_name_ = nickname;
     peer_names_.insert(peer_id, nickname);
+    right_panel_profile_ = chatbox::client::UserProfile();
     context_label_->setText(nickname);
+    if (!offline_mode_) {
+        requestProfile(peer_id);
+    }
+    updateRightPanelVisibility();
     mention_button_->hide();
     updatePrivateHeaderAvatar(peer_id, nickname);
     context_avatar_->setCursor(Qt::PointingHandCursor);
@@ -679,7 +700,6 @@ void MainWindow::selectPrivate(quint64 peer_id, const QString& nickname) {
     }
     message_store_.reset(chatbox::client::ChatContext::kPrivate, peer_id);
     // 分页状态先复位，再由本地首屏决定（见 selectRoom）。
-    load_more_action_->setEnabled(false);
     has_more_ = false;
     loading_older_history_ = false;
     next_before_id_ = 0;
@@ -688,7 +708,7 @@ void MainWindow::selectPrivate(quint64 peer_id, const QString& nickname) {
     renderCurrentConversation(ScrollMode::kBottom);
     member_list_->clear();
     if (member_count_label_ != nullptr) {
-        member_count_label_->setText("在线成员 (0)");
+        member_count_label_->setText(nickname);
     }
     if (QListWidgetItem* item = findConversationItem(peer_id)) {
         item->setData(Qt::UserRole + 2, 0);
@@ -829,9 +849,6 @@ void MainWindow::resetContext() {
     }
     if (member_count_label_ != nullptr) {
         member_count_label_->setText("在线成员 (0)");
-    }
-    if (load_more_action_ != nullptr) {
-        load_more_action_->setEnabled(false);
     }
     updateChatEmptyState();
 }

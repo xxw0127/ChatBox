@@ -25,6 +25,7 @@ class MessageSearchDialog : public QDialog {
 public:
     explicit MessageSearchDialog(QWidget* parent = nullptr);
 
+    void setKeyword(const QString& keyword);
     void setResults(const QVector<MessageSearchResult>& results);
     void setBusy(bool busy);
     void setStatus(const QString& text, bool error = false);

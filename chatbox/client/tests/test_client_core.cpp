@@ -305,6 +305,7 @@ private slots:
     void groupStoreFiltersAndSorts();
     void groupDialogsValidateInput();
     void sidebarHasGroupTabs();
+    void rightSidebarHasRequiredPanels();
     void updateManifestParsesValid();
     void updateManifestRejectsInvalid();
     void updateVersionComparison();
@@ -2933,6 +2934,22 @@ void TestClientCore::sidebarHasGroupTabs() {
     QVERIFY(source.contains(QStringLiteral("QTabWidget")));
 }
 
+void TestClientCore::rightSidebarHasRequiredPanels() {
+    const QString source = readMainWindowSource();
+    QVERIFY(source.contains(QStringLiteral("RightSidebar")));
+    QVERIFY(source.contains(QStringLiteral("RightModeStack")));
+    QVERIFY(source.contains(QStringLiteral("RightMemberList")));
+    QVERIFY(source.contains(QStringLiteral("RightProfileCard")));
+    QVERIFY(source.contains(QStringLiteral("RightGroupSearch")));
+    QVERIFY(source.contains(QStringLiteral("RightPrivateSearch")));
+    QVERIFY(source.contains(QStringLiteral("RightFileButton")));
+    QVERIFY(!source.contains(QStringLiteral("more_menu_")));
+    const QString profile =
+        readClientSource(QStringLiteral("ui/main_window_profile.cpp"));
+    QVERIFY(profile.contains(QStringLiteral("void MainWindow::toggleRightPanel()")));
+    QVERIFY(profile.contains(QStringLiteral("right_panel_->setVisible")));
+}
+
 void TestClientCore::settingsMigrationMovesOldServerEndpoint() {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -3086,8 +3103,10 @@ void TestClientCore::headerUsesAvatarAndMoreMenu() {
              "load-more moved into the more menu");
     QVERIFY2(!source.contains(QStringLiteral("search_messages_button")),
              "message search moved out of the composer");
-    QVERIFY2(source.contains(QStringLiteral("more_button_->setPopupMode(QToolButton::InstantPopup)")),
-             "the header owns an instant-popup menu button");
+    QVERIFY2(source.contains(QStringLiteral("more_button_->setPopupMode(QToolButton::DelayedPopup)")),
+             "the header more control is a plain toggle");
+    QVERIFY2(source.contains(QStringLiteral("&MainWindow::toggleRightPanel")),
+             "the header more control opens the right sidebar");
     QVERIFY2(source.contains(QStringLiteral("more_button_->setIcon(chatbox::client::moreDotsIcon(")),
              "the header more control uses three filled dots");
     QVERIFY2(!source.contains(QStringLiteral("more_button_->setText")),
@@ -3098,9 +3117,12 @@ void TestClientCore::headerUsesAvatarAndMoreMenu() {
     const QString qss = readClientSource(QStringLiteral("resources/style.qss"));
     QVERIFY2(qss.contains(QStringLiteral("QToolButton#MoreButton::menu-indicator")),
              "the header more control must hide the menu indicator arrow");
-    QVERIFY2(source.contains(QStringLiteral("消息搜索")) &&
-                 source.contains(QStringLiteral("加载更早消息")),
-             "the more menu carries search and load-more");
+    QVERIFY2(!source.contains(QStringLiteral("more_menu_")),
+             "the header must not keep a popup menu");
+    QVERIFY2(source.contains(QStringLiteral("RightGroupSearch")),
+             "message search lives in the right sidebar");
+    QVERIFY2(source.contains(QStringLiteral("RightPrivateSearch")),
+             "private message search lives in the right sidebar");
     const QString avatar_click =
         functionSection(source, QStringLiteral("bool MainWindow::eventFilter("));
     QVERIFY2(avatar_click.contains(QStringLiteral("context_avatar_")) &&
@@ -3113,12 +3135,6 @@ void TestClientCore::headerUsesAvatarAndMoreMenu() {
         functionSection(source, QStringLiteral("void MainWindow::selectPrivate("));
     const QString reset_section =
         functionSection(source, QStringLiteral("void MainWindow::resetContext("));
-    QVERIFY2(room_section.contains(QStringLiteral("load_more_action_->setEnabled(false)")) &&
-                 private_section.contains(
-                     QStringLiteral("load_more_action_->setEnabled(false)")) &&
-                 reset_section.contains(
-                     QStringLiteral("load_more_action_->setEnabled(false)")),
-             "every context switch must disable load-more until history says otherwise");
     const QString search_section =
         functionSection(source, QStringLiteral("void MainWindow::openMessageSearch("));
     QVERIFY2(search_section.contains(QStringLiteral("ContextType::None")),
@@ -3612,8 +3628,8 @@ void TestClientCore::adaptiveLayoutUsesSplitter() {
     QVERIFY(source.contains(QStringLiteral("setHandleWidth(0)")));
     QVERIFY(source.contains(QStringLiteral("setMinimumWidth(240)")));
     QVERIFY(source.contains(QStringLiteral("setMaximumWidth(360)")));
-    QVERIFY(source.contains(QStringLiteral("setMinimumWidth(180)")));
-    QVERIFY(source.contains(QStringLiteral("setMaximumWidth(280)")));
+    QVERIFY(source.contains(QStringLiteral("setMinimumWidth(200)")));
+    QVERIFY(source.contains(QStringLiteral("setMaximumWidth(300)")));
     QVERIFY(source.contains(QStringLiteral("setStretchFactor(0, 0)")));
     QVERIFY(source.contains(QStringLiteral("setStretchFactor(1, 1)")));
     QVERIFY(source.contains(QStringLiteral("setStretchFactor(2, 0)")));

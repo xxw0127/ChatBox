@@ -444,34 +444,15 @@ QWidget* MainWindow::buildChatPage() {
     header_row->addWidget(context_label_, 1);
     more_button_ = new QToolButton(header);
     more_button_->setObjectName("MoreButton");
-    more_button_->setAccessibleName("更多");
+    more_button_->setAccessibleName("右侧栏");
     more_button_->setIcon(chatbox::client::moreDotsIcon(QColor(theme::kInk)));
     more_button_->setIconSize(QSize(20, 20));
-    more_button_->setToolTip("更多");
+    more_button_->setToolTip("打开/关闭右侧栏");
     more_button_->setFixedSize(32, 32);
     more_button_->setToolButtonStyle(Qt::ToolButtonIconOnly);
     more_button_->setArrowType(Qt::NoArrow);
-    more_button_->setPopupMode(QToolButton::InstantPopup);
-    more_menu_ = new QMenu(this);
-    more_menu_->addAction(QIcon(":/icons/message.png"), "消息搜索", this,
-                          &MainWindow::openMessageSearch);
-    load_more_action_ = more_menu_->addAction("加载更早消息", this,
-                                              &MainWindow::onLoadMoreClicked);
-    load_more_action_->setEnabled(false);
-    more_menu_->addSeparator();
-    // Member list is off by default: for most sessions the column is dead
-    // space. The switch lives here instead of a permanent header button.
-    show_members_action_ = more_menu_->addAction("显示成员列表");
-    show_members_action_->setCheckable(true);
-    show_members_action_->setChecked(member_panel_visible_);
-    connect(show_members_action_, &QAction::toggled, this, [this](bool shown) {
-        member_panel_visible_ = shown;
-        QSettings settings;
-        settings.setValue(QStringLiteral("settings/member_panel"), shown);
-        settings.sync();
-        updateRightPanelVisibility();
-    });
-    more_button_->setMenu(more_menu_);
+    more_button_->setPopupMode(QToolButton::DelayedPopup);
+    connect(more_button_, &QToolButton::clicked, this, &MainWindow::toggleRightPanel);
     header_row->addWidget(more_button_);
     header_layout->addLayout(header_row);
     center->addWidget(header);
@@ -547,27 +528,100 @@ QWidget* MainWindow::buildChatPage() {
 
     right_panel_ = new QWidget(page);
     right_panel_->setObjectName("RightSidebar");
-    right_panel_->setMinimumWidth(180);
-    right_panel_->setMaximumWidth(280);
+    right_panel_->setMinimumWidth(200);
+    right_panel_->setMaximumWidth(300);
     auto* right = new QVBoxLayout(right_panel_);
     right->setContentsMargins(12, 12, 12, 12);
     right->setSpacing(6);
-    member_count_label_ = new QLabel("在线成员 (0)", right_panel_);
-    member_count_label_->setObjectName("SectionLabel");
-    right->addWidget(member_count_label_);
-    member_list_ = new QListWidget(right_panel_);
-    member_list_->setAccessibleName("在线成员");
+
+    auto* right_header_row = new QHBoxLayout();
+    member_count_label_ = new QLabel("成员", right_panel_);
+    member_count_label_->setObjectName("RightHeader");
+    right_header_row->addWidget(member_count_label_, 1);
+    right_settings_button_ = new QToolButton(right_panel_);
+    right_settings_button_->setObjectName("RightSettingsButton");
+    right_settings_button_->setText("⚙");
+    right_settings_button_->setToolTip("群设置");
+    right_settings_button_->setAutoRaise(true);
+    right_settings_button_->hide();
+    right_header_row->addWidget(right_settings_button_, 0, Qt::AlignVCenter);
+    right->addLayout(right_header_row);
+
+    right_mode_stack_ = new QStackedWidget(right_panel_);
+    right_mode_stack_->setObjectName("RightModeStack");
+
+    right_group_page_ = new QWidget(right_mode_stack_);
+    auto* group_layout = new QVBoxLayout(right_group_page_);
+    group_layout->setContentsMargins(0, 0, 0, 0);
+    group_layout->setSpacing(6);
+    right_group_search_ = new QLineEdit(right_group_page_);
+    right_group_search_->setObjectName("RightGroupSearch");
+    right_group_search_->setPlaceholderText("搜索消息");
+    group_layout->addWidget(right_group_search_);
+    member_list_ = new QListWidget(right_group_page_);
+    member_list_->setObjectName("RightMemberList");
+    member_list_->setAccessibleName("群成员");
     member_list_->setIconSize(QSize(28, 28));
     member_list_->setContextMenuPolicy(Qt::CustomContextMenu);
-    right->addWidget(member_list_, 1);
-    // The member panel only has meaning in a room; a private chat hides it
-    // entirely instead of leaving an empty column.
+    group_layout->addWidget(member_list_, 1);
+    right_group_file_button_ = new QPushButton("文件功能将在下一阶段开放", right_group_page_);
+    right_group_file_button_->setObjectName("RightFileButton");
+    right_group_file_button_->setEnabled(false);
+    group_layout->addWidget(right_group_file_button_);
+
+    right_private_page_ = new QWidget(right_mode_stack_);
+    auto* private_layout = new QVBoxLayout(right_private_page_);
+    private_layout->setContentsMargins(0, 0, 0, 0);
+    private_layout->setSpacing(8);
+    auto* profile_card = new QWidget(right_private_page_);
+    profile_card->setObjectName("RightProfileCard");
+    auto* profile_card_layout = new QVBoxLayout(profile_card);
+    profile_card_layout->setContentsMargins(8, 8, 8, 8);
+    profile_card_layout->setSpacing(4);
+    right_profile_avatar_ = new QLabel(profile_card);
+    right_profile_avatar_->setFixedSize(56, 56);
+    right_profile_avatar_->setAlignment(Qt::AlignCenter);
+    profile_card_layout->addWidget(right_profile_avatar_, 0, Qt::AlignHCenter);
+    right_profile_name_ = new QLabel(profile_card);
+    right_profile_name_->setObjectName("RightProfileName");
+    right_profile_name_->setAlignment(Qt::AlignCenter);
+    profile_card_layout->addWidget(right_profile_name_);
+    right_profile_id_ = new QLabel(profile_card);
+    right_profile_id_->setObjectName("RightProfileId");
+    right_profile_id_->setAlignment(Qt::AlignCenter);
+    right_profile_id_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    profile_card_layout->addWidget(right_profile_id_);
+    right_profile_signature_ = new QLabel(profile_card);
+    right_profile_signature_->setObjectName("RightProfileSignature");
+    right_profile_signature_->setWordWrap(true);
+    right_profile_signature_->setAlignment(Qt::AlignCenter);
+    profile_card_layout->addWidget(right_profile_signature_);
+    private_layout->addWidget(profile_card);
+    right_private_file_button_ =
+        new QPushButton("文件功能将在下一阶段开放", right_private_page_);
+    right_private_file_button_->setObjectName("RightFileButton");
+    right_private_file_button_->setEnabled(false);
+    private_layout->addWidget(right_private_file_button_);
+    private_layout->addStretch(1);
+    right_private_search_ = new QLineEdit(right_private_page_);
+    right_private_search_->setObjectName("RightPrivateSearch");
+    right_private_search_->setPlaceholderText("搜索消息");
+    private_layout->addWidget(right_private_search_);
+
+    right_mode_stack_->addWidget(right_group_page_);
+    right_mode_stack_->addWidget(right_private_page_);
+    right->addWidget(right_mode_stack_, 1);
     right_panel_->hide();
     splitter->addWidget(center_panel);
     splitter->addWidget(right_panel_);
     splitter->setStretchFactor(0, 0);
     splitter->setStretchFactor(1, 1);
     splitter->setStretchFactor(2, 0);
+
+    connect(right_group_search_, &QLineEdit::returnPressed, this,
+            [this] { openMessageSearchWith(right_group_search_->text()); });
+    connect(right_private_search_, &QLineEdit::returnPressed, this,
+            [this] { openMessageSearchWith(right_private_search_->text()); });
 
     connect(room_list_, &QListWidget::itemClicked, this, &MainWindow::onRoomClicked);
     connect(room_list_, &QListWidget::itemActivated, this, &MainWindow::onRoomClicked);

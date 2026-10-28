@@ -660,9 +660,6 @@ void MainWindow::loadInitialHistory(chatbox::client::ChatContext context,
     next_before_id_ = local.first().message_id;
     has_more_ = !history_store_.before(context, target_id, next_before_id_, 1)
                      .isEmpty();
-    if (load_more_action_ != nullptr) {
-        load_more_action_->setEnabled(has_more_);
-    }
 }
 
 // 进入离线模式：只读地显示本机保存的聊天记录，全程不发任何请求帧。
@@ -832,9 +829,6 @@ void MainWindow::loadOlderFromLocal() {
     }
     if (oldest == 0) {
         has_more_ = false;
-        if (load_more_action_ != nullptr) {
-            load_more_action_->setEnabled(false);
-        }
         setStatus("没有更早的本地记录");
         return;
     }
@@ -842,9 +836,6 @@ void MainWindow::loadOlderFromLocal() {
         history_store_.before(context, target_id, oldest, 50);
     if (page.isEmpty()) {
         has_more_ = false;
-        if (load_more_action_ != nullptr) {
-            load_more_action_->setEnabled(false);
-        }
         setStatus("没有更早的本地记录");
         return;
     }
@@ -853,9 +844,6 @@ void MainWindow::loadOlderFromLocal() {
     next_before_id_ = page_oldest;
     has_more_ = !history_store_.before(context, target_id, page_oldest, 1)
                      .isEmpty();
-    if (load_more_action_ != nullptr) {
-        load_more_action_->setEnabled(has_more_);
-    }
     renderCurrentConversation(ScrollMode::kTop);
     setStatus(QString("已加载 %1 条更早的本地记录").arg(page.size()));
 }

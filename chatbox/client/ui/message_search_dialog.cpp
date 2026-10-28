@@ -39,6 +39,14 @@ MessageSearchDialog::MessageSearchDialog(QWidget* parent) : QDialog(parent) {
             &MessageSearchDialog::submitSearch);
 }
 
+void MessageSearchDialog::setKeyword(const QString& keyword) {
+    if (search_edit_ != nullptr) {
+        search_edit_->setText(keyword);
+        search_edit_->selectAll();
+        search_edit_->setFocus();
+    }
+}
+
 void MessageSearchDialog::setResults(const QVector<MessageSearchResult>& results) {
     result_list_->clear();
     for (const MessageSearchResult& result : results) {

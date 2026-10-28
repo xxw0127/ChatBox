@@ -146,6 +146,7 @@ private:
     void requestUserSearch(const QString& keyword);
     void openUserSearch();
     void openMessageSearch();
+    void openMessageSearchWith(const QString& keyword);
     void requestMessageSearch(const QString& keyword);
     void refreshContacts();
     void requestProfile(quint64 user_id);
@@ -237,7 +238,8 @@ private:
     void rememberCurrentAccount();
     // 成员面板只在房间里出现，私聊与未选会话时整列收起。
     void updateRightPanelVisibility();
-    // 成员面板默认关闭，开关状态记在 QSettings 里。
+    void toggleRightPanel();
+    // 右侧栏默认关闭，开关状态记在 QSettings 里。
     bool member_panel_visible_ = false;
     void sendMarkRead(quint64 peer_id, quint64 message_id);
     QListWidgetItem* findConversationItem(quint64 peer_id) const;
@@ -273,9 +275,6 @@ private:
     QLabel* context_label_ = nullptr;
     QLabel* context_avatar_ = nullptr;
     QToolButton* more_button_ = nullptr;
-    QMenu* more_menu_ = nullptr;
-    QAction* load_more_action_ = nullptr;
-    QAction* show_members_action_ = nullptr;
     QLabel* connection_banner_ = nullptr;
     QWidget* banner_row_ = nullptr;
     QPushButton* reconnect_button_ = nullptr;
@@ -298,7 +297,20 @@ private:
     QPushButton* mention_button_ = nullptr;
     QPushButton* send_button_ = nullptr;
     QWidget* right_panel_ = nullptr;
+    QStackedWidget* right_mode_stack_ = nullptr;
+    QWidget* right_group_page_ = nullptr;
+    QWidget* right_private_page_ = nullptr;
     QLabel* member_count_label_ = nullptr;
+    QLineEdit* right_group_search_ = nullptr;
+    QLineEdit* right_private_search_ = nullptr;
+    QPushButton* right_group_file_button_ = nullptr;
+    QPushButton* right_private_file_button_ = nullptr;
+    QToolButton* right_settings_button_ = nullptr;
+    QLabel* right_profile_avatar_ = nullptr;
+    QLabel* right_profile_name_ = nullptr;
+    QLabel* right_profile_id_ = nullptr;
+    QLabel* right_profile_signature_ = nullptr;
+    chatbox::client::UserProfile right_panel_profile_;
     QLabel* friend_requests_badge_ = nullptr;
     QLabel* status_label_ = nullptr;
     QSystemTrayIcon* tray_ = nullptr;
