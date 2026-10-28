@@ -362,6 +362,8 @@ QWidget* MainWindow::buildChatPage() {
     group_list_->setFocusPolicy(Qt::StrongFocus);
     group_list_->setIconSize(QSize(30, 30));
     group_list_->setMinimumHeight(120);
+    group_list_->setTextElideMode(Qt::ElideRight);
+    group_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     group_list_->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
     groups_layout->addWidget(group_list_, 1);
 
@@ -583,6 +585,8 @@ QWidget* MainWindow::buildChatPage() {
     member_list_->setObjectName("RightMemberList");
     member_list_->setAccessibleName("群成员");
     member_list_->setIconSize(QSize(28, 28));
+    member_list_->setTextElideMode(Qt::ElideRight);
+    member_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     member_list_->setContextMenuPolicy(Qt::CustomContextMenu);
     group_layout->addWidget(member_list_, 1);
     auto* group_action_row = new QHBoxLayout();

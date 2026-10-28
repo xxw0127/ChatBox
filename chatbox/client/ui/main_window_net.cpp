@@ -1458,7 +1458,10 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 result.sender_id = sender_id;
                 result.nickname = nickname;
                 result.content = content;
-                result.created_at = created_at;
+                result.created_at =
+                    chatbox::client::parseServerUtc(created_at)
+                        .toLocalTime()
+                        .toString("yyyy-MM-dd HH:mm:ss");
                 result.recalled = recalled != 0;
                 results.push_back(result);
             }
