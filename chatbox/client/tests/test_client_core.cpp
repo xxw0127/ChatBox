@@ -1888,8 +1888,8 @@ void TestClientCore::jumpModeSkipsLiveAppend() {
         QStringLiteral("bool MainWindow::currentChatContext("));
     QVERIFY2(function.contains(QStringLiteral("if (jump_mode_)")),
              "live pushes must not append while the user reads an old page");
-    QVERIFY2(function.contains(QStringLiteral("message_store_.appendIncoming(")),
-             "the push must still be stored locally");
+    QVERIFY2(function.contains(QStringLiteral("return;")),
+             "the jump branch must leave the visible page untouched");
 }
 
 void TestClientCore::jumpModeShowsReturnButton() {

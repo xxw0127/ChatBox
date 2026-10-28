@@ -9,6 +9,9 @@
 | `ui-private-chat.png` | 私聊 |
 | `ui-message-actions.png` | 消息悬浮操作条 |
 | `ui-message-search.png` | 消息搜索 |
+| `ui-search-highlight.png` | 搜索跳转高亮 |
+| `ui-chat-avatars.png` | 消息头像、昵称与 UID |
+| `ui-mention-popup.png` | 输入 `@` 的成员面板 |
 | `ui-profile.png` | 个人资料 |
 | `ui-settings.png` | 设置 |
 | `ui-user-search.png` | 用户搜索 |

@@ -1002,9 +1002,9 @@ void MainWindow::addIncomingMessage(const chatbox::client::ChatMessage& message)
         return;
     }
     if (jump_mode_) {
-        // The visible page is an old window; keep the message without
-        // appending it after older records and creating a visible gap.
-        message_store_.appendIncoming(message);
+        // The push handler already persisted this message to history_store_.
+        // Appending it to the visible old page would create a gap the moment
+        // any unrelated path re-renders the store.
         return;
     }
     QScrollBar* bar = chat_view_->verticalScrollBar();

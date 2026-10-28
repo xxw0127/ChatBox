@@ -88,19 +88,24 @@ void MentionItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem& o
     name_font.setBold(true);
     painter->setFont(name_font);
     painter->setPen(primary);
-    const QRect name_rect(text_left, row.top() + 6, text_right - text_left, 18);
+    const QRect name_rect =
+        user_id == 0 ? QRect(text_left, row.top(), text_right - text_left,
+                             row.height())
+                     : QRect(text_left, row.top() + 6, text_right - text_left, 18);
     painter->drawText(name_rect, Qt::AlignLeft | Qt::AlignVCenter,
                       QFontMetrics(name_font).elidedText(name, Qt::ElideRight,
                                                          name_rect.width()));
 
-    QFont id_font = painter->font();
-    id_font.setPixelSize(11);
-    id_font.setBold(false);
-    painter->setFont(id_font);
-    painter->setPen(secondary);
-    const QRect id_rect(text_left, row.top() + 24, text_right - text_left, 15);
-    painter->drawText(id_rect, Qt::AlignLeft | Qt::AlignVCenter,
-                      public_id.isEmpty() ? QStringLiteral("ID -") : public_id);
+    if (user_id != 0) {
+        QFont id_font = painter->font();
+        id_font.setPixelSize(11);
+        id_font.setBold(false);
+        painter->setFont(id_font);
+        painter->setPen(secondary);
+        const QRect id_rect(text_left, row.top() + 24, text_right - text_left, 15);
+        painter->drawText(id_rect, Qt::AlignLeft | Qt::AlignVCenter,
+                          public_id.isEmpty() ? QStringLiteral("ID -") : public_id);
+    }
 
     painter->restore();
 }

@@ -45,6 +45,7 @@ MentionPopup::MentionPopup(QWidget* parent) : QFrame(parent) {
     list_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     list_->setSelectionMode(QAbstractItemView::SingleSelection);
     list_->setMouseTracking(true);
+    list_->setUniformItemSizes(true);
     list_->setItemDelegate(new MentionItemDelegate(list_));
     layout->addWidget(list_);
 
@@ -95,7 +96,7 @@ void MentionPopup::applyFilter(const QString& query) {
     if (list_->count() > 0) {
         list_->setCurrentRow(0);
     }
-    setFixedHeight(qMin(6, list_->count()) * 46 + 8);
+    setFixedHeight(qMin(6, list_->count()) * 46 + 12);
 }
 
 void MentionPopup::showAt(const QPoint& global_pos) {

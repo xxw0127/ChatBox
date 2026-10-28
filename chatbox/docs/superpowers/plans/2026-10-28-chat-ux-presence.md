@@ -100,15 +100,17 @@ git commit -m "refactor(client): remove hover message action bar"
   using AvatarSrcMap = QHash<quint64, QString>;
   QString renderMessageFragment(const chatbox::client::ChatMessage& message,
                                 quint64 self_user_id,
-                                const AvatarSrcMap& avatar_srcs,
                                 bool include_date_header,
                                 const QString& date_label,
-                                bool show_sender_name = true);
+                                bool show_sender_name = true,
+                                const AvatarSrcMap& avatar_srcs = {});
   QString renderConversationHtml(const QVector<chatbox::client::ChatMessage>& messages,
                                  quint64 self_user_id,
-                                 const AvatarSrcMap& avatar_srcs,
-                                 QVector<MessageKey>* rendered_messages = nullptr);
+                                 QVector<MessageKey>* rendered_messages = nullptr,
+                                 const AvatarSrcMap& avatar_srcs = {});
   ```
+  头像参数放在末尾并给默认值：现有 20+ 处测试调用无需全部改写，
+  Task 4 显式传值即可。
 - HTML 结构：顶层 `<table cellspacing=0 cellpadding=4>` 为消息范围；一个单元格放头像 `<img src="{src}" width="36" height="36">`，另一个单元格放「昵称 + ID」行和原来的 1px 包裹表 + 气泡表。对方头像在左、自己在右。正文 `line-height: 110%`。
 
 - [ ] **Step 1: 写失败测试**
@@ -163,10 +165,10 @@ git commit -m "feat(client): render avatars and public ids in messages"
   ```cpp
   void setConversationHtml(const QString& html,
                            const QVector<chatbox::client::MessageKey>& message_keys,
-                           const QHash<QString, QImage>& avatar_images);
+                           const QHash<QString, QImage>& avatar_images = {});
   void appendFragment(const QString& html,
                       const chatbox::client::MessageKey& key,
-                      const QHash<QString, QImage>& avatar_images);
+                      const QHash<QString, QImage>& avatar_images = {});
   ```
 - `MessageRange` 增加 `QTextTable* bubble_wrapper`（1px 外框表）与 `QTextTable* bubble`（真正气泡表）。
 
