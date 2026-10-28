@@ -351,6 +351,39 @@ bool MysqlConnection::updateFileUploadStatus(const std::string& upload_id,
     return execute(stmt.get(), error);
 }
 
+bool MysqlConnection::beginDbTransaction(std::string& error) {
+    if (!ensureConnected(error)) {
+        return false;
+    }
+    if (mysql_query(mysql_, "START TRANSACTION") != 0) {
+        error = mysql_error(mysql_);
+        return false;
+    }
+    return true;
+}
+
+bool MysqlConnection::commitDbTransaction(std::string& error) {
+    if (!ensureConnected(error)) {
+        return false;
+    }
+    if (mysql_query(mysql_, "COMMIT") != 0) {
+        error = mysql_error(mysql_);
+        return false;
+    }
+    return true;
+}
+
+bool MysqlConnection::rollbackDbTransaction(std::string& error) {
+    if (!ensureConnected(error)) {
+        return false;
+    }
+    if (mysql_query(mysql_, "ROLLBACK") != 0) {
+        error = mysql_error(mysql_);
+        return false;
+    }
+    return true;
+}
+
 bool MysqlConnection::expireFileUploads(std::string& error) {
     if (!ensureConnected(error)) {
         return false;

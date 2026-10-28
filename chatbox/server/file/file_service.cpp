@@ -400,10 +400,23 @@ FileResult FileService::handleUploadCommit(const Frame& request,
     if (cache->state.offset != cache->state.size) {
         return errorResult(request, 1004, "upload is incomplete");
     }
+    const std::string temp_path = files_dir_ + "/" + cache->state.temp_path;
+    auto abort_upload = [&]() {
+        if (cache->fd >= 0) {
+            ::close(cache->fd);
+            cache->fd = -1;
+        }
+        uploads_.erase(upload_id);
+        std::error_code cleanup_ec;
+        std::filesystem::remove(temp_path, cleanup_ec);
+        database_.updateFileUploadStatus(upload_id, 2, error);
+    };
     // Authorization and quota can change while the bytes are in flight.
     if (cache->state.kind == FileKind::kRoom) {
         if (!checkRoom(cache->state, caller, error)) {
-            return errorResult(request, 1003, error);
+            const std::string message = error;
+            abort_upload();
+            return errorResult(request, 1003, message);
         }
         std::vector<FileEntry> used_entries;
         uint32_t total = 0;
@@ -414,23 +427,30 @@ FileResult FileService::handleUploadCommit(const Frame& request,
             return errorResult(request, 2001, error);
         }
         if (used + cache->state.size > kMaxGroupFileBytes) {
+            abort_upload();
             return errorResult(request, 1004, "group file quota exceeded");
         }
     } else if (!checkPrivate(cache->state, caller, error)) {
-        return errorResult(request, 1003, error);
+        const std::string message = error;
+        abort_upload();
+        return errorResult(request, 1003, message);
     }
     if (cache->fd >= 0) {
         ::fsync(cache->fd);
     }
-    const std::string temp_path = files_dir_ + "/" + cache->state.temp_path;
     bool hash_ok = false;
     const std::string actual_sha = sha256File(temp_path, hash_ok);
     if (!hash_ok ||
         (!cache->state.sha256.empty() &&
          actual_sha != cache->state.sha256)) {
+        abort_upload();
         return errorResult(request, 1004, "sha256 mismatch");
     }
     cache->state.sha256 = actual_sha;
+
+    if (!database_.beginDbTransaction(error)) {
+        return errorResult(request, 2001, error);
+    }
 
     FileMeta meta;
     meta.name = cache->state.name;
@@ -441,7 +461,10 @@ FileResult FileService::handleUploadCommit(const Frame& request,
     if (!database_.insertFileRecord(caller.user_id, cache->state.kind,
                                     cache->state.target_id, meta, "", entry,
                                     error)) {
-        return errorResult(request, 2001, error);
+        const std::string message = error;
+        database_.rollbackDbTransaction(error);
+        abort_upload();
+        return errorResult(request, 2001, message);
     }
     const std::string relative = finalPath(entry.file_id);
     const std::string final_path = files_dir_ + "/" + relative;
@@ -450,13 +473,16 @@ FileResult FileService::handleUploadCommit(const Frame& request,
         std::filesystem::path(final_path).parent_path(), ec);
     std::filesystem::rename(temp_path, final_path, ec);
     if (ec) {
-        database_.deleteFileRecord(entry.file_id, error);
+        database_.rollbackDbTransaction(error);
+        abort_upload();
         return errorResult(request, 2001, "cannot store file");
     }
     if (!database_.setFileStoragePath(entry.file_id, relative, error)) {
+        const std::string message = error;
+        database_.rollbackDbTransaction(error);
         std::filesystem::remove(final_path, ec);
-        database_.deleteFileRecord(entry.file_id, error);
-        return errorResult(request, 2001, error);
+        abort_upload();
+        return errorResult(request, 2001, message);
     }
     std::string thumb_relative;
     if (isThumbnailMime(cache->state.mime)) {
@@ -492,20 +518,34 @@ FileResult FileService::handleUploadCommit(const Frame& request,
                 static_cast<int>(cache->state.target_id), caller.user_id,
                 cache->state.upload_id, content, entry.file_id, created_at,
                 message_id, error)) {
+            const std::string message = error;
+            database_.rollbackDbTransaction(error);
             rollback();
-            return errorResult(request, 2001, error);
+            abort_upload();
+            return errorResult(request, 2001, message);
         }
         if (!database_.setFileMessageId(entry.file_id, message_id, error)) {
-            database_.deleteFileMessage(message_id, true, error);
+            const std::string message = error;
+            database_.rollbackDbTransaction(error);
             rollback();
-            return errorResult(request, 2001, error);
+            abort_upload();
+            return errorResult(request, 2001, message);
         }
         if (!database_.setFileUploadCommitted(upload_id, message_id,
                                               entry.file_id, created_at,
                                               error)) {
-            database_.deleteFileMessage(message_id, true, error);
+            const std::string message = error;
+            database_.rollbackDbTransaction(error);
             rollback();
-            return errorResult(request, 2001, error);
+            abort_upload();
+            return errorResult(request, 2001, message);
+        }
+        if (!database_.commitDbTransaction(error)) {
+            const std::string message = error;
+            database_.rollbackDbTransaction(error);
+            rollback();
+            abort_upload();
+            return errorResult(request, 2001, message);
         }
         FileResult result = successResult(
             request, encodeUploadCommitResponse(message_id, entry.file_id,
@@ -528,19 +568,33 @@ FileResult FileService::handleUploadCommit(const Frame& request,
     if (!database_.insertPrivateFileMessage(
             caller.user_id, cache->state.target_id, cache->state.upload_id,
             content, entry.file_id, created_at, message_id, error)) {
+        const std::string message = error;
+        database_.rollbackDbTransaction(error);
         rollback();
-        return errorResult(request, 2001, error);
+        abort_upload();
+        return errorResult(request, 2001, message);
     }
     if (!database_.setFileMessageId(entry.file_id, message_id, error)) {
-        database_.deleteFileMessage(message_id, false, error);
+        const std::string message = error;
+        database_.rollbackDbTransaction(error);
         rollback();
-        return errorResult(request, 2001, error);
+        abort_upload();
+        return errorResult(request, 2001, message);
     }
     if (!database_.setFileUploadCommitted(upload_id, message_id, entry.file_id,
                                           created_at, error)) {
-        database_.deleteFileMessage(message_id, false, error);
+        const std::string message = error;
+        database_.rollbackDbTransaction(error);
         rollback();
-        return errorResult(request, 2001, error);
+        abort_upload();
+        return errorResult(request, 2001, message);
+    }
+    if (!database_.commitDbTransaction(error)) {
+        const std::string message = error;
+        database_.rollbackDbTransaction(error);
+        rollback();
+        abort_upload();
+        return errorResult(request, 2001, message);
     }
     FileResult result = successResult(
         request, encodeUploadCommitResponse(message_id, entry.file_id,

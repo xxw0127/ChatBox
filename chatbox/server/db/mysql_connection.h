@@ -262,6 +262,9 @@ public:
     bool updateFileUploadStatus(const std::string& upload_id, int status,
                                 std::string& error);
     bool expireFileUploads(std::string& error);
+    bool beginDbTransaction(std::string& error);
+    bool commitDbTransaction(std::string& error);
+    bool rollbackDbTransaction(std::string& error);
     bool setFileUploadCommitted(const std::string& upload_id,
                                 uint64_t message_id, uint64_t file_id,
                                 const std::string& created_at,

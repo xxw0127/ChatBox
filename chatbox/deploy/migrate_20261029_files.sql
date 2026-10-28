@@ -1,13 +1,30 @@
 -- One-time Phase 2 migration. Run against the chatbox database after a backup.
--- Re-running the ALTER statements fails; table creation is idempotent.
+-- Safe to re-run: every ADD COLUMN is guarded by information_schema.
 USE chatbox;
 
-ALTER TABLE messages
-    ADD COLUMN file_id BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER msg_type;
+SET @ddl = (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE messages ADD COLUMN file_id BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER msg_type',
+    'SELECT 1')
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'messages'
+    AND column_name = 'file_id');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-ALTER TABLE private_messages
-    ADD COLUMN msg_type TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER client_msg_id,
-    ADD COLUMN file_id BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER msg_type;
+SET @ddl = (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE private_messages ADD COLUMN msg_type TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER client_msg_id',
+    'SELECT 1')
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'private_messages'
+    AND column_name = 'msg_type');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE private_messages ADD COLUMN file_id BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER msg_type',
+    'SELECT 1')
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'private_messages'
+    AND column_name = 'file_id');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS files (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
