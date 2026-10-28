@@ -33,6 +33,7 @@ SOURCES += \
     ../ui/message_input.cpp \
     ../ui/mention_popup.cpp \
     ../ui/mention_item_delegate.cpp \
+    ../ui/message_search_dialog.cpp \
     ../ui/profile_dialog.cpp \
     ../ui/login_page.cpp \
     ../ui/more_dots.cpp \
@@ -66,6 +67,7 @@ HEADERS += \
     ../ui/message_input.h \
     ../ui/mention_popup.h \
     ../ui/mention_item_delegate.h \
+    ../ui/message_search_dialog.h \
     ../ui/profile_dialog.h \
     ../ui/login_page.h \
     ../ui/more_dots.h \

@@ -15,6 +15,7 @@
 #include <QTextDocument>
 #include <QTextFrame>
 #include <QTextTable>
+#include <QTimer>
 
 #include "core/ui_theme.h"
 
@@ -295,6 +296,19 @@ void ChatView::paintRoundedBubbleCorners(QPainter& painter) {
                                    rect.height()),
                              canvas);
         }
+        if (flash_id_ != 0 && range.key.message_id == flash_id_) {
+            const QRectF flash_rect = QRectF(rect).adjusted(1, 1, -1, -1);
+            QColor fill(theme::kAccent);
+            fill.setAlpha(40);
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(fill);
+            painter.drawRoundedRect(flash_rect, kRadius - 1, kRadius - 1);
+            QPen flash_pen(QColor(theme::kAccent));
+            flash_pen.setWidthF(2.0);
+            painter.setPen(flash_pen);
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRoundedRect(flash_rect, kRadius, kRadius);
+        }
     }
     painter.restore();
 }
@@ -309,6 +323,48 @@ QRect ChatView::messageOuterBubbleRect(quint64 message_id) const {
         }
     }
     return QRect();
+}
+
+void ChatView::scrollToMessage(quint64 message_id, bool flash) {
+    if (message_id == 0) {
+        return;
+    }
+    for (const MessageRange& range : message_ranges_) {
+        if (range.key.message_id != message_id) {
+            continue;
+        }
+        const QRect rect = outerBubbleRect(range);
+        if (rect.isNull()) {
+            return;
+        }
+        QScrollBar* bar = verticalScrollBar();
+        const int delta = rect.center().y() - viewport()->height() / 2;
+        bar->setValue(qBound(0, bar->value() + delta, bar->maximum()));
+        if (flash) {
+            flashMessage(message_id);
+        }
+        return;
+    }
+}
+
+void ChatView::flashMessage(quint64 message_id) {
+    flash_id_ = message_id;
+    if (bubble_overlay_ != nullptr) {
+        bubble_overlay_->update();
+    }
+    QTimer::singleShot(1800, this, [this, message_id] {
+        if (flash_id_ != message_id) {
+            return;
+        }
+        flash_id_ = 0;
+        if (bubble_overlay_ != nullptr) {
+            bubble_overlay_->update();
+        }
+    });
+}
+
+quint64 ChatView::highlightedMessageId() const {
+    return flash_id_;
 }
 
 QRect ChatView::messageBubbleRect(quint64 message_id) const {

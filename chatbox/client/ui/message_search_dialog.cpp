@@ -37,6 +37,20 @@ MessageSearchDialog::MessageSearchDialog(QWidget* parent) : QDialog(parent) {
             &MessageSearchDialog::submitSearch);
     connect(search_edit_, &QLineEdit::returnPressed, this,
             &MessageSearchDialog::submitSearch);
+    connect(result_list_, &QListWidget::itemClicked, this,
+            &MessageSearchDialog::emitJump);
+    connect(result_list_, &QListWidget::itemActivated, this,
+            &MessageSearchDialog::emitJump);
+}
+
+void MessageSearchDialog::emitJump(QListWidgetItem* item) {
+    if (item == nullptr) {
+        return;
+    }
+    const quint64 message_id = item->data(Qt::UserRole).toULongLong();
+    if (message_id != 0) {
+        emit jumpRequested(message_id);
+    }
 }
 
 void MessageSearchDialog::setResults(const QVector<MessageSearchResult>& results) {

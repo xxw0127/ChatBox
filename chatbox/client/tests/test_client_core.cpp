@@ -73,6 +73,7 @@
 #include "ui/login_page.h"
 #include "ui/message_input.h"
 #include "ui/mention_popup.h"
+#include "ui/message_search_dialog.h"
 #include "ui/profile_dialog.h"
 #include "ui/settings_dialog.h"
 #include "ui/update_dialog.h"
@@ -284,6 +285,8 @@ private slots:
     void typingAtOpensMentionPopup();
     void privateChatClosesMentionPopup();
     void atAllNotificationMatchesEveryone();
+    void messageSearchEmitsJumpOnClick();
+    void chatViewScrollsToMessageAndFlashes();
     void contactStorePersistsAndUpdates();
     void avatarCenterCrop();
     void avatarCompressionLimit();
@@ -1807,6 +1810,65 @@ void TestClientCore::chatViewStylesRetryLink() {
         }
     }
     QVERIFY(inspected);
+}
+
+void TestClientCore::messageSearchEmitsJumpOnClick() {
+    MessageSearchDialog dialog;
+    MessageSearchResult first;
+    first.message_id = 11;
+    first.nickname = "Alice";
+    first.content = "hello";
+    first.created_at = "2026-10-18 12:00:00";
+    MessageSearchResult second = first;
+    second.message_id = 12;
+    second.content = "world";
+    dialog.setResults({first, second});
+    dialog.show();
+    QTest::qWait(30);
+
+    auto* list = dialog.findChild<QListWidget*>();
+    QVERIFY(list != nullptr);
+    QCOMPARE(list->count(), 2);
+
+    QSignalSpy spy(&dialog, &MessageSearchDialog::jumpRequested);
+    QTest::mouseClick(list->viewport(), Qt::LeftButton, Qt::NoModifier,
+                      list->visualItemRect(list->item(0)).center());
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.at(0).at(0).toULongLong(), qulonglong(11));
+    dialog.close();
+}
+
+void TestClientCore::chatViewScrollsToMessageAndFlashes() {
+    const QDateTime created = chatbox::client::parseServerUtc("2026-10-18 12:00:00");
+    QVector<chatbox::client::ChatMessage> messages;
+    for (int i = 1; i <= 60; ++i) {
+        chatbox::client::ChatMessage message;
+        message.message_id = static_cast<quint64>(i);
+        message.sender_id = 2;
+        message.sender_name = "Bob";
+        message.content = QStringLiteral("body %1").arg(i);
+        message.created_at_utc = created.addSecs(i);
+        messages.push_back(message);
+    }
+    QVector<chatbox::client::MessageKey> keys;
+    const QString html =
+        chatbox::client::renderConversationHtml(messages, 1, &keys);
+
+    ChatView view;
+    view.resize(560, 240);
+    view.show();
+    QTest::qWait(50);
+    view.setConversationHtml(html, keys);
+    QTest::qWait(30);
+
+    QScrollBar* bar = view.verticalScrollBar();
+    bar->setValue(0);
+    view.scrollToMessage(50, true);
+    QVERIFY2(bar->value() > 0, "jump must move the scrollbar to the target");
+    QCOMPARE(view.highlightedMessageId(), quint64(50));
+    QVERIFY(view.messageBubbleRect(50).intersects(view.viewport()->rect()));
+
+    QTRY_VERIFY_WITH_TIMEOUT(view.highlightedMessageId() == 0, 3000);
 }
 
 void TestClientCore::contactStorePersistsAndUpdates() {

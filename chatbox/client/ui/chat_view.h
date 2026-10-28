@@ -61,6 +61,10 @@ public:
     // rounded-corner painting bounds. Primarily useful for visual guards.
     QRect messageOuterBubbleRect(quint64 message_id) const;
 
+    // Scrolls the bubble into view and optionally flashes it for 1.8s.
+    void scrollToMessage(quint64 message_id, bool flash);
+    quint64 highlightedMessageId() const;
+
 signals:
     void messageMenuRequested(quint64 message_id, const QString& client_msg_id,
                               const QPoint& global_pos);
@@ -83,6 +87,7 @@ private:
 
     void buildMessageRanges(const QVector<chatbox::client::MessageKey>& message_keys);
     void registerAvatarImages(const QHash<QString, QImage>& avatar_images);
+    void flashMessage(quint64 message_id);
     QRect outerBubbleRect(const MessageRange& range) const;
     void paintRoundedBubbleCorners(QPainter& painter);
     bool messageKeyAtPosition(int position,
@@ -92,6 +97,7 @@ private:
 
     QVector<MessageRange> message_ranges_;
     QWidget* bubble_overlay_ = nullptr;
+    quint64 flash_id_ = 0;
 };
 
 #endif  // CHATBOX_CLIENT_UI_CHAT_VIEW_H
