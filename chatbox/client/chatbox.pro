@@ -63,6 +63,8 @@ SOURCES += \
     ui/main_window_net.cpp \
     ui/group_create_dialog.cpp \
     ui/group_join_dialog.cpp \
+    ui/group_settings_dialog.cpp \
+    ui/group_notify_dialog.cpp \
     ui/main_window_profile.cpp \
     ui/main_window_tray.cpp \
     ui/message_search_dialog.cpp \
@@ -115,10 +117,10 @@ HEADERS += \
     ui/main_window_support.h \
     ui/group_create_dialog.h \
     ui/group_join_dialog.h \
+    ui/group_settings_dialog.h \
+    ui/group_notify_dialog.h \
     ui/message_search_dialog.h \
     ui/settings_dialog.h \
-    ui/group_create_dialog.h \
-    ui/group_join_dialog.h \
     ui/update_dialog.h \
     ui/user_search_dialog.h \
     ui/profile_dialog.h

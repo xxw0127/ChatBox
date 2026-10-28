@@ -76,6 +76,8 @@
 #include "ui/settings_dialog.h"
 #include "ui/group_create_dialog.h"
 #include "ui/group_join_dialog.h"
+#include "ui/group_notify_dialog.h"
+#include "ui/group_settings_dialog.h"
 #include "ui/update_dialog.h"
 #include "ui/account_switcher_dialog.h"
 
@@ -306,6 +308,8 @@ private slots:
     void groupDialogsValidateInput();
     void sidebarHasGroupTabs();
     void rightSidebarHasRequiredPanels();
+    void scrollLoadsOlderAndJumpsToSearchHit();
+    void groupSettingsRespectsRoles();
     void updateManifestParsesValid();
     void updateManifestRejectsInvalid();
     void updateVersionComparison();
@@ -2948,6 +2952,95 @@ void TestClientCore::rightSidebarHasRequiredPanels() {
         readClientSource(QStringLiteral("ui/main_window_profile.cpp"));
     QVERIFY(profile.contains(QStringLiteral("void MainWindow::toggleRightPanel()")));
     QVERIFY(profile.contains(QStringLiteral("right_panel_->setVisible")));
+}
+
+void TestClientCore::scrollLoadsOlderAndJumpsToSearchHit() {
+    const QString window = readMainWindowSource();
+    const QString chat =
+        readClientSource(QStringLiteral("ui/main_window_chat.cpp"));
+    const QString net =
+        readClientSource(QStringLiteral("ui/main_window_net.cpp"));
+    const QString search =
+        readClientSource(QStringLiteral("ui/message_search_dialog.cpp"));
+    QVERIFY(window.contains(QStringLiteral("maybeLoadOlder();")));
+    QVERIFY(!window.contains(QStringLiteral("load_more_action_")));
+    QVERIFY(chat.contains(QStringLiteral("ScrollMode::kPreserveAnchor")));
+    QVERIFY(chat.contains(QStringLiteral("previous_max")));
+    QVERIFY(chat.contains(QStringLiteral("void MainWindow::jumpToMessage")));
+    QVERIFY(net.contains(QStringLiteral("ScrollMode::kPreserveAnchor")));
+    QVERIFY(search.contains(QStringLiteral("resultActivated")));
+}
+
+void TestClientCore::groupSettingsRespectsRoles() {
+    chatbox::client::GroupInfo group;
+    group.room_id = 2;
+    group.name = QStringLiteral("设计群");
+    group.group_no = QStringLiteral("10000002");
+    group.role = 2;
+    chatbox::client::GroupMemberInfo owner;
+    owner.user_id = 1;
+    owner.nickname = QStringLiteral("阿A");
+    owner.role = 2;
+    chatbox::client::GroupMemberInfo member;
+    member.user_id = 2;
+    member.nickname = QStringLiteral("阿B");
+    member.role = 0;
+    GroupSettingsDialog dialog(group, {owner, member}, 1);
+    auto* disband =
+        dialog.findChild<QPushButton*>(QStringLiteral("GroupDisbandButton"));
+    auto* rename =
+        dialog.findChild<QPushButton*>(QStringLiteral("GroupRenameButton"));
+    auto* admin_list =
+        dialog.findChild<QListWidget*>(QStringLiteral("GroupMemberAdminList"));
+    auto* remove =
+        dialog.findChild<QPushButton*>(QStringLiteral("GroupRemoveMemberButton"));
+    QVERIFY(disband != nullptr);
+    QVERIFY(rename != nullptr);
+    QVERIFY(admin_list != nullptr);
+    QVERIFY(remove != nullptr);
+    QVERIFY(!disband->isHidden());
+    QVERIFY(rename->isEnabled());
+    QCOMPARE(admin_list->count(), 2);
+    admin_list->setCurrentRow(1);
+    QVERIFY(remove->isEnabled());
+
+    group.is_default = true;
+    GroupSettingsDialog default_dialog(group, {owner}, 1);
+    auto* default_disband =
+        default_dialog.findChild<QPushButton*>(QStringLiteral("GroupDisbandButton"));
+    QVERIFY(default_disband != nullptr);
+    QVERIFY(default_disband->isHidden());
+
+    group.is_default = false;
+    group.role = 0;
+    GroupSettingsDialog member_dialog(group, {owner, member}, 2);
+    auto* member_rename =
+        member_dialog.findChild<QPushButton*>(QStringLiteral("GroupRenameButton"));
+    QVERIFY(member_rename != nullptr);
+    QVERIFY(!member_rename->isEnabled());
+
+    chatbox::client::GroupRequestInfo request;
+    request.request_id = 9;
+    request.nickname = QStringLiteral("阿C");
+    request.message = QStringLiteral("想加入");
+    chatbox::client::GroupRequestInfo invite;
+    invite.request_id = 10;
+    invite.nickname = QStringLiteral("阿D");
+    invite.room_name = QStringLiteral("设计群");
+    GroupNotifyDialog notify;
+    notify.setData({request}, {invite}, true);
+    auto* list = notify.findChild<QListWidget*>(QStringLiteral("GroupNotifyList"));
+    auto* accept =
+        notify.findChild<QPushButton*>(QStringLiteral("GroupNotifyAccept"));
+    QVERIFY(list != nullptr);
+    QVERIFY(accept != nullptr);
+    QCOMPARE(list->count(), 2);
+    list->setCurrentRow(0);
+    QVERIFY(accept->isEnabled());
+    QSignalSpy spy(&notify, &GroupNotifyDialog::actionRequested);
+    accept->click();
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.takeFirst().at(0).toInt(), 0);
 }
 
 void TestClientCore::settingsMigrationMovesOldServerEndpoint() {

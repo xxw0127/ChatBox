@@ -844,7 +844,7 @@ void MainWindow::loadOlderFromLocal() {
     next_before_id_ = page_oldest;
     has_more_ = !history_store_.before(context, target_id, page_oldest, 1)
                      .isEmpty();
-    renderCurrentConversation(ScrollMode::kTop);
+    renderCurrentConversation(ScrollMode::kPreserveAnchor);
     setStatus(QString("已加载 %1 条更早的本地记录").arg(page.size()));
 }
 

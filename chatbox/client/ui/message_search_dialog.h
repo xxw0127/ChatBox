@@ -33,6 +33,7 @@ public:
 
 signals:
     void searchRequested(const QString& keyword);
+    void resultActivated(quint64 message_id);
 
 private slots:
     void submitSearch();

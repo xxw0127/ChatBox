@@ -146,6 +146,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                     chat_view_->clearHoverState();
                 }
                 hideMessageActionBar();
+                maybeLoadOlder();
             });
     if (message_action_bar_ != nullptr) {
         connect(message_action_bar_, &MessageActionBar::replyRequested, this, [this] {
@@ -622,6 +623,8 @@ QWidget* MainWindow::buildChatPage() {
             [this] { openMessageSearchWith(right_group_search_->text()); });
     connect(right_private_search_, &QLineEdit::returnPressed, this,
             [this] { openMessageSearchWith(right_private_search_->text()); });
+    connect(right_settings_button_, &QToolButton::clicked, this,
+            &MainWindow::openGroupSettings);
 
     connect(room_list_, &QListWidget::itemClicked, this, &MainWindow::onRoomClicked);
     connect(room_list_, &QListWidget::itemActivated, this, &MainWindow::onRoomClicked);

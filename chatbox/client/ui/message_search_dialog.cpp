@@ -37,6 +37,18 @@ MessageSearchDialog::MessageSearchDialog(QWidget* parent) : QDialog(parent) {
             &MessageSearchDialog::submitSearch);
     connect(search_edit_, &QLineEdit::returnPressed, this,
             &MessageSearchDialog::submitSearch);
+    connect(result_list_, &QListWidget::itemActivated, this,
+            [this](QListWidgetItem* item) {
+                if (item != nullptr) {
+                    emit resultActivated(item->data(Qt::UserRole).toULongLong());
+                }
+            });
+    connect(result_list_, &QListWidget::itemDoubleClicked, this,
+            [this](QListWidgetItem* item) {
+                if (item != nullptr) {
+                    emit resultActivated(item->data(Qt::UserRole).toULongLong());
+                }
+            });
 }
 
 void MessageSearchDialog::setKeyword(const QString& keyword) {

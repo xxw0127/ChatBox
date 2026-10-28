@@ -53,6 +53,8 @@ class UpdateDialog;
 class UserSearchDialog;
 class GroupCreateDialog;
 class GroupJoinDialog;
+class GroupSettingsDialog;
+class GroupNotifyDialog;
 class QTabWidget;
 
 namespace chatbox {
@@ -110,7 +112,7 @@ private slots:
 private:
     enum class PendingAuth { None, Login, Register };
     enum class ContextType { None, Room, Private };
-    enum class ScrollMode { kBottom, kTop, kPreserve };
+    enum class ScrollMode { kBottom, kTop, kPreserve, kPreserveAnchor };
 
     void buildUi();
     // Single entry point for colours baked into QPixmap/QIcon. Called on every
@@ -184,11 +186,14 @@ private:
     void copyMessageText(const chatbox::client::ChatMessage& message);
     void requestMembers(int room_id);
     void requestHistory(int kind, quint64 target, quint64 before_id);
+    void maybeLoadOlder();
+    void jumpToMessage(quint64 message_id);
     void selectRoom(int room_id, const QString& name);
     void selectGroup(quint64 room_id, const QString& name);
     void refreshGroupListView();
     void openCreateGroupDialog();
     void openJoinGroupDialog();
+    void openGroupSettings();
     void openGroupNotifications();
     void markGroupRead(quint64 room_id, quint64 message_id);
     void updateGroupNoticeBadge();
@@ -267,6 +272,8 @@ private:
     QPushButton* join_group_button_ = nullptr;
     GroupCreateDialog* group_create_dialog_ = nullptr;
     GroupJoinDialog* group_join_dialog_ = nullptr;
+    GroupSettingsDialog* group_settings_dialog_ = nullptr;
+    GroupNotifyDialog* group_notify_dialog_ = nullptr;
     FriendListWidget* conversation_list_ = nullptr;
     QStackedWidget* conversation_stack_ = nullptr;
     EmptyState* friends_empty_state_ = nullptr;
@@ -373,6 +380,7 @@ private:
     quint64 next_before_id_ = 0;
     bool has_more_ = false;
     bool loading_older_history_ = false;
+    quint64 pending_jump_message_id_ = 0;
     bool connected_ = false;
     bool online_ = false;
     // 离线模式：只读地显示本地记录，不发任何聊天/好友/资料请求。

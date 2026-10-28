@@ -273,6 +273,11 @@ void MainWindow::openMessageSearch() {
         message_search_dialog_ = new MessageSearchDialog(this);
         connect(message_search_dialog_, &MessageSearchDialog::searchRequested, this,
                 &MainWindow::requestMessageSearch);
+        connect(message_search_dialog_, &MessageSearchDialog::resultActivated, this,
+                [this](quint64 message_id) {
+                    jumpToMessage(message_id);
+                    message_search_dialog_->hide();
+                });
     }
     message_search_dialog_->clearResults();
     message_search_dialog_->show();
@@ -625,6 +630,7 @@ void MainWindow::selectRoom(int room_id, const QString& name) {
     // 离线时「还有没有更早的消息」完全由本地库说了算。
     has_more_ = false;
     loading_older_history_ = false;
+    pending_jump_message_id_ = 0;
     next_before_id_ = 0;
     loadInitialHistory(chatbox::client::ChatContext::kRoom,
                        static_cast<quint64>(room_id));
@@ -702,6 +708,7 @@ void MainWindow::selectPrivate(quint64 peer_id, const QString& nickname) {
     // 分页状态先复位，再由本地首屏决定（见 selectRoom）。
     has_more_ = false;
     loading_older_history_ = false;
+    pending_jump_message_id_ = 0;
     next_before_id_ = 0;
     loadInitialHistory(chatbox::client::ChatContext::kPrivate, peer_id);
     restorePendingForCurrentContext();
@@ -755,11 +762,18 @@ void MainWindow::retryConnection() {
 }
 
 void MainWindow::onLoadMoreClicked() {
-    if (!has_more_ || context_type_ == ContextType::None) {
+    maybeLoadOlder();
+}
+
+void MainWindow::maybeLoadOlder() {
+    if (!has_more_ || loading_older_history_ ||
+        context_type_ == ContextType::None) {
+        return;
+    }
+    if (chat_view_->verticalScrollBar()->value() > 40) {
         return;
     }
     if (offline_mode_) {
-        // 离线翻页走本地库，不发历史请求。
         loadOlderFromLocal();
         return;
     }
@@ -767,6 +781,29 @@ void MainWindow::onLoadMoreClicked() {
         requestHistory(1, static_cast<quint64>(current_room_id_), next_before_id_);
     } else {
         requestHistory(2, current_peer_id_, next_before_id_);
+    }
+}
+
+void MainWindow::jumpToMessage(quint64 message_id) {
+    if (message_id == 0 || context_type_ == ContextType::None) {
+        return;
+    }
+    const chatbox::client::ChatMessage* message =
+        message_store_.findMessage(message_id);
+    if (message != nullptr) {
+        const QRect rect = chat_view_->messageBubbleRect(message_id);
+        if (!rect.isNull()) {
+            QScrollBar* bar = chat_view_->verticalScrollBar();
+            bar->setValue(std::max(0, bar->value() + rect.top() - 48));
+        }
+        return;
+    }
+    pending_jump_message_id_ = message_id;
+    const quint64 before_id = message_id + 1;
+    if (context_type_ == ContextType::Room) {
+        requestHistory(1, static_cast<quint64>(current_room_id_), before_id);
+    } else {
+        requestHistory(2, current_peer_id_, before_id);
     }
 }
 
@@ -823,6 +860,7 @@ void MainWindow::resetContext() {
     message_store_.reset(chatbox::client::ChatContext::kRoom, 0);
     has_more_ = false;
     loading_older_history_ = false;
+    pending_jump_message_id_ = 0;
     next_before_id_ = 0;
     if (input_edit_ != nullptr) {
         input_edit_->clear();
@@ -856,6 +894,7 @@ void MainWindow::resetContext() {
 void MainWindow::renderCurrentConversation(ScrollMode mode) {
     QScrollBar* bar = chat_view_->verticalScrollBar();
     const int previous = bar->value();
+    const int previous_max = bar->maximum();
     hideMessageActionBar();
     QVector<chatbox::client::MessageKey> rendered_messages;
     chat_view_->setConversationHtml(
@@ -871,6 +910,9 @@ void MainWindow::renderCurrentConversation(ScrollMode mode) {
             break;
         case ScrollMode::kPreserve:
             bar->setValue(std::min(previous, bar->maximum()));
+            break;
+        case ScrollMode::kPreserveAnchor:
+            bar->setValue(std::max(0, previous + (bar->maximum() - previous_max)));
             break;
     }
     updateChatEmptyState();

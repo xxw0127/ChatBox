@@ -3,6 +3,8 @@
 #include "common/group_protocol.h"
 #include "core/group_types.h"
 #include "ui/group_join_dialog.h"
+#include "ui/group_notify_dialog.h"
+#include "ui/group_settings_dialog.h"
 
 bool MainWindow::sendGroupCommand(quint16 command, const std::string& body) {
     chatbox::Frame frame;
@@ -79,6 +81,10 @@ void MainWindow::handleGroupMemberList(const QByteArray& body) {
         members.push_back(chatbox::client::groupMemberFromWire(wire));
     }
     group_store_.setMembers(room_id, members);
+    if (group_settings_dialog_ != nullptr &&
+        room_id == static_cast<uint32_t>(current_room_id_)) {
+        group_settings_dialog_->setMembers(members);
+    }
     if (context_type_ != ContextType::Room ||
         room_id != static_cast<uint32_t>(current_room_id_)) {
         return;
@@ -128,6 +134,12 @@ void MainWindow::handleGroupRequestList(const QByteArray& body) {
         group_requests_ = requests;
     }
     updateGroupNoticeBadge();
+    if (group_notify_dialog_ != nullptr) {
+        const int role = group_store_.find(static_cast<quint64>(current_room_id_))
+                             ? group_store_.find(static_cast<quint64>(current_room_id_))->role
+                             : 0;
+        group_notify_dialog_->setData(group_requests_, group_invites_, role >= 1);
+    }
 }
 
 void MainWindow::handleGroupPush(const QByteArray& body) {
@@ -1148,7 +1160,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             const bool was_older_page = loading_older_history_;
             if (was_older_page) {
                 message_store_.prependHistory(page);
-                renderCurrentConversation(ScrollMode::kTop);
+                renderCurrentConversation(ScrollMode::kPreserveAnchor);
             } else {
                 message_store_.replaceHistory(page);
                 renderCurrentConversation(ScrollMode::kBottom);
@@ -1156,6 +1168,15 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             loading_older_history_ = false;
             has_more_ = has_more != 0;
             next_before_id_ = next_before;
+            if (pending_jump_message_id_ != 0) {
+                const quint64 target_message = pending_jump_message_id_;
+                pending_jump_message_id_ = 0;
+                if (message_store_.findMessage(target_message) != nullptr) {
+                    jumpToMessage(target_message);
+                } else {
+                    setStatus("消息不在当前可见范围内", true);
+                }
+            }
             if (kind == 2 && !was_older_page) {
                 requestConversations();
             }

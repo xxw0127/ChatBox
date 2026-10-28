@@ -6,6 +6,9 @@
 #include "core/group_types.h"
 #include "ui/group_create_dialog.h"
 #include "ui/group_join_dialog.h"
+#include "ui/group_notify_dialog.h"
+#include "ui/group_settings_dialog.h"
+#include "core/group_types.h"
 
 namespace {
 
@@ -169,14 +172,88 @@ void MainWindow::openJoinGroupDialog() {
     group_join_dialog_->activateWindow();
 }
 
+void MainWindow::openGroupSettings() {
+    if (context_type_ != ContextType::Room || current_room_id_ == 0) {
+        return;
+    }
+    const chatbox::client::GroupInfo* group =
+        group_store_.find(static_cast<quint64>(current_room_id_));
+    if (group == nullptr || group->role < 1) {
+        return;
+    }
+    requestGroupMembers(static_cast<quint64>(current_room_id_));
+    if (group_settings_dialog_ != nullptr) {
+        group_settings_dialog_->disconnect(this);
+        group_settings_dialog_->deleteLater();
+        group_settings_dialog_ = nullptr;
+    }
+    group_settings_dialog_ = new GroupSettingsDialog(
+        *group, group_store_.members(static_cast<quint64>(current_room_id_)),
+        user_id_, this);
+    group_settings_dialog_->setAttribute(Qt::WA_DeleteOnClose, true);
+    connect(group_settings_dialog_, &QObject::destroyed, this,
+            [this] { group_settings_dialog_ = nullptr; });
+    connect(group_settings_dialog_, &GroupSettingsDialog::renameRequested, this,
+            [this](quint64 room_id, const QString& name) {
+                chatbox::ByteWriter writer;
+                writer.putU32(static_cast<uint32_t>(room_id));
+                const QByteArray utf8 = name.toUtf8();
+                writer.putString(std::string(
+                    utf8.constData(), static_cast<std::size_t>(utf8.size())));
+                sendGroupCommand(chatbox::kCmdGroupUpdate, writer.data());
+            });
+    connect(group_settings_dialog_,
+            &GroupSettingsDialog::memberActionRequested, this,
+            [this](quint64 room_id, quint64 user_id, int action) {
+                chatbox::ByteWriter writer;
+                writer.putU32(static_cast<uint32_t>(room_id));
+                writer.putU64(user_id);
+                writer.putU8(static_cast<uint8_t>(action));
+                sendGroupCommand(chatbox::kCmdGroupMemberUpdate, writer.data());
+            });
+    connect(group_settings_dialog_, &GroupSettingsDialog::disbandRequested, this,
+            [this](quint64 room_id) {
+                chatbox::ByteWriter writer;
+                writer.putU32(static_cast<uint32_t>(room_id));
+                sendGroupCommand(chatbox::kCmdGroupDisband, writer.data());
+            });
+    connect(group_settings_dialog_, &GroupSettingsDialog::requestsRequested, this,
+            [this](quint64) { openGroupNotifications(); });
+    group_settings_dialog_->show();
+    group_settings_dialog_->raise();
+    group_settings_dialog_->activateWindow();
+}
+
 void MainWindow::openGroupNotifications() {
     requestGroupRequests(0);
     if (context_type_ == ContextType::Room && current_room_id_ != 0) {
         requestGroupRequests(current_room_id_);
     }
+    if (group_notify_dialog_ == nullptr) {
+        group_notify_dialog_ = new GroupNotifyDialog(this);
+        group_notify_dialog_->setAttribute(Qt::WA_DeleteOnClose, true);
+        connect(group_notify_dialog_, &QObject::destroyed, this,
+                [this] { group_notify_dialog_ = nullptr; });
+        connect(group_notify_dialog_, &GroupNotifyDialog::actionRequested, this,
+                [this](int type, quint64 id, bool accept) {
+                    chatbox::ByteWriter writer;
+                    writer.putU64(id);
+                    writer.putU8(accept ? 1 : 0);
+                    sendGroupCommand(type == 0 ? chatbox::kCmdGroupJoinRespond
+                                               : chatbox::kCmdGroupInviteRespond,
+                                     writer.data());
+                });
+    }
+    const int role = context_type_ == ContextType::Room
+                         ? (group_store_.find(static_cast<quint64>(current_room_id_))
+                                ? group_store_.find(static_cast<quint64>(current_room_id_))->role
+                                : 0)
+                         : 0;
+    group_notify_dialog_->setData(group_requests_, group_invites_, role >= 1);
+    group_notify_dialog_->show();
+    group_notify_dialog_->raise();
+    group_notify_dialog_->activateWindow();
     updateGroupNoticeBadge();
-    setStatus(QString("群通知：%1 条待处理")
-                  .arg(group_requests_.size() + group_invites_.size()));
 }
 
 void MainWindow::markGroupRead(quint64 room_id, quint64 message_id) {
