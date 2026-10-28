@@ -73,6 +73,7 @@
 #include "ui/message_input.h"
 #include "ui/message_action_bar.h"
 #include "ui/profile_dialog.h"
+#include "ui/file_manager_dialog.h"
 #include "ui/settings_dialog.h"
 #include "ui/group_create_dialog.h"
 #include "ui/group_join_dialog.h"
@@ -324,6 +325,7 @@ private slots:
     void updateInstallerExtractsZip();
     void updateMarkersRoundTrip();
     void historyDirectoryInsideInstallRejected();
+    void fileSaveDirectoryValidatesAndAvoidsCollisions();
     void updateHelperHasRollbackSafety();
     void updateServerSiteUsesHttps();
     void settingsMigrationNeverOverwritesCurrent();
@@ -340,6 +342,12 @@ private slots:
     void startupPolicyRequiresUsableTray();
     void unreadBadgesHonourAlertsSwitch();
     void historyStoreCreatesSchema();
+    void historyStoreMigratesV1();
+    void historyStorePendingUploadRoundTrip();
+    void historyStoreFileTaskRoundTrip();
+    void historyStoreFileDeleteIsConversationScoped();
+    void messageStoreConfirmsFileUpload();
+    void rendererFileCardShowsProgress();
     void historyStoreReportsOpenFailure();
     void historyStoreRejectsSecondInstance();
     void historyStoreSaveAndLoadRecent();
@@ -383,6 +391,7 @@ private slots:
     void offlineModeIsReadOnlyAndLocal();
     void settingsDialogShowsHistoryInfo();
     void settingsDialogExposesHistoryActions();
+    void fileManagerDialogBuilds();
 };
 
 void TestClientCore::parseServerUtc() {
@@ -2819,6 +2828,31 @@ void TestClientCore::historyDirectoryInsideInstallRejected() {
         install + QStringLiteral("/../sibling")));
 }
 
+void TestClientCore::fileSaveDirectoryValidatesAndAvoidsCollisions() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QString error;
+    QVERIFY(chatbox::client::validateFileSaveDirectory(dir.path(), &error));
+    QVERIFY(!chatbox::client::validateFileSaveDirectory(
+        QCoreApplication::applicationDirPath(), &error));
+    QVERIFY(!chatbox::client::validateFileSaveDirectory(QString(), &error));
+
+    QFile first(QDir(dir.path()).filePath(QStringLiteral("a.txt")));
+    QVERIFY(first.open(QIODevice::WriteOnly));
+    first.close();
+    const QString second =
+        chatbox::client::uniqueFilePath(dir.path(), QStringLiteral("a.txt"));
+    QCOMPARE(QFileInfo(second).fileName(), QStringLiteral("a (1).txt"));
+    QFile part(QDir(dir.path()).filePath(QStringLiteral("a (1).txt.part")));
+    QVERIFY(part.open(QIODevice::WriteOnly));
+    part.close();
+    const QString third =
+        chatbox::client::uniqueFilePath(dir.path(), QStringLiteral("a.txt"));
+    QCOMPARE(QFileInfo(third).fileName(), QStringLiteral("a (2).txt"));
+    QVERIFY(chatbox::client::defaultFileSaveDirectory().endsWith(
+        QStringLiteral("ChatBox")));
+}
+
 void TestClientCore::updateServerSiteUsesHttps() {
     const QString base = QCoreApplication::applicationDirPath() +
                          QStringLiteral("/../../..");
@@ -3384,9 +3418,21 @@ void TestClientCore::historyStoreCreatesSchema() {
         QVERIFY(db.isOpen());
         QVERIFY(db.tables().contains(QStringLiteral("messages")));
         QVERIFY(db.tables().contains(QStringLiteral("conversations")));
+        QVERIFY(db.tables().contains(QStringLiteral("pending_uploads")));
+        QVERIFY(db.tables().contains(QStringLiteral("files")));
+        QVERIFY(db.tables().contains(QStringLiteral("groups")));
+        QCOMPARE(store.schemaVersion(), 2);
+        QSqlQuery columns(db);
+        QVERIFY(columns.exec(QStringLiteral("PRAGMA table_info(messages)")));
+        QStringList column_names;
+        while (columns.next()) {
+            column_names << columns.value(1).toString();
+        }
+        QVERIFY(column_names.contains(QStringLiteral("file_id")));
+        QVERIFY(column_names.contains(QStringLiteral("transfer_state")));
         QSqlQuery version(db);
         QVERIFY(version.exec(QStringLiteral("PRAGMA user_version")) && version.next());
-        QCOMPARE(version.value(0).toInt(), 1);
+        QCOMPARE(version.value(0).toInt(), 2);
         QSqlQuery indexes(db);
         QVERIFY(indexes.exec(QStringLiteral("PRAGMA index_list(messages)")));
         QStringList index_names;
@@ -3402,6 +3448,232 @@ void TestClientCore::historyStoreCreatesSchema() {
 
 // A path that is a regular file can never host the database, so opening must
 // fail with a Chinese message instead of silently succeeding.
+void TestClientCore::historyStoreMigratesV1() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = QDir(dir.path()).filePath(QStringLiteral("history.sqlite"));
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"),
+                                                    QStringLiteral("v1_setup"));
+        db.setDatabaseName(path);
+        QVERIFY(db.open());
+        QSqlQuery query(db);
+        QVERIFY(query.exec(QStringLiteral(
+            "CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            " user_id INTEGER NOT NULL, context INTEGER NOT NULL,"
+            " target_id INTEGER NOT NULL, message_id INTEGER NOT NULL,"
+            " sender_id INTEGER NOT NULL, sender_name TEXT NOT NULL DEFAULT '',"
+            " content TEXT NOT NULL, created_at_utc TEXT NOT NULL,"
+            " reply_to_id INTEGER NOT NULL DEFAULT 0,"
+            " reply_sender_name TEXT NOT NULL DEFAULT '',"
+            " reply_content TEXT NOT NULL DEFAULT '',"
+            " recalled INTEGER NOT NULL DEFAULT 0,"
+            " outgoing INTEGER NOT NULL DEFAULT 0)")));
+        QVERIFY(query.exec(QStringLiteral(
+            "CREATE TABLE conversations (user_id INTEGER NOT NULL,"
+            " context INTEGER NOT NULL, target_id INTEGER NOT NULL,"
+            " title TEXT NOT NULL, last_message_id INTEGER NOT NULL DEFAULT 0,"
+            " last_content TEXT NOT NULL DEFAULT '',"
+            " last_time_utc TEXT NOT NULL DEFAULT '',"
+            " PRIMARY KEY (user_id, context, target_id))")));
+        QVERIFY(query.exec(QStringLiteral(
+            "INSERT INTO messages (user_id, context, target_id, message_id,"
+            " sender_id, content, created_at_utc) VALUES (7, 0, 1, 42, 4,"
+            " 'old', '2026-10-01 00:00:00')")));
+        QVERIFY(query.exec(QStringLiteral("PRAGMA user_version=1")));
+        db.close();
+    }
+    QSqlDatabase::removeDatabase(QStringLiteral("v1_setup"));
+
+    chatbox::client::HistoryStore store;
+    QString error;
+    QVERIFY2(store.open(dir.path(), 7, &error), qPrintable(error));
+    QCOMPARE(store.schemaVersion(), 2);
+    const QVector<chatbox::client::ChatMessage> messages =
+        store.recent(chatbox::client::ChatContext::kRoom, 1, 10);
+    QCOMPARE(messages.size(), 1);
+    QCOMPARE(messages[0].content, QStringLiteral("old"));
+    store.close();
+}
+
+void TestClientCore::historyStorePendingUploadRoundTrip() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    chatbox::client::HistoryStore store;
+    QString error;
+    QVERIFY2(store.open(dir.path(), 21, &error), qPrintable(error));
+
+    chatbox::client::HistoryStore::PendingUpload upload;
+    upload.upload_id = QStringLiteral("upload-1");
+    upload.context = chatbox::client::ChatContext::kRoom;
+    upload.target_id = 9;
+    upload.source_path = QStringLiteral("C:/tmp/a.txt");
+    upload.name = QStringLiteral("a.txt");
+    upload.size = 100;
+    upload.mime = QStringLiteral("text/plain");
+    upload.offset = 40;
+    upload.status = QStringLiteral("uploading");
+    QVERIFY(store.savePendingUpload(upload));
+
+    QVector<chatbox::client::HistoryStore::PendingUpload> pending =
+        store.pendingUploads();
+    QCOMPARE(pending.size(), 1);
+    QCOMPARE(pending[0].upload_id, QStringLiteral("upload-1"));
+    QCOMPARE(pending[0].offset, quint64(40));
+    QCOMPARE(pending[0].status, QStringLiteral("uploading"));
+
+    QVERIFY(store.updatePendingUpload(QStringLiteral("upload-1"), 100,
+                                      QStringLiteral("paused")));
+    pending = store.pendingUploads();
+    QCOMPARE(pending[0].offset, quint64(100));
+    QCOMPARE(pending[0].status, QStringLiteral("paused"));
+
+    QVERIFY(store.removePendingUpload(QStringLiteral("upload-1")));
+    QVERIFY(store.pendingUploads().isEmpty());
+    store.close();
+}
+
+void TestClientCore::historyStoreFileTaskRoundTrip() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    chatbox::client::HistoryStore store;
+    QString error;
+    QVERIFY2(store.open(dir.path(), 22, &error), qPrintable(error));
+
+    chatbox::client::HistoryStore::FileTask task;
+    task.file_id = 77;
+    task.context = chatbox::client::ChatContext::kPrivate;
+    task.target_id = 5;
+    task.message_id = 91;
+    task.name = QStringLiteral("resume.bin");
+    task.mime = QStringLiteral("application/octet-stream");
+    task.save_path = QStringLiteral("C:/Downloads/ChatBox/resume.bin.part");
+    task.state = QStringLiteral("downloading");
+    task.received = 256;
+    task.total = 1024;
+    QVERIFY(store.saveFileTask(task));
+
+    QVector<chatbox::client::HistoryStore::FileTask> tasks =
+        store.pendingFileTasks();
+    QCOMPARE(tasks.size(), 1);
+    QCOMPARE(tasks[0].file_id, quint64(77));
+    QCOMPARE(tasks[0].save_path, task.save_path);
+    QCOMPARE(tasks[0].received, quint64(256));
+
+    QVERIFY(store.updateFileTask(77, chatbox::client::ChatContext::kPrivate,
+                                 5, QStringLiteral("paused"), 512, 1024));
+    tasks = store.pendingFileTasks();
+    QCOMPARE(tasks[0].received, quint64(512));
+    QCOMPARE(tasks[0].state, QStringLiteral("paused"));
+
+    QVERIFY(store.removeFileTask(77, chatbox::client::ChatContext::kPrivate,
+                                 5));
+    QVERIFY(store.pendingFileTasks().isEmpty());
+    store.close();
+}
+
+void TestClientCore::messageStoreConfirmsFileUpload() {
+    chatbox::client::MessageStore store;
+    store.reset(chatbox::client::ChatContext::kRoom, 3);
+    chatbox::client::ChatMessage card;
+    card.client_msg_id = QStringLiteral("upload-task");
+    card.context = chatbox::client::ChatContext::kRoom;
+    card.target_id = 3;
+    card.sender_id = 1;
+    card.content = QStringLiteral("[文件] a.txt");
+    card.outgoing = true;
+    card.status = chatbox::client::MessageStatus::kSending;
+    card.type = chatbox::client::MessageType::kFile;
+    card.file.name = QStringLiteral("a.txt");
+    card.file.size = 100;
+    card.transfer_state = QStringLiteral("uploading");
+    card.transfer_progress = 40;
+    store.addPending(card);
+    QVERIFY(store.updateFileTransfer(QStringLiteral("upload-task"),
+                                     QStringLiteral("uploading"), 70));
+    QCOMPARE(store.findByClientId(QStringLiteral("upload-task"))
+                 ->transfer_progress,
+             quint64(70));
+    QVERIFY(store.confirmFileUpload(
+        QStringLiteral("upload-task"), 12, 34,
+        chatbox::client::parseServerUtc(QStringLiteral("2026-10-28 10:00:00"))));
+    const chatbox::client::ChatMessage* confirmed =
+        store.findByClientId(QStringLiteral("upload-task"));
+    QVERIFY(confirmed != nullptr);
+    QCOMPARE(confirmed->message_id, quint64(12));
+    QCOMPARE(confirmed->file.file_id, quint64(34));
+    QCOMPARE(confirmed->status, chatbox::client::MessageStatus::kSent);
+    QCOMPARE(confirmed->transfer_state, QStringLiteral("done"));
+}
+
+void TestClientCore::rendererFileCardShowsProgress() {
+    chatbox::client::ChatMessage message;
+    message.message_id = 15;
+    message.sender_id = 2;
+    message.sender_name = QStringLiteral("B");
+    message.content = QStringLiteral("[文件] report.pdf");
+    message.created_at_utc =
+        chatbox::client::parseServerUtc(QStringLiteral("2026-10-28 10:00:00"));
+    message.type = chatbox::client::MessageType::kFile;
+    message.file.file_id = 34;
+    message.file.name = QStringLiteral("report.pdf");
+    message.file.size = 200;
+    message.transfer_state = QStringLiteral("uploading");
+    message.transfer_progress = 100;
+    const QString html = chatbox::client::renderMessageFragment(
+        message, 1, false, QString(), false);
+    QVERIFY(html.contains(QStringLiteral("report.pdf")));
+    QVERIFY(html.contains(QStringLiteral("50%")));
+    QVERIFY(html.contains(QStringLiteral("file-open:///15")));
+
+    chatbox::client::ChatMessage pending = message;
+    pending.message_id = 0;
+    pending.transfer_state = QStringLiteral("queued");
+    const QString queued = chatbox::client::renderMessageFragment(
+        pending, 1, false, QString(), false);
+    QVERIFY(queued.contains(QStringLiteral("report.pdf")));
+    QVERIFY(!queued.contains(QStringLiteral("file-open://")));
+}
+
+void TestClientCore::historyStoreFileDeleteIsConversationScoped() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    chatbox::client::HistoryStore store;
+    QString error;
+    QVERIFY2(store.open(dir.path(), 33, &error), qPrintable(error));
+    chatbox::client::ChatMessage room;
+    room.message_id = 1;
+    room.context = chatbox::client::ChatContext::kRoom;
+    room.target_id = 1;
+    room.sender_id = 2;
+    room.content = QStringLiteral("room file");
+    room.type = chatbox::client::MessageType::kFile;
+    room.file.file_id = 10;
+    room.file.name = QStringLiteral("a.txt");
+    room.file.size = 10;
+    QVERIFY(store.saveMessage(room));
+    chatbox::client::ChatMessage private_chat = room;
+    private_chat.context = chatbox::client::ChatContext::kPrivate;
+    private_chat.target_id = 2;
+    private_chat.content = QStringLiteral("private file");
+    private_chat.file.file_id = 11;
+    QVERIFY(store.saveMessage(private_chat));
+
+    QVERIFY(store.markFileDeleted(chatbox::client::ChatContext::kRoom, 1, 1));
+    const QVector<chatbox::client::ChatMessage> room_rows =
+        store.recent(chatbox::client::ChatContext::kRoom, 1, 10);
+    QCOMPARE(room_rows.size(), 1);
+    QCOMPARE(room_rows[0].content,
+             QStringLiteral("\u6587\u4ef6\u5df2\u5220\u9664"));
+    QCOMPARE(room_rows[0].type, chatbox::client::MessageType::kText);
+    const QVector<chatbox::client::ChatMessage> private_rows =
+        store.recent(chatbox::client::ChatContext::kPrivate, 2, 10);
+    QCOMPARE(private_rows.size(), 1);
+    QCOMPARE(private_rows[0].content, QStringLiteral("private file"));
+    QCOMPARE(private_rows[0].type, chatbox::client::MessageType::kFile);
+    store.close();
+}
+
 void TestClientCore::historyStoreReportsOpenFailure() {
     QTemporaryDir dir;
     QFile blocker(dir.filePath(QStringLiteral("not-a-dir")));
@@ -4121,6 +4393,23 @@ void TestClientCore::settingsDialogShowsHistoryInfo() {
 }
 
 // 设置页的三个历史操作都要有中文文案，并落到 MainWindow 的落盘逻辑上。
+void TestClientCore::fileManagerDialogBuilds() {
+    FileManagerDialog dialog(1, 1, true);
+    QVector<chatbox::client::FileEntryView> entries(1);
+    entries[0].file_id = 9;
+    entries[0].name = QStringLiteral("a.txt");
+    entries[0].size = 12;
+    entries[0].uploader_name = QStringLiteral("A");
+    entries[0].can_delete = true;
+    dialog.setFiles(1, 12, entries);
+    auto* list = dialog.findChild<QListWidget*>(QStringLiteral("FileList"));
+    QVERIFY(list != nullptr);
+    QCOMPARE(list->count(), 1);
+    QVERIFY(dialog.findChild<QPushButton*>(
+                QStringLiteral("FileDownloadPauseButton")) != nullptr);
+    dialog.setBusy(false);
+}
+
 void TestClientCore::settingsDialogExposesHistoryActions() {
     const QString dialog = readClientSource(QStringLiteral("ui/settings_dialog.cpp"));
     QVERIFY(!dialog.isEmpty());

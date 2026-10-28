@@ -169,6 +169,59 @@ bool MessageStore::markSent(const QString& client_msg_id, quint64 message_id,
     return true;
 }
 
+bool MessageStore::updateFileTransfer(const QString& client_msg_id,
+                                      const QString& state,
+                                      quint64 progress) {
+    const int index = indexOfClientId(client_msg_id);
+    if (index < 0) {
+        return false;
+    }
+    messages_[index].transfer_state = state;
+    messages_[index].transfer_progress = progress;
+    return true;
+}
+
+bool MessageStore::confirmFileUpload(const QString& client_msg_id,
+                                     quint64 message_id, quint64 file_id,
+                                     const QDateTime& created_at_utc) {
+    const int index = indexOfClientId(client_msg_id);
+    if (index < 0) {
+        return false;
+    }
+    messages_[index].message_id = message_id;
+    messages_[index].file.file_id = file_id;
+    if (created_at_utc.isValid()) {
+        messages_[index].created_at_utc = created_at_utc;
+    }
+    messages_[index].status = MessageStatus::kSent;
+    messages_[index].transfer_state = QStringLiteral("done");
+    messages_[index].transfer_progress = messages_[index].file.size;
+    if (message_id != 0) {
+        for (int i = messages_.size() - 1; i >= 0; --i) {
+            if (i == index) {
+                continue;
+            }
+            if (messages_.at(i).message_id == message_id) {
+                messages_.removeAt(i);
+            }
+        }
+    }
+    const int final_index = indexOfClientId(client_msg_id);
+    if (final_index >= 0) {
+        persistMessage(messages_.at(final_index));
+    }
+    return true;
+}
+
+bool MessageStore::removeByClientId(const QString& client_msg_id) {
+    const int index = indexOfClientId(client_msg_id);
+    if (index < 0) {
+        return false;
+    }
+    messages_.removeAt(index);
+    return true;
+}
+
 bool MessageStore::markFailed(const QString& client_msg_id) {
     const int index = indexOfClientId(client_msg_id);
     if (index < 0) {
@@ -206,6 +259,52 @@ bool MessageStore::markRecalled(quint64 message_id) {
             }
             return true;
         }
+    }
+    return false;
+}
+
+bool MessageStore::updateFileMetadata(ChatContext context,
+                                      quint64 target_id, quint64 message_id,
+                                      const FileMeta& meta) {
+    if (message_id == 0 || meta.file_id == 0) {
+        return false;
+    }
+    for (ChatMessage& message : messages_) {
+        if (message.message_id != message_id ||
+            message.context != context || message.target_id != target_id) {
+            continue;
+        }
+        message.type = MessageType::kFile;
+        message.file = meta;
+        if (message.file.name.isEmpty()) {
+            message.file.name = message.content;
+        }
+        if (message.content.isEmpty()) {
+            message.content = QStringLiteral("[\u6587\u4ef6] ") + meta.name;
+        }
+        persistMessage(message);
+        return true;
+    }
+    return false;
+}
+
+bool MessageStore::markFileDeleted(ChatContext context, quint64 target_id,
+                                   quint64 message_id) {
+    if (message_id == 0) {
+        return false;
+    }
+    for (ChatMessage& message : messages_) {
+        if (message.message_id != message_id ||
+            message.context != context || message.target_id != target_id) {
+            continue;
+        }
+        message.type = MessageType::kText;
+        message.file = FileMeta{};
+        message.content = QStringLiteral("\u6587\u4ef6\u5df2\u5220\u9664");
+        message.transfer_state.clear();
+        message.transfer_progress = 0;
+        persistMessage(message);
+        return true;
     }
     return false;
 }

@@ -1,5 +1,7 @@
 #include "ui/main_window_support.h"
 
+#include "core/file_transfer_manager.h"
+
 void MainWindow::insertMention() {
     if (offline_mode_ || !online_) {
         setStatus("当前离线，无法提及成员", true);
@@ -221,6 +223,18 @@ void MainWindow::showMessageMenu(quint64 message_id, const QString& client_msg_i
     QAction* retry_action = nullptr;
     QAction* reply_action = nullptr;
     QAction* recall_action = nullptr;
+    QAction* file_pause_action = nullptr;
+    QAction* file_cancel_action = nullptr;
+    if (message->type == chatbox::client::MessageType::kFile &&
+        message->outgoing &&
+        message->status == chatbox::client::MessageStatus::kSending &&
+        !message->client_msg_id.isEmpty() && file_transfer_ != nullptr) {
+        file_pause_action = menu.addAction(
+            message->transfer_state == QStringLiteral("paused")
+                ? QStringLiteral("继续上传")
+                : QStringLiteral("暂停上传"));
+        file_cancel_action = menu.addAction(QStringLiteral("取消上传"));
+    }
     if (actions.can_retry) {
         retry_action = menu.addAction(QString::fromUtf8("重发"));
     }
@@ -233,7 +247,7 @@ void MainWindow::showMessageMenu(quint64 message_id, const QString& client_msg_i
     const bool has_selection = chat_view_->textCursor().hasSelection();
     const bool can_copy = has_selection || !message->content.isEmpty();
     if ((retry_action != nullptr || reply_action != nullptr ||
-         recall_action != nullptr) &&
+         recall_action != nullptr || file_pause_action != nullptr) &&
         can_copy) {
         menu.addSeparator();
     }
@@ -256,6 +270,16 @@ void MainWindow::showMessageMenu(quint64 message_id, const QString& client_msg_i
         setReplyTo(*message);
     } else if (chosen == recall_action) {
         sendRecall(message_id);
+    } else if (chosen == file_pause_action) {
+        if (message->transfer_state == QStringLiteral("paused")) {
+            file_transfer_->resumeUpload(message->client_msg_id);
+        } else {
+            file_transfer_->pauseUpload(message->client_msg_id);
+        }
+    } else if (chosen == file_cancel_action) {
+        file_transfer_->cancelUpload(message->client_msg_id);
+        message_store_.removeByClientId(message->client_msg_id);
+        renderCurrentConversation(ScrollMode::kPreserve);
     } else if (chosen == copy_action) {
         copyMessageText(*message);
     }
@@ -1084,6 +1108,7 @@ void MainWindow::renderCurrentConversation(ScrollMode mode) {
     }
     programmatic_scroll_ = false;
     updateChatEmptyState();
+    requestMissingThumbnails();
 }
 
 void MainWindow::addIncomingMessage(const chatbox::client::ChatMessage& message) {

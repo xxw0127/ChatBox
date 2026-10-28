@@ -1,6 +1,11 @@
 #include "core/message_renderer.h"
 
+#include "core/file_thumbnail_cache.h"
+#include "core/file_types.h"
+
+#include <QFile>
 #include <QStringList>
+#include <QUrl>
 
 #include "core/message_time.h"
 #include "core/ui_theme.h"
@@ -124,8 +129,57 @@ QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
     const QString background = messageBubbleColor(message, self_user_id);
     const QString quote_background = QString::fromLatin1(theme::kQuoteBg);
 
-    QString content = message.recalled ? "消息已撤回" : message.content.toHtmlEscaped();
-    content.replace("\n", "<br>");
+    QString content;
+    if (!message.recalled && message.type == MessageType::kFile &&
+        (!message.file.name.isEmpty() || message.file.file_id != 0)) {
+        const QString name = message.file.name.isEmpty()
+                                 ? message.content
+                                 : message.file.name;
+        QString status = formatFileSize(message.file.size);
+        const quint64 total = message.file.size;
+        const quint64 sent = message.transfer_progress;
+        const int percent = total == 0 ? 0 : static_cast<int>(sent * 100 / total);
+        if (message.transfer_state == "queued") {
+            status = QStringLiteral("排队中 · %1").arg(status);
+        } else if (message.transfer_state == "uploading") {
+            status = QStringLiteral("上传中 %1% · %2 / %3")
+                         .arg(percent)
+                         .arg(formatFileSize(sent), formatFileSize(total));
+        } else if (message.transfer_state == "paused") {
+            status = QStringLiteral("已暂停 · %1%").arg(percent);
+        } else if (message.transfer_state == "failed") {
+            status = QStringLiteral("上传失败");
+        }
+        const QString title =
+            message.file.file_id != 0 && message.message_id != 0
+                ? QString("<a href=\"file-open:///%1\" style=\"color:%2; "
+                          "text-decoration:none;\">&#128196; %3</a>")
+                      .arg(message.message_id)
+                      .arg(QString::fromLatin1(theme::kAccent),
+                           name.toHtmlEscaped())
+                : QString("<span style=\"color:%1;\">&#128196; %2</span>")
+                      .arg(QString::fromLatin1(theme::kAccent),
+                           name.toHtmlEscaped());
+        QString preview;
+        if (message.file.thumb_available &&
+            message.file.mime.startsWith(QStringLiteral("image/")) &&
+            message.file.file_id != 0) {
+            const QString thumb =
+                chatbox::client::thumbnailCachePath(message.file.file_id);
+            if (QFile::exists(thumb)) {
+                preview = QStringLiteral("<img src=\"%1\" width=\"220\"><br>")
+                              .arg(QUrl::fromLocalFile(thumb).toString());
+            }
+        }
+        content = preview + title + "<br><span style=\"color:" +
+                  QString::fromLatin1(theme::kBubbleMeta) +
+                  "; font-size:12px;\">" + status.toHtmlEscaped() +
+                  "</span>";
+    } else {
+        content = message.recalled ? QStringLiteral("消息已撤回")
+                                    : message.content.toHtmlEscaped();
+        content.replace("\n", "<br>");
+    }
 
     const int top_margin = show_sender_name ? 12 : 4;
     html += "<div style=\"margin-top: " + QString::number(top_margin) + "px;\">";

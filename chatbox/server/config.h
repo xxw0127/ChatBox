@@ -23,6 +23,9 @@ struct Config {
     std::string db_user = "chatbox";
     std::string db_name = "chatbox";
     std::string db_password;
+    std::string files_dir = "/home/ubuntu/chatbox/files";
+    std::string ffmpeg_path = "/usr/bin/ffmpeg";
+    std::string ffprobe_path = "/usr/bin/ffprobe";
     bool show_help = false;
 };
 

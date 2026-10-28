@@ -41,6 +41,7 @@ private slots:
     void saveSettings();
     void openLogDirectory();
     void changeHistoryDirectory();
+    void changeFileSaveDirectory();
     void openHistoryDirectory();
     void openClearHistoryDialog();
 
@@ -57,6 +58,8 @@ private:
     QPushButton* open_history_dir_button_ = nullptr;
     QPushButton* clear_history_button_ = nullptr;
     QString history_directory_;
+    QString file_save_dir_;
+    QLabel* file_save_dir_label_ = nullptr;
     bool history_available_ = false;
 };
 

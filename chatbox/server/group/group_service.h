@@ -27,11 +27,13 @@ struct GroupResult {
 
 class GroupService {
 public:
-    GroupService(MysqlConnection& database, RoomManager& rooms);
+    GroupService(MysqlConnection& database, RoomManager& rooms,
+                 std::string files_dir);
 
     GroupResult handle(const Frame& request, const RoomMember& caller);
 
 private:
+    void cleanupRoomFiles(uint64_t room_id);
     bool loadGroupForMember(uint64_t room_id, uint64_t user_id, GroupInfo& group,
                             GroupRole& role, std::string& error);
     bool canJoinMoreGroups(uint64_t user_id, std::string& error);
@@ -52,6 +54,7 @@ private:
 
     MysqlConnection& database_;
     RoomManager& rooms_;
+    std::string files_dir_;
 };
 
 }  // namespace chatbox

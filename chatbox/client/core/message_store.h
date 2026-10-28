@@ -29,8 +29,17 @@ public:
     bool markSent(const QString& client_msg_id, quint64 message_id,
                   const QDateTime& created_at_utc);
     bool markFailed(const QString& client_msg_id);
+    bool updateFileTransfer(const QString& client_msg_id,
+                            const QString& state, quint64 progress);
+    bool confirmFileUpload(const QString& client_msg_id, quint64 message_id,
+                           quint64 file_id, const QDateTime& created_at_utc);
+    bool removeByClientId(const QString& client_msg_id);
     int markAllSendingFailed();
     bool markRecalled(quint64 message_id);
+    bool markFileDeleted(ChatContext context, quint64 target_id,
+                         quint64 message_id);
+    bool updateFileMetadata(ChatContext context, quint64 target_id,
+                            quint64 message_id, const FileMeta& meta);
     const ChatMessage* findMessage(quint64 message_id) const;
     const ChatMessage* findByClientId(const QString& client_msg_id) const;
 

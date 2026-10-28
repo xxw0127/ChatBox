@@ -145,6 +145,21 @@ SettingsDialog::SettingsDialog(const QString& public_id, const QString& history_
     history_layout->addLayout(history_buttons);
     layout->addWidget(history_group);
 
+    auto* files_group = new QGroupBox("接收文件", this);
+    auto* files_layout = new QHBoxLayout(files_group);
+    file_save_dir_ = chatbox::client::fileSaveDirectory();
+    file_save_dir_label_ = new QLabel(file_save_dir_, files_group);
+    file_save_dir_label_->setObjectName("FileSaveDirLabel");
+    file_save_dir_label_->setWordWrap(true);
+    file_save_dir_label_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    auto* change_files_dir = new QPushButton("更改目录", files_group);
+    change_files_dir->setObjectName("ChangeFileSaveDirButton");
+    files_layout->addWidget(file_save_dir_label_, 1);
+    files_layout->addWidget(change_files_dir);
+    layout->addWidget(files_group);
+    connect(change_files_dir, &QPushButton::clicked, this,
+            &SettingsDialog::changeFileSaveDirectory);
+
     auto* log_layout = new QHBoxLayout();
     log_label_ = new QLabel(clientLogFilePath(), this);
     log_label_->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -228,7 +243,28 @@ void SettingsDialog::setHistoryInfo(const QString& directory, qint64 size_bytes,
     }
 }
 
+void SettingsDialog::changeFileSaveDirectory() {
+    const QString picked = QFileDialog::getExistingDirectory(
+        this, QStringLiteral("\u9009\u62e9\u63a5\u6536\u6587\u4ef6\u4fdd\u5b58\u76ee\u5f55"),
+        file_save_dir_);
+    if (picked.isEmpty()) {
+        return;
+    }
+    QString error;
+    if (!chatbox::client::validateFileSaveDirectory(picked, &error)) {
+        QMessageBox::warning(this, QStringLiteral("\u4fdd\u5b58\u4f4d\u7f6e"), error);
+        return;
+    }
+    file_save_dir_ = QDir(picked).absolutePath();
+    file_save_dir_label_->setText(file_save_dir_);
+}
+
 void SettingsDialog::saveSettings() {
+    QString path_error;
+    if (!chatbox::client::setFileSaveDirectory(file_save_dir_, &path_error)) {
+        QMessageBox::warning(this, "保存位置", path_error);
+        return;
+    }
     emit settingsSaved(notifications_check_->isChecked(),
                        system_popup_check_->isChecked(),
                        autostart_check_->isChecked());

@@ -1,8 +1,12 @@
 #include "ui/message_input.h"
 
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QFrame>
+#include <QImage>
 #include <QKeyEvent>
 #include <QMimeData>
+#include <QUrl>
 #include <QTextDocument>
 #include <QTextDocumentFragment>
 
@@ -44,9 +48,43 @@ void MessageInput::insertFromMimeData(const QMimeData* source) {
     if (source == nullptr) {
         return;
     }
+    if (source->hasImage() && !source->hasUrls()) {
+        const QImage image = qvariant_cast<QImage>(source->imageData());
+        if (!image.isNull()) {
+            emit imagePasted(image);
+            return;
+        }
+    }
     if (source->hasText()) {
         insertPlainText(source->text());
     }
+}
+
+void MessageInput::dragEnterEvent(QDragEnterEvent* event) {
+    if (event->mimeData()->hasUrls()) {
+        event->acceptProposedAction();
+        return;
+    }
+    QTextEdit::dragEnterEvent(event);
+}
+
+void MessageInput::dropEvent(QDropEvent* event) {
+    QStringList paths;
+    for (const QUrl& url : event->mimeData()->urls()) {
+        if (!url.isLocalFile()) {
+            continue;
+        }
+        const QString path = url.toLocalFile();
+        if (!path.isEmpty()) {
+            paths.append(path);
+        }
+    }
+    if (!paths.isEmpty()) {
+        emit filesDropped(paths);
+        event->acceptProposedAction();
+        return;
+    }
+    QTextEdit::dropEvent(event);
 }
 
 void MessageInput::adjustHeight() {

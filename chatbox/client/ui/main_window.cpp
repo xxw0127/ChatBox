@@ -1,5 +1,7 @@
 #include "ui/main_window_support.h"
 
+#include <QDebug>
+
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("ChatBox");
     // Keep the initial window inside the usable logical screen, leaving room
@@ -136,6 +138,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             [this](const QUrl& url) {
                 if (url.scheme() == "retry") {
                     retryMessage(url.path());
+                } else if (url.scheme() == "file-open") {
+                    quint64 message_id = url.host().toULongLong();
+                    if (message_id == 0) {
+                        message_id = url.path().mid(1).toULongLong();
+                    }
+                    openFileMessage(message_id);
                 }
             });
     connect(chat_view_, &ChatView::hoveredMessage, this,
@@ -531,6 +539,13 @@ QWidget* MainWindow::buildChatPage() {
     message_byte_counter_->setObjectName("MessageByteCounter");
     message_byte_counter_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     message_byte_counter_->hide();
+    attach_button_ = new QToolButton(composer);
+    attach_button_->setObjectName("AttachButton");
+    attach_button_->setText("📎");
+    attach_button_->setToolTip("发送文件");
+    attach_button_->setAccessibleName("发送文件");
+    attach_button_->setFixedSize(38, 38);
+    attach_button_->setAutoRaise(true);
     mention_button_ = new QPushButton("@", composer);
     mention_button_->setObjectName("IconButton");
     mention_button_->setAccessibleName("提及成员");
@@ -543,6 +558,7 @@ QWidget* MainWindow::buildChatPage() {
     send_button_->setFixedSize(38, 38);
     send_button_->setToolTip("发送");
     input_layout->addWidget(input_edit_, 1);
+    input_layout->addWidget(attach_button_);
     input_layout->addWidget(mention_button_);
     input_layout->addWidget(send_button_);
     composer_layout->addLayout(input_layout);
@@ -601,9 +617,8 @@ QWidget* MainWindow::buildChatPage() {
     group_action_row->addWidget(right_invite_button_);
     group_action_row->addWidget(right_leave_button_);
     group_layout->addLayout(group_action_row);
-    right_group_file_button_ = new QPushButton("文件功能将在下一阶段开放", right_group_page_);
+    right_group_file_button_ = new QPushButton("文件管理", right_group_page_);
     right_group_file_button_->setObjectName("RightFileButton");
-    right_group_file_button_->setEnabled(false);
     group_layout->addWidget(right_group_file_button_);
 
     right_private_page_ = new QWidget(right_mode_stack_);
@@ -638,9 +653,8 @@ QWidget* MainWindow::buildChatPage() {
     right_profile_button_->setObjectName("RightProfileButton");
     private_layout->addWidget(right_profile_button_);
     right_private_file_button_ =
-        new QPushButton("文件功能将在下一阶段开放", right_private_page_);
+        new QPushButton("文件管理", right_private_page_);
     right_private_file_button_->setObjectName("RightFileButton");
-    right_private_file_button_->setEnabled(false);
     private_layout->addWidget(right_private_file_button_);
     private_layout->addStretch(1);
     right_private_search_ = new QLineEdit(right_private_page_);
@@ -705,6 +719,10 @@ QWidget* MainWindow::buildChatPage() {
             openProfile(current_peer_id_, current_peer_name_);
         }
     });
+    connect(right_group_file_button_, &QPushButton::clicked, this,
+            &MainWindow::openFileManager);
+    connect(right_private_file_button_, &QPushButton::clicked, this,
+            &MainWindow::openFileManager);
     connect(right_invite_button_, &QPushButton::clicked, this, [this] {
         openGroupInviteDialog(static_cast<quint64>(current_room_id_));
     });
@@ -744,13 +762,20 @@ QWidget* MainWindow::buildChatPage() {
     connect(input_edit_, &MessageInput::submitRequested, this, &MainWindow::onSendClicked);
     connect(input_edit_, &MessageInput::textChanged, this,
             &MainWindow::updateMessageByteCounter);
+    connect(attach_button_, &QToolButton::clicked, this,
+            &MainWindow::chooseAndUploadFile);
+    connect(input_edit_, &MessageInput::filesDropped, this,
+            &MainWindow::handleDroppedFiles);
+    connect(input_edit_, &MessageInput::imagePasted, this,
+            &MainWindow::uploadPastedImage);
     connect(mention_button_, &QPushButton::clicked, this, &MainWindow::insertMention);
     connect(reply_cancel_button_, &QPushButton::clicked, this, &MainWindow::clearReply);
 
     QWidget::setTabOrder(room_list_, conversation_list_);
     QWidget::setTabOrder(conversation_list_, chat_view_);
     QWidget::setTabOrder(chat_view_, input_edit_);
-    QWidget::setTabOrder(input_edit_, mention_button_);
+    QWidget::setTabOrder(input_edit_, attach_button_);
+    QWidget::setTabOrder(attach_button_, mention_button_);
     QWidget::setTabOrder(mention_button_, send_button_);
     QWidget::setTabOrder(send_button_, member_list_);
 

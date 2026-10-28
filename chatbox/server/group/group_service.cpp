@@ -1,5 +1,7 @@
 #include "server/group/group_service.h"
 
+#include <filesystem>
+
 #include <algorithm>
 #include <unordered_set>
 
@@ -81,8 +83,9 @@ void addNotice(GroupResult& result, uint64_t user_id, const Frame& push) {
 
 }  // namespace
 
-GroupService::GroupService(MysqlConnection& database, RoomManager& rooms)
-    : database_(database), rooms_(rooms) {}
+GroupService::GroupService(MysqlConnection& database, RoomManager& rooms,
+                           std::string files_dir)
+    : database_(database), rooms_(rooms), files_dir_(std::move(files_dir)) {}
 
 GroupResult GroupService::handle(const Frame& request,
                                  const RoomMember& caller) {
@@ -282,6 +285,7 @@ GroupResult GroupService::handleDisband(const Frame& request,
     if (!database_.disbandGroup(room_id, error)) {
         return errorResult(request, kGroupConflict, error);
     }
+    cleanupRoomFiles(room_id);
     GroupResult result = responseResult(request);
     addRoomBroadcast(result, rooms_, static_cast<int>(room_id),
                      makePush(kPushDissolved, room_id, caller.user_id,
@@ -754,6 +758,24 @@ GroupResult GroupService::handleMarkRead(const Frame& request,
         return errorResult(request, kGroupConflict, error);
     }
     return responseResult(request);
+}
+
+void GroupService::cleanupRoomFiles(uint64_t room_id) {
+    std::vector<std::pair<std::string, std::string>> paths;
+    std::string error;
+    if (!database_.listRoomFilePaths(room_id, paths, error)) {
+        return;
+    }
+    std::error_code ec;
+    for (const auto& entry : paths) {
+        if (!entry.first.empty()) {
+            std::filesystem::remove(files_dir_ + "/" + entry.first, ec);
+        }
+        if (!entry.second.empty()) {
+            std::filesystem::remove(files_dir_ + "/" + entry.second, ec);
+        }
+    }
+    database_.markRoomFilesDeleted(room_id, error);
 }
 
 }  // namespace chatbox

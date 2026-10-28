@@ -2,7 +2,9 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QStandardPaths>
 #include <QStringList>
 #include <QVariant>
 
@@ -70,6 +72,83 @@ bool isHistoryDirectoryInsideInstall(const QString& directory) {
     const QString prefix =
         install.endsWith(QLatin1Char('/')) ? install : install + QLatin1Char('/');
     return target.startsWith(prefix, Qt::CaseInsensitive);
+}
+
+QString defaultFileSaveDirectory() {
+    QString base =
+        QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    if (base.isEmpty()) {
+        base = QDir::homePath() + QStringLiteral("/Downloads");
+    }
+    return QDir(base).filePath(QStringLiteral("ChatBox"));
+}
+
+QString fileSaveDirectory() {
+    QSettings settings;
+    const QString stored =
+        settings.value(QStringLiteral("files/save_dir")).toString().trimmed();
+    return stored.isEmpty() ? defaultFileSaveDirectory() : stored;
+}
+
+bool validateFileSaveDirectory(const QString& directory, QString* error) {
+    if (directory.trimmed().isEmpty()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("保存目录不能为空");
+        }
+        return false;
+    }
+    const QString absolute = QDir(directory).absolutePath();
+    const QString install = QDir(QCoreApplication::applicationDirPath())
+                                .absolutePath();
+    if (absolute == install || absolute.startsWith(install + "/")) {
+        if (error != nullptr) {
+            *error = QStringLiteral("不能保存到程序安装目录");
+        }
+        return false;
+    }
+    QDir dir(absolute);
+    if (!dir.exists() && !QDir().mkpath(absolute)) {
+        if (error != nullptr) {
+            *error = QStringLiteral("无法创建保存目录");
+        }
+        return false;
+    }
+    const QFileInfo info(absolute);
+    if (!info.isDir() || !info.isWritable()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("保存目录不可写");
+        }
+        return false;
+    }
+    return true;
+}
+
+bool setFileSaveDirectory(const QString& directory, QString* error) {
+    if (!validateFileSaveDirectory(directory, error)) {
+        return false;
+    }
+    QSettings settings;
+    settings.setValue(QStringLiteral("files/save_dir"),
+                      QDir(directory).absolutePath());
+    settings.sync();
+    return true;
+}
+
+QString uniqueFilePath(const QString& directory, const QString& name) {
+    const QFileInfo info(name);
+    QString stem = info.completeBaseName();
+    if (stem.isEmpty()) {
+        stem = QStringLiteral("file");
+    }
+    const QString suffix =
+        info.suffix().isEmpty() ? QString() : QStringLiteral(".") + info.suffix();
+    QString candidate = QDir(directory).filePath(stem + suffix);
+    int index = 1;
+    while (QFile::exists(candidate) || QFile::exists(candidate + ".part")) {
+        candidate = QDir(directory).filePath(
+            QStringLiteral("%1 (%2)%3").arg(stem).arg(index++).arg(suffix));
+    }
+    return candidate;
 }
 
 }  // namespace client

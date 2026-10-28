@@ -4,9 +4,12 @@
 #include <cstdint>
 #include <mysql/mysql.h>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "common/file_types.h"
 #include "common/group_types.h"
+#include "server/file/file_types.h"
 
 namespace chatbox {
 
@@ -57,6 +60,8 @@ struct HistoryMessage {
     std::string reply_sender_name;
     std::string reply_content;
     bool recalled = false;
+    uint8_t msg_type = 0;
+    uint64_t file_id = 0;
 };
 
 struct SearchResultRow {
@@ -66,6 +71,8 @@ struct SearchResultRow {
     std::string content;
     std::string created_at;
     bool recalled = false;
+    uint8_t msg_type = 0;
+    uint64_t file_id = 0;
 };
 
 struct HistoryPage {
@@ -245,6 +252,60 @@ public:
     bool countJoinRequestsToday(uint64_t user_id, uint32_t& count,
                                 std::string& error);
     bool countInvitesToday(uint64_t user_id, uint32_t& count,
+                           std::string& error);
+
+    bool createFileUpload(const UploadState& upload, std::string& error);
+    bool findFileUpload(const std::string& upload_id, UploadState& upload,
+                        bool& found, std::string& error);
+    bool updateFileUploadOffset(const std::string& upload_id, uint64_t offset,
+                                std::string& error);
+    bool updateFileUploadStatus(const std::string& upload_id, int status,
+                                std::string& error);
+    bool expireFileUploads(std::string& error);
+    bool beginDbTransaction(std::string& error);
+    bool commitDbTransaction(std::string& error);
+    bool rollbackDbTransaction(std::string& error);
+    bool setFileUploadCommitted(const std::string& upload_id,
+                                uint64_t message_id, uint64_t file_id,
+                                const std::string& created_at,
+                                std::string& error);
+    bool insertFileRecord(uint64_t uploader_id, FileKind kind, uint64_t target_id,
+                          const FileMeta& meta, const std::string& storage_path,
+                          FileEntry& entry, std::string& error);
+    bool findFileRecord(uint64_t file_id, FileEntry& entry, bool& found,
+                        std::string& error);
+    bool findFileAccess(uint64_t file_id, FileAccess& access, bool& found,
+                        std::string& error);
+    bool listFileRecords(FileKind kind, uint64_t viewer_id, uint64_t target_id,
+                         uint64_t before_file_id, int limit,
+                         std::vector<FileEntry>& entries, uint32_t& total_count,
+                         uint64_t& used_bytes, std::string& error);
+    bool markFileDeleted(uint64_t file_id, std::string& error);
+    bool deleteFileRecord(uint64_t file_id, std::string& error);
+    bool listRoomFilePaths(uint64_t room_id,
+                           std::vector<std::pair<std::string, std::string>>& paths,
+                           std::string& error);
+    bool markRoomFilesDeleted(uint64_t room_id, std::string& error);
+    bool setFileMessageId(uint64_t file_id, uint64_t message_id,
+                          std::string& error);
+    bool setFileStoragePath(uint64_t file_id, const std::string& path,
+                            std::string& error);
+    bool setFileThumbnail(uint64_t file_id, const std::string& thumb_path,
+                          uint32_t width, uint32_t height,
+                          uint32_t duration_ms, std::string& error);
+    bool insertRoomFileMessage(int room_id, uint64_t sender_id,
+                               const std::string& client_msg_id,
+                               const std::string& content, uint64_t file_id,
+                               const std::string& created_at,
+                               uint64_t& message_id, std::string& error);
+    bool insertPrivateFileMessage(uint64_t sender_id, uint64_t receiver_id,
+                                  const std::string& client_msg_id,
+                                  const std::string& content, uint64_t file_id,
+                                  const std::string& created_at,
+                                  uint64_t& message_id, std::string& error);
+    bool updateFileMessageDeleted(uint64_t message_id, bool room,
+                                  std::string& error);
+    bool deleteFileMessage(uint64_t message_id, bool room,
                            std::string& error);
 
 private:

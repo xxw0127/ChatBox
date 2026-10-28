@@ -19,6 +19,7 @@
 #include "server/auth/user_lock_table.h"
 #include "server/db/mysql_connection.h"
 #include "server/friend/friend_service.h"
+#include "server/file/file_service.h"
 #include "server/group/group_service.h"
 #include "server/history/history_service.h"
 #include "server/private/private_service.h"
@@ -37,6 +38,7 @@ struct WorkerContext {
     FriendService& friend_chat;
     ProfileService& profile;
     GroupService& group;
+    FileService& file;
 };
 
 class WorkerPool {
@@ -44,7 +46,9 @@ public:
     using Task = std::function<void(WorkerContext&)>;
 
     WorkerPool(int thread_count, DbConfig database_config, SessionManager& sessions,
-               RoomManager& rooms);
+               RoomManager& rooms, std::string files_dir,
+               std::string ffmpeg_path = "/usr/bin/ffmpeg",
+               std::string ffprobe_path = "/usr/bin/ffprobe");
     ~WorkerPool();
 
     WorkerPool(const WorkerPool&) = delete;
@@ -69,6 +73,9 @@ private:
     DbConfig database_config_;
     SessionManager& sessions_;
     RoomManager& rooms_;
+    std::string files_dir_;
+    std::string ffmpeg_path_;
+    std::string ffprobe_path_;
     LoginRateLimiter login_limiter_{5, 60};
     RegistrationRateLimiter registration_limiter_{20, 100, 3600};
     UserLockTable user_locks_;

@@ -41,7 +41,9 @@ bool parseArgs(int argc, char** argv, Config& config, std::string& error) {
             arg == "--max-connections" || arg == "--max-conn-per-ip" ||
             arg == "--idle-timeout" || arg == "--log-file" || arg == "--log-level" ||
             arg == "--listen" || arg == "--db-host" || arg == "--db-port" ||
-            arg == "--db-user" || arg == "--db-name") {
+            arg == "--db-user" || arg == "--db-name" ||
+            arg == "--files-dir" || arg == "--ffmpeg-path" ||
+            arg == "--ffprobe-path") {
             if (i + 1 >= argc) {
                 error = "missing value for " + arg;
                 return false;
@@ -97,6 +99,12 @@ bool parseArgs(int argc, char** argv, Config& config, std::string& error) {
                 config.db_user = value;
             } else if (arg == "--db-name") {
                 config.db_name = value;
+            } else if (arg == "--files-dir") {
+                config.files_dir = value;
+            } else if (arg == "--ffmpeg-path") {
+                config.ffmpeg_path = value;
+            } else if (arg == "--ffprobe-path") {
+                config.ffprobe_path = value;
             }
             continue;
         }
@@ -122,6 +130,9 @@ void printUsage(const char* program) {
               << "  --db-port <port>       MySQL port (default 3306)\n"
               << "  --db-user <user>       MySQL user (default chatbox)\n"
               << "  --db-name <database>   MySQL database (default chatbox)\n"
+              << "  --files-dir <path>     file storage root (default /home/ubuntu/chatbox/files)\n"
+              << "  --ffmpeg-path <path>   ffmpeg binary (default /usr/bin/ffmpeg)\n"
+              << "  --ffprobe-path <path>  ffprobe binary (default /usr/bin/ffprobe)\n"
               << "  CHATBOX_DB_PASSWORD   MySQL password (environment variable)\n"
               << "  --help, -h             show this help\n";
 }
