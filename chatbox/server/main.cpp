@@ -184,7 +184,7 @@ int main(int argc, char** argv) {
     io_threads.reserve(static_cast<std::size_t>(config.io_threads));
     io_thread_refs.reserve(static_cast<std::size_t>(config.io_threads));
 
-    auto frame_handler = [&worker_pool, &io_thread_refs, &room_manager](
+    auto frame_handler = [&worker_pool, &io_thread_refs, &room_manager, &sessions](
                              const Connection::Ptr& connection, const Frame& frame,
                              chatbox::IoThread&) -> bool {
         if (frame.header.cmd == chatbox::kCmdPing) {
@@ -220,8 +220,10 @@ int main(int argc, char** argv) {
         const bool profile_command = command == chatbox::kCmdProfileGet ||
                                      command == chatbox::kCmdAvatarGet ||
                                      command == chatbox::kCmdProfileUpdate;
+        const bool group_command =
+            command >= chatbox::kCmdGroupList && command <= chatbox::kCmdGroupMarkRead;
         if (!auth_command && !room_command && !private_command && !history_command &&
-            !friend_command && !profile_command) {
+            !friend_command && !profile_command && !group_command) {
             const Frame response = makeErrorResponse(frame.header.seq, 1001, "unknown command");
             return connection->enqueue(chatbox::encodeFrame(response));
         }
@@ -246,8 +248,9 @@ int main(int argc, char** argv) {
         const bool submitted = worker_pool.submit(
             connection_id,
             [connection, frame, command, auth_command, room_command, private_command,
-             history_command, friend_command, profile_command, connection_id, io_thread_id,
-             user_id, nickname, token_hash, &io_thread_refs, &room_manager](
+             history_command, friend_command, profile_command, group_command,
+             connection_id, io_thread_id, user_id, nickname, token_hash,
+             &io_thread_refs, &room_manager, &sessions](
                 chatbox::WorkerContext& context) {
                 if (auth_command) {
                     chatbox::SessionBinding binding;
@@ -396,6 +399,50 @@ int main(int argc, char** argv) {
                     }
                     chatbox::IoThread* owner = io_thread_refs[io_thread_id];
                     owner->post([connection, response = std::move(result.response), owner] {
+                        if (connection->closed()) {
+                            return;
+                        }
+                        owner->sendFrame(connection, chatbox::encodeFrame(response));
+                    });
+                    return;
+                }
+
+                if (group_command) {
+                    chatbox::GroupResult result = context.group.handle(frame, caller);
+                    if (result.broadcast) {
+                        std::unordered_map<int, std::vector<uint64_t>> groups;
+                        for (const chatbox::RoomMember& target : result.targets) {
+                            if (target.io_thread_id >= 0 &&
+                                target.io_thread_id <
+                                    static_cast<int>(io_thread_refs.size())) {
+                                groups[target.io_thread_id].push_back(target.connection_id);
+                            }
+                        }
+                        for (auto& entry : groups) {
+                            io_thread_refs[entry.first]->postMulticast(
+                                entry.second, result.broadcast_frame);
+                        }
+                    }
+                    for (const chatbox::GroupNotice& notice : result.notices) {
+                        chatbox::SessionBinding binding;
+                        if (notice.frame.empty() ||
+                            !sessions.find(notice.user_id, binding) ||
+                            binding.io_thread_id < 0 ||
+                            binding.io_thread_id >=
+                                static_cast<int>(io_thread_refs.size())) {
+                            continue;
+                        }
+                        io_thread_refs[binding.io_thread_id]->postMulticast(
+                            std::vector<uint64_t>{binding.connection_id}, notice.frame);
+                    }
+
+                    if (io_thread_id < 0 ||
+                        io_thread_id >= static_cast<int>(io_thread_refs.size())) {
+                        return;
+                    }
+                    chatbox::IoThread* owner = io_thread_refs[io_thread_id];
+                    owner->post([connection, response = std::move(result.response),
+                                 owner] {
                         if (connection->closed()) {
                             return;
                         }
