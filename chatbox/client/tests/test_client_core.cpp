@@ -261,6 +261,8 @@ private slots:
     void messageActionsAvailability();
     void messageActionsRecallWindow();
     void chatViewMapsMessagesToIds();
+    void chatViewRegistersAvatarResources();
+    void chatViewBubbleRectExcludesAvatar();
     void chatViewAppendsFragmentsWithoutResettingDocument();
     void chatViewAppendStaysUnderBudget();
     void chatViewOpensMessageMenuWithKeyboard();
@@ -1335,6 +1337,72 @@ void TestClientCore::chatViewMapsMessagesToIds() {
     QVERIFY(second_content.y() >= 0);
     QVERIFY(second_content.y() < view.viewport()->height());
     QVERIFY(view.messageBubbleRect(22).contains(second_content));
+}
+
+void TestClientCore::chatViewRegistersAvatarResources() {
+    const QDateTime created = chatbox::client::parseServerUtc("2026-10-18 12:00:00");
+    chatbox::client::ChatMessage message;
+    message.message_id = 1;
+    message.sender_id = 7;
+    message.sender_name = "Bob";
+    message.content = "avatar body";
+    message.created_at_utc = created;
+
+    chatbox::client::AvatarSrcMap srcs;
+    srcs.insert(7, QStringLiteral("chatbox-avatar://7?v=1"));
+    QVector<chatbox::client::MessageKey> keys;
+    const QString html =
+        chatbox::client::renderConversationHtml({message}, 99, &keys, srcs);
+
+    QImage avatar(36, 36, QImage::Format_ARGB32);
+    avatar.fill(QColor("#3366cc"));
+    QHash<QString, QImage> images;
+    images.insert(QStringLiteral("chatbox-avatar://7?v=1"), avatar);
+
+    ChatView view;
+    view.setConversationHtml(html, keys, images);
+
+    const QVariant resource = view.document()->resource(
+        QTextDocument::ImageResource, QUrl(QStringLiteral("chatbox-avatar://7?v=1")));
+    QVERIFY2(resource.isValid(), "avatar resource must be registered");
+    QCOMPARE(resource.value<QImage>().size(), QSize(36, 36));
+}
+
+void TestClientCore::chatViewBubbleRectExcludesAvatar() {
+    const QDateTime created = chatbox::client::parseServerUtc("2026-10-18 12:00:00");
+    chatbox::client::ChatMessage message;
+    message.message_id = 1;
+    message.sender_id = 7;
+    message.sender_name = "Bob";
+    message.content = "avatar body";
+    message.created_at_utc = created;
+
+    chatbox::client::AvatarSrcMap srcs;
+    srcs.insert(7, QStringLiteral("chatbox-avatar://7?v=1"));
+    QVector<chatbox::client::MessageKey> keys;
+    const QString html =
+        chatbox::client::renderConversationHtml({message}, 99, &keys, srcs);
+
+    QImage avatar(36, 36, QImage::Format_ARGB32);
+    avatar.fill(QColor("#3366cc"));
+    QHash<QString, QImage> images;
+    images.insert(QStringLiteral("chatbox-avatar://7?v=1"), avatar);
+
+    ChatView view;
+    view.resize(560, 400);
+    view.show();
+    QTest::qWait(30);
+    view.setConversationHtml(html, keys, images);
+
+    const QRect bubble = view.messageBubbleRect(1);
+    const QRect outer = view.messageOuterBubbleRect(1);
+    QVERIFY(!bubble.isNull());
+    QVERIFY(!outer.isNull());
+    QVERIFY2(outer.left() > 40,
+             qPrintable(QStringLiteral("avatar column must sit outside the bubble, "
+                                       "outer left = %1")
+                            .arg(outer.left())));
+    QVERIFY(bubble.left() > outer.left());
 }
 
 void TestClientCore::chatViewAppendsFragmentsWithoutResettingDocument() {

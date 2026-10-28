@@ -1,6 +1,8 @@
 #ifndef CHATBOX_CLIENT_UI_CHAT_VIEW_H
 #define CHATBOX_CLIENT_UI_CHAT_VIEW_H
 
+#include <QHash>
+#include <QImage>
 #include <QRect>
 #include <QTextBrowser>
 #include <QVector>
@@ -24,12 +26,15 @@ public:
     explicit ChatView(QWidget* parent = nullptr);
 
     // Replaces the document and rebuilds the position -> message map.
-    void setConversationHtml(const QString& html,
-                             const QVector<chatbox::client::MessageKey>& message_keys);
+    void setConversationHtml(
+        const QString& html,
+        const QVector<chatbox::client::MessageKey>& message_keys,
+        const QHash<QString, QImage>& avatar_images = {});
 
     // Appends one rendered message at the end without rebuilding the document.
     // Existing ranges keep their positions because nothing before them moves.
-    void appendFragment(const QString& html, const chatbox::client::MessageKey& key);
+    void appendFragment(const QString& html, const chatbox::client::MessageKey& key,
+                        const QHash<QString, QImage>& avatar_images = {});
 
     // Clears the document and all message ranges.
     void clearConversation();
@@ -77,6 +82,7 @@ private:
     };
 
     void buildMessageRanges(const QVector<chatbox::client::MessageKey>& message_keys);
+    void registerAvatarImages(const QHash<QString, QImage>& avatar_images);
     QRect outerBubbleRect(const MessageRange& range) const;
     void paintRoundedBubbleCorners(QPainter& painter);
     bool messageKeyAtPosition(int position,

@@ -106,7 +106,9 @@ ChatView::ChatView(QWidget* parent) : QTextBrowser(parent) {
 
 void ChatView::setConversationHtml(
     const QString& html,
-    const QVector<chatbox::client::MessageKey>& message_keys) {
+    const QVector<chatbox::client::MessageKey>& message_keys,
+    const QHash<QString, QImage>& avatar_images) {
+    registerAvatarImages(avatar_images);
     setHtml(html);
     styleAnchors();
     buildMessageRanges(message_keys);
@@ -115,12 +117,28 @@ void ChatView::setConversationHtml(
     }
 }
 
+void ChatView::registerAvatarImages(
+    const QHash<QString, QImage>& avatar_images) {
+    QTextDocument* doc = document();
+    if (doc == nullptr) {
+        return;
+    }
+    // Resources must exist before the HTML is parsed; otherwise the first
+    // layout paints a broken-image placeholder and never retries.
+    for (auto it = avatar_images.constBegin(); it != avatar_images.constEnd(); ++it) {
+        doc->addResource(QTextDocument::ImageResource, QUrl(it.key()), it.value());
+    }
+}
+
 void ChatView::appendFragment(const QString& html,
-                              const chatbox::client::MessageKey& key) {
+                              const chatbox::client::MessageKey& key,
+                              const QHash<QString, QImage>& avatar_images) {
     QTextDocument* doc = document();
     if (doc == nullptr || html.isEmpty()) {
         return;
     }
+
+    registerAvatarImages(avatar_images);
 
     // Appending at the document end cannot move any existing range: all old
     // positions stay before the insertion point. This is the safety property
