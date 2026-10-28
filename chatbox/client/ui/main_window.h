@@ -26,7 +26,6 @@ class NetworkThread;
 class ProfileDialog;
 class ChatView;
 class EmptyState;
-class MessageActionBar;
 class MessageInput;
 class QAction;
 class QCloseEvent;
@@ -161,9 +160,6 @@ private:
     void setReplyTo(const chatbox::client::ChatMessage& message);
     void clearReply();
     void sendRecall(quint64 message_id);
-    void showMessageActions(quint64 message_id, const QRect& meta_rect);
-    void hideMessageActionBar();
-    void hideMessageActionsUnlessHovered();
     void showMessageMenu(quint64 message_id, const QString& client_msg_id,
                          const QPoint& global_pos);
     void copyMessageText(const chatbox::client::ChatMessage& message);
@@ -256,14 +252,12 @@ private:
     ChatView* chat_view_ = nullptr;
     QStackedWidget* chat_stack_ = nullptr;
     EmptyState* chat_empty_state_ = nullptr;
-    MessageActionBar* message_action_bar_ = nullptr;
     chatbox::client::UpdateService* update_service_ = nullptr;
     UpdateDialog* update_dialog_ = nullptr;
     chatbox::client::UpdateManifest pending_update_;
     QString downloaded_update_zip_;
     bool update_check_started_ = false;
     bool update_download_active_ = false;
-    quint64 action_bar_message_id_ = 0;
     MessageInput* input_edit_ = nullptr;
     QLabel* message_byte_counter_ = nullptr;
     QPushButton* mention_button_ = nullptr;

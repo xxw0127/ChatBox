@@ -94,106 +94,6 @@ void MainWindow::sendRecall(quint64 message_id) {
     sendFrame(frame);
 }
 
-void MainWindow::showMessageActions(quint64 message_id, const QRect& meta_rect) {
-    if (message_action_bar_ == nullptr || chat_view_ == nullptr || message_id == 0) {
-        hideMessageActionBar();
-        return;
-    }
-    const chatbox::client::ChatMessage* message =
-        message_store_.findMessage(message_id);
-    if (message == nullptr) {
-        hideMessageActionBar();
-        return;
-    }
-    chatbox::client::MessageActions actions =
-        chatbox::client::messageActions(*message, user_id_);
-    if (offline_mode_) {
-        // 离线是只读视图：撤回与重发都不提供。
-        actions.can_recall = false;
-        actions.can_retry = false;
-    }
-    if (!actions.can_reply && !actions.can_recall) {
-        hideMessageActionBar();
-        return;
-    }
-    message_action_bar_->setActions(actions.can_reply, actions.can_recall);
-    const QRect viewport_rect = chat_view_->viewport()->rect();
-    const QSize bar_size = message_action_bar_->size();
-    const QRect bubble = chat_view_->messageBubbleRect(message_id);
-    int x = 0;
-    int y = 0;
-    bool placed = false;
-    if (!bubble.isNull()) {
-        // Place the bar in the empty space beside the bubble (Coinbase-style
-    // floating action bar),
-        // so it neither covers the message nor sits under the pointer.
-        const int right_space = viewport_rect.width() - bubble.right() - 1;
-        const int left_space = bubble.left();
-        if (right_space >= bar_size.width() + 8) {
-            x = bubble.right() + 6;
-            y = bubble.top() + 2;
-            placed = true;
-        } else if (left_space >= bar_size.width() + 8) {
-            x = bubble.left() - bar_size.width() - 6;
-            y = bubble.top() + 2;
-            placed = true;
-        }
-    }
-    if (!placed && !bubble.isNull()) {
-        // Wide bubble with no room on either side: float the bar in the gap
-        // just above the bubble so it never lands under the pointer.
-        const int above_y = bubble.top() - bar_size.height() - 2;
-        if (above_y >= 4) {
-            x = bubble.right() - bar_size.width();
-            y = above_y;
-            placed = true;
-        } else {
-            const int below_y = bubble.bottom() + 3;
-            if (below_y + bar_size.height() <= viewport_rect.height() - 4) {
-                x = bubble.right() - bar_size.width();
-                y = below_y;
-                placed = true;
-            }
-        }
-    }
-    if (!placed) {
-        // Fall back to the row above the message time.
-        x = meta_rect.isNull() ? viewport_rect.right() - bar_size.width() - 8
-                               : meta_rect.right() - bar_size.width();
-        y = meta_rect.isNull()
-                ? viewport_rect.bottom() - bar_size.height() - 8
-                : meta_rect.top() - bar_size.height() - 2;
-    }
-    x = qBound(4, x, qMax(4, viewport_rect.width() - bar_size.width() - 4));
-    y = qBound(4, y, qMax(4, viewport_rect.height() - bar_size.height() - 4));
-    message_action_bar_->move(x, y);
-    message_action_bar_->raise();
-    message_action_bar_->show();
-    action_bar_message_id_ = message_id;
-}
-
-void MainWindow::hideMessageActionBar() {
-    action_bar_message_id_ = 0;
-    if (message_action_bar_ != nullptr && message_action_bar_->isVisible()) {
-        message_action_bar_->hide();
-    }
-}
-
-void MainWindow::hideMessageActionsUnlessHovered() {
-    if (message_action_bar_ == nullptr || !message_action_bar_->isVisible()) {
-        return;
-    }
-    // Leave events also fire when the pointer moves onto the bar's buttons,
-    // and the bar floats a few pixels away from the bubble, so accept a small
-    // corridor around it while keeping the bar as long as the pointer is
-    // inside.
-    const QRect hit_rect = message_action_bar_->rect().adjusted(-10, -10, 10, 10);
-    if (hit_rect.contains(message_action_bar_->mapFromGlobal(QCursor::pos()))) {
-        return;
-    }
-    hideMessageActionBar();
-}
-
 void MainWindow::showMessageMenu(quint64 message_id, const QString& client_msg_id,
                                  const QPoint& global_pos) {
     const chatbox::client::ChatMessage* message =
@@ -209,7 +109,6 @@ void MainWindow::showMessageMenu(quint64 message_id, const QString& client_msg_i
         actions.can_recall = false;
         actions.can_retry = false;
     }
-    hideMessageActionBar();
 
     QMenu menu(this);
     QAction* retry_action = nullptr;
@@ -592,8 +491,6 @@ void MainWindow::selectRoom(int room_id, const QString& name) {
         context_avatar_->setCursor(Qt::ArrowCursor);
     }
     chat_view_->clear();
-    chat_view_->clearHoverState();
-    hideMessageActionBar();
     if (input_edit_ != nullptr) {
         input_edit_->clear();
     }
@@ -662,8 +559,6 @@ void MainWindow::selectPrivate(quint64 peer_id, const QString& nickname) {
         requestPeerAvatar(peer_id);
     }
     chat_view_->clear();
-    chat_view_->clearHoverState();
-    hideMessageActionBar();
     if (input_edit_ != nullptr) {
         input_edit_->clear();
     }
@@ -817,8 +712,6 @@ void MainWindow::resetContext() {
     }
     if (chat_view_ != nullptr) {
         chat_view_->clear();
-        chat_view_->clearHoverState();
-        hideMessageActionBar();
     }
     if (member_list_ != nullptr) {
         member_list_->clear();
@@ -835,7 +728,6 @@ void MainWindow::resetContext() {
 void MainWindow::renderCurrentConversation(ScrollMode mode) {
     QScrollBar* bar = chat_view_->verticalScrollBar();
     const int previous = bar->value();
-    hideMessageActionBar();
     QVector<chatbox::client::MessageKey> rendered_messages;
     chat_view_->setConversationHtml(
         chatbox::client::renderConversationHtml(message_store_.messages(), user_id_,

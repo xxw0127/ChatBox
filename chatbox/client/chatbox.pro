@@ -47,7 +47,6 @@ SOURCES += \
     ui/account_switcher_dialog.cpp \
     ui/empty_state.cpp \
     ui/message_input.cpp \
-    ui/message_action_bar.cpp \
     ui/login_page.cpp \
     ui/more_dots.cpp \
     ui/friend_request_dialog.cpp \
@@ -97,7 +96,6 @@ HEADERS += \
     ui/dialog_buttons.h \
     ui/empty_state.h \
     ui/message_input.h \
-    ui/message_action_bar.h \
     ui/login_page.h \
     ui/more_dots.h \
     ui/friend_request_dialog.h \

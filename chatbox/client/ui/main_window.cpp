@@ -132,42 +132,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                     retryMessage(url.path());
                 }
             });
-    connect(chat_view_, &ChatView::hoveredMessage, this,
-            [this](quint64 message_id, const QRect& meta_rect) {
-                showMessageActions(message_id, meta_rect);
-            });
-    connect(chat_view_, &ChatView::hoverCleared, this,
-            &MainWindow::hideMessageActionsUnlessHovered);
     connect(chat_view_, &ChatView::messageMenuRequested, this,
             &MainWindow::showMessageMenu);
-    connect(chat_view_->verticalScrollBar(), &QScrollBar::valueChanged, this,
-            [this](int) {
-                if (chat_view_ != nullptr) {
-                    chat_view_->clearHoverState();
-                }
-                hideMessageActionBar();
-            });
-    if (message_action_bar_ != nullptr) {
-        connect(message_action_bar_, &MessageActionBar::replyRequested, this, [this] {
-            const chatbox::client::ChatMessage* message =
-                message_store_.findMessage(action_bar_message_id_);
-            if (message != nullptr) {
-                setReplyTo(*message);
-            }
-            hideMessageActionBar();
-        });
-        connect(message_action_bar_, &MessageActionBar::recallRequested, this, [this] {
-            const quint64 message_id = action_bar_message_id_;
-            hideMessageActionBar();
-            sendRecall(message_id);
-        });
-        connect(message_action_bar_, &MessageActionBar::hoverLeft, this, [this] {
-            hideMessageActionBar();
-            if (chat_view_ != nullptr) {
-                chat_view_->clearHoverState();
-            }
-        });
-    }
     loadSession();
     if (!logged_in_) {
         setStatus("请输入服务器和账号");
@@ -446,12 +412,6 @@ QWidget* MainWindow::buildChatPage() {
     chat_stack_->addWidget(chat_empty_state_);
     chat_stack_->setCurrentWidget(chat_empty_state_);
     center->addWidget(chat_stack_, 1);
-
-    // Floating per-message actions; lives in the viewport so it can be
-    // positioned in view coordinates and disappears as soon as the pointer
-    // leaves the message or the view scrolls.
-    message_action_bar_ = new MessageActionBar(chat_view_->viewport());
-    message_action_bar_->hide();
 
     auto* composer = new QWidget(center_panel);
     composer->setObjectName("Composer");

@@ -70,7 +70,6 @@
 #include "ui/empty_state.h"
 #include "ui/login_page.h"
 #include "ui/message_input.h"
-#include "ui/message_action_bar.h"
 #include "ui/profile_dialog.h"
 #include "ui/settings_dialog.h"
 #include "ui/update_dialog.h"
@@ -262,7 +261,7 @@ private slots:
     void chatViewOpensMessageMenuWithKeyboard();
     void chatViewStylesAppendedRetryLink();
     void chatViewStylesRetryLink();
-    void chatViewHoverReentersSameMessage();
+    void messageMenuKeepsReplyAndRecall();
     void contactStorePersistsAndUpdates();
     void avatarCenterCrop();
     void avatarCompressionLimit();
@@ -289,8 +288,6 @@ private slots:
     void friendListAvoidsDuplicateGroupLabels();
     void themeTokensMatchStyleSheet();
     void lineEditsAvoidVerticalClipping();
-    void messageActionBarHasSingleSoftShadow();
-    void messageActionBarIsKeyboardReachable();
     void brandAppIconExposesSizes();
     void roomAvatarIsBrandBadge();
     void trayIconUsesBrandIcon();
@@ -1445,56 +1442,6 @@ void TestClientCore::chatViewStylesRetryLink() {
     QVERIFY(inspected);
 }
 
-void TestClientCore::chatViewHoverReentersSameMessage() {
-    const QDateTime created = chatbox::client::parseServerUtc("2026-10-18 12:00:00");
-    chatbox::client::ChatMessage own;
-    own.message_id = 22;
-    own.sender_id = 1;
-    own.sender_name = "Me";
-    own.content = "hover body";
-    own.created_at_utc = created;
-    own.outgoing = true;
-
-    QVector<chatbox::client::MessageKey> keys;
-    const QString html = chatbox::client::renderConversationHtml({own}, 1, &keys);
-
-    ChatView view;
-    view.resize(640, 480);
-    view.show();
-    QTest::qWait(50);
-    view.setConversationHtml(html, keys);
-
-    const QTextCursor cursor = view.document()->find("hover body");
-    QVERIFY(!cursor.isNull());
-    const QPoint pos = view.cursorRect(cursor).center();
-    QCOMPARE(view.messageIdAt(pos), quint64(22));
-
-    int hovered = 0;
-    int cleared = 0;
-    QObject::connect(&view, &ChatView::hoveredMessage,
-                     [&hovered](quint64, const QRect&) { ++hovered; });
-    QObject::connect(&view, &ChatView::hoverCleared, [&cleared]() { ++cleared; });
-
-    const auto send_move = [&view](const QPoint& point) {
-        QMouseEvent event(QEvent::MouseMove, QPointF(point),
-                          QPointF(view.viewport()->mapToGlobal(point)),
-                          Qt::NoButton, Qt::NoButton, Qt::NoModifier);
-        QApplication::sendEvent(view.viewport(), &event);
-    };
-
-    send_move(pos);
-    QCOMPARE(hovered, 1);
-
-    QEvent leave(QEvent::Leave);
-    QApplication::sendEvent(view.viewport(), &leave);
-    QCOMPARE(cleared, 1);
-
-    // Returning to the same bubble after leaving the view must show the
-    // action bar again; a stale hovered id used to suppress the signal.
-    send_move(pos);
-    QCOMPARE(hovered, 2);
-}
-
 void TestClientCore::contactStorePersistsAndUpdates() {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -2292,24 +2239,6 @@ void TestClientCore::themeTokensMatchStyleSheet() {
     }
 }
 
-// the Coinbase elevation is a single soft drop (0 4px 12px rgba(0,0,0,0.04));
-// QSS cannot express box-shadow, so the action bar carries the effect instead.
-void TestClientCore::messageActionBarIsKeyboardReachable() {
-    MessageActionBar bar;
-    auto* reply = bar.findChild<QPushButton*>(QStringLiteral("MessageActionReplyButton"));
-    auto* recall = bar.findChild<QPushButton*>(QStringLiteral("MessageActionRecallButton"));
-    QVERIFY(reply != nullptr);
-    QVERIFY(recall != nullptr);
-    QCOMPARE(reply->focusPolicy(), Qt::TabFocus);
-    QCOMPARE(recall->focusPolicy(), Qt::TabFocus);
-    QCOMPARE(reply->accessibleName(), QStringLiteral("回复此消息"));
-    QCOMPARE(recall->accessibleName(), QStringLiteral("撤回此消息"));
-
-    const QString qss = readClientSource(QStringLiteral("resources/style.qss"));
-    QVERIFY(qss.contains(QStringLiteral(
-        "QFrame#MessageActionBar QPushButton[keyboardFocus=\"true\"]:focus")));
-}
-
 void TestClientCore::lineEditsAvoidVerticalClipping() {
     for (const QString& file : {QStringLiteral("resources/style.qss"),
                                 QStringLiteral("resources/style-dark.qss")}) {
@@ -2318,15 +2247,6 @@ void TestClientCore::lineEditsAvoidVerticalClipping() {
         QVERIFY2(qss.contains(QStringLiteral("min-height: 36px")), qPrintable(file));
         QVERIFY2(qss.contains(QStringLiteral("padding: 0 14px")), qPrintable(file));
     }
-}
-
-void TestClientCore::messageActionBarHasSingleSoftShadow() {
-    MessageActionBar bar;
-    auto* effect = qobject_cast<QGraphicsDropShadowEffect*>(bar.graphicsEffect());
-    QVERIFY(effect != nullptr);
-    QCOMPARE(effect->blurRadius(), 12.0);
-    QCOMPARE(effect->offset(), QPointF(0, 4));
-    QCOMPARE(effect->color(), QColor(0, 0, 0, 10));
 }
 
 // The shell picks a frame per context (16px tray, 24px taskbar @150%, 256px
@@ -3931,6 +3851,20 @@ void TestClientCore::accountSwitcherBuildsList() {
              "sign-out must not sit in the room member footer anymore");
     QVERIFY2(source.contains(QStringLiteral("right_panel_->setVisible")),
              "the member column is conditional on the chat context");
+}
+
+void TestClientCore::messageMenuKeepsReplyAndRecall() {
+    const QString source = readClientSource(QStringLiteral("ui/main_window_chat.cpp"));
+    const QString menu = sourceSection(source, QStringLiteral("void MainWindow::showMessageMenu("),
+                                       QStringLiteral("void MainWindow::copyMessageText("));
+    QVERIFY2(menu.contains(QStringLiteral("\u56de\u590d")),
+             "right-click menu must keep reply");
+    QVERIFY2(menu.contains(QStringLiteral("\u64a4\u56de")),
+             "right-click menu must keep recall");
+    QVERIFY2(menu.contains(QStringLiteral("\u91cd\u53d1")),
+             "right-click menu must keep retry");
+    QVERIFY2(menu.contains(QStringLiteral("\u590d\u5236")),
+             "right-click menu must keep copy");
 }
 
 QTEST_MAIN(TestClientCore)

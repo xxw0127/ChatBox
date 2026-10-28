@@ -30,7 +30,6 @@ SOURCES += \
     ../ui/chat_view.cpp \
     ../ui/empty_state.cpp \
     ../ui/message_input.cpp \
-    ../ui/message_action_bar.cpp \
     ../ui/profile_dialog.cpp \
     ../ui/login_page.cpp \
     ../ui/more_dots.cpp \
@@ -61,7 +60,6 @@ HEADERS += \
     ../ui/chat_view.h \
     ../ui/empty_state.h \
     ../ui/message_input.h \
-    ../ui/message_action_bar.h \
     ../ui/profile_dialog.h \
     ../ui/login_page.h \
     ../ui/more_dots.h \

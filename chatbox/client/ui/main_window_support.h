@@ -72,7 +72,6 @@
 #include "ui/friend_list_widget.h"
 #include "ui/friend_request_dialog.h"
 #include "ui/login_page.h"
-#include "ui/message_action_bar.h"
 #include "ui/message_input.h"
 #include "ui/message_search_dialog.h"
 #include "ui/more_dots.h"

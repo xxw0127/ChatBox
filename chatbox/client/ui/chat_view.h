@@ -13,9 +13,9 @@ class QPainter;
 class QTextTable;
 
 // Read-only conversation view. Besides rendering the conversation it maps
-// viewport positions back to messages so the window can offer hover actions
-// and a per-message context menu. After every render it also normalises link
-// styling (theme blue, no underline).
+// viewport positions back to messages so the window can offer a per-message
+// context menu. After every render it also normalises link styling (theme
+// blue, no underline).
 class ChatView : public QTextBrowser {
     Q_OBJECT
     friend class BubbleOverlay;
@@ -56,21 +56,11 @@ public:
     // rounded-corner painting bounds. Primarily useful for visual guards.
     QRect messageOuterBubbleRect(quint64 message_id) const;
 
-    // Forgets the currently hovered message without emitting anything; the
-    // next mouse move over the same message reports it again.
-    void clearHoverState();
-
 signals:
-    void hoveredMessage(quint64 message_id, const QRect& meta_rect);
-    void hoverCleared();
     void messageMenuRequested(quint64 message_id, const QString& client_msg_id,
                               const QPoint& global_pos);
 
 protected:
-    bool eventFilter(QObject* watched, QEvent* event) override;
-    void mouseMoveEvent(QMouseEvent* event) override;
-    void mousePressEvent(QMouseEvent* event) override;
-    void leaveEvent(QEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
@@ -94,7 +84,6 @@ private:
 
     QVector<MessageRange> message_ranges_;
     QWidget* bubble_overlay_ = nullptr;
-    quint64 hovered_id_ = 0;
 };
 
 #endif  // CHATBOX_CLIENT_UI_CHAT_VIEW_H

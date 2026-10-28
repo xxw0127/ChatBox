@@ -336,33 +336,6 @@ QTextBrowser {
     padding: 8px;
 }
 
-QFrame#MessageActionBar {
-    background: #FFFFFF;
-    border: 1px solid #E7EBF0;
-    border-radius: 12px;
-}
-
-QFrame#MessageActionBar QPushButton {
-    background: transparent;
-    border: none;
-    border-radius: 8px;
-    padding: 3px 9px;
-    color: #2C74CC;
-    font-size: 11px;
-}
-
-QFrame#MessageActionBar QPushButton:hover {
-    background: #F4F4F5;
-}
-
-QFrame#MessageActionBar QPushButton[keyboardFocus="true"]:focus {
-    border: 1px solid #2C74CC;
-}
-
-QFrame#MessageActionBar QPushButton:pressed {
-    background: #F1F1F1;
-}
-
 QStackedWidget {
     background: #F4F4F5;
 }

@@ -48,14 +48,6 @@ ChatView::ChatView(QWidget* parent) : QTextBrowser(parent) {
     // message menu through the normal Tab chain.
     setFocusPolicy(Qt::StrongFocus);
     setAccessibleName("聊天记录");
-    setMouseTracking(true);
-    if (viewport() != nullptr) {
-        viewport()->setMouseTracking(true);
-        // The viewport fills the widget, so the scroll area itself rarely
-        // receives a Leave event; listen on the viewport to reset the hover
-        // state when the pointer moves to the composer or another panel.
-        viewport()->installEventFilter(this);
-    }
     bubble_overlay_ = new BubbleOverlay(this);
     bubble_overlay_->setGeometry(viewport()->geometry());
     bubble_overlay_->show();
@@ -66,21 +58,12 @@ ChatView::ChatView(QWidget* parent) : QTextBrowser(parent) {
             [this] { bubble_overlay_->update(); });
 }
 
-bool ChatView::eventFilter(QObject* watched, QEvent* event) {
-    if (watched == viewport() && event->type() == QEvent::Leave) {
-        clearHoverState();
-        emit hoverCleared();
-    }
-    return QTextBrowser::eventFilter(watched, event);
-}
-
 void ChatView::setConversationHtml(
     const QString& html,
     const QVector<chatbox::client::MessageKey>& message_keys) {
     setHtml(html);
     styleAnchors();
     buildMessageRanges(message_keys);
-    hovered_id_ = 0;
     if (bubble_overlay_ != nullptr) {
         bubble_overlay_->update();
     }
@@ -123,7 +106,6 @@ void ChatView::appendFragment(const QString& html,
         range.bubble_color = key.bubble_color;
         message_ranges_.append(range);
     }
-    hovered_id_ = 0;
     if (bubble_overlay_ != nullptr) {
         bubble_overlay_->update();
     }
@@ -132,7 +114,6 @@ void ChatView::appendFragment(const QString& html,
 void ChatView::clearConversation() {
     clear();
     message_ranges_.clear();
-    hovered_id_ = 0;
     if (bubble_overlay_ != nullptr) {
         bubble_overlay_->update();
     }
@@ -296,57 +277,12 @@ QRect ChatView::messageBubbleRect(quint64 message_id) const {
     return QRect();
 }
 
-void ChatView::clearHoverState() {
-    hovered_id_ = 0;
-}
-
-void ChatView::mouseMoveEvent(QMouseEvent* event) {
-    QTextBrowser::mouseMoveEvent(event);
-    if (event->buttons() != Qt::NoButton) {
-        if (hovered_id_ != 0) {
-            hovered_id_ = 0;
-            emit hoverCleared();
-        }
-        return;
-    }
-    const quint64 id = messageIdAt(event->pos());
-    if (id == hovered_id_) {
-        return;
-    }
-    hovered_id_ = id;
-    if (id == 0) {
-        emit hoverCleared();
-    } else {
-        emit hoveredMessage(id, messageAnchorRect(id));
-    }
-}
-
-void ChatView::mousePressEvent(QMouseEvent* event) {
-    if (hovered_id_ != 0) {
-        hovered_id_ = 0;
-        emit hoverCleared();
-    }
-    QTextBrowser::mousePressEvent(event);
-}
-
-void ChatView::leaveEvent(QEvent* event) {
-    // Forget which message was hovered, otherwise returning to the same
-    // bubble would compare equal to the stale id and never re-emit hovered.
-    clearHoverState();
-    emit hoverCleared();
-    QTextBrowser::leaveEvent(event);
-}
-
 void ChatView::resizeEvent(QResizeEvent* event) {
     QTextBrowser::resizeEvent(event);
     if (bubble_overlay_ != nullptr) {
         bubble_overlay_->setGeometry(viewport()->geometry());
         bubble_overlay_->update();
     }
-    // The bar was positioned for the old geometry; reset the hover state so
-    // the same message can show it again at the new position.
-    clearHoverState();
-    emit hoverCleared();
 }
 
 void ChatView::keyPressEvent(QKeyEvent* event) {
