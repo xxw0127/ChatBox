@@ -118,14 +118,30 @@ bool decodeGroupMembers(const std::string& body, uint32_t& room_id,
 
 std::string encodeGroupSearch(const GroupInfo& group, uint8_t membership) {
     ByteWriter writer;
+    writer.putU8(1);
     putGroupInfo(writer, group);
     writer.putU8(membership);
+    return writer.data();
+}
+
+std::string encodeGroupSearchNotFound() {
+    ByteWriter writer;
+    writer.putU8(0);
     return writer.data();
 }
 
 bool decodeGroupSearch(const std::string& body, GroupInfo& group,
                        uint8_t& membership) {
     ByteReader reader(body.data(), body.size());
+    uint8_t found = 0;
+    if (!reader.getU8(found)) {
+        return false;
+    }
+    if (found == 0) {
+        group = GroupInfo{};
+        membership = 0;
+        return true;
+    }
     return getGroupInfo(reader, group) && reader.getU8(membership);
 }
 
@@ -139,6 +155,7 @@ std::string encodeGroupRequests(uint32_t room_id,
         writer.putU32(static_cast<uint32_t>(request.room_id));
         writer.putU64(request.user_id);
         writer.putString(request.nickname);
+        writer.putString(request.room_name);
         writer.putString(request.message);
         writer.putU8(static_cast<uint8_t>(request.status));
         writer.putString(request.created_at);
@@ -162,6 +179,7 @@ bool decodeGroupRequests(const std::string& body, uint32_t& room_id,
         if (!reader.getU64(request.request_id) ||
             !reader.getU32(request_room) || !reader.getU64(request.user_id) ||
             !reader.getString(request.nickname) ||
+            !reader.getString(request.room_name) ||
             !reader.getString(request.message) || !reader.getU8(status) ||
             !reader.getString(request.created_at)) {
             return false;

@@ -20,6 +20,7 @@ bool decodeGroupMembers(const std::string& body, uint32_t& room_id,
                         std::vector<GroupMemberInfo>& members);
 
 std::string encodeGroupSearch(const GroupInfo& group, uint8_t membership);
+std::string encodeGroupSearchNotFound();
 bool decodeGroupSearch(const std::string& body, GroupInfo& group,
                        uint8_t& membership);
 

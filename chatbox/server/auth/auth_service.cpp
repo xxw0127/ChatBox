@@ -137,7 +137,8 @@ AuthResult AuthService::handleRegister(const Frame& request,
 
     uint64_t user_id = 0;
     bool duplicate = false;
-    if (!database_.createUser(username, nickname, password_hash, user_id, duplicate, error)) {
+    if (!database_.createUserWithDefaultGroup(username, nickname, password_hash,
+                                              user_id, duplicate, error)) {
         if (duplicate) {
             return AuthResult{makeError(request.header.seq, 1003, "username already exists")};
         }

@@ -68,6 +68,7 @@ enum Command : uint16_t {
     kCmdGroupRequestList = 0x00BB,
     kCmdGroupPush = 0x00BC,
     kCmdGroupMarkRead = 0x00BD,
+    kCmdGroupLeave = 0x00BE,
     kCmdError = 0x00FF,
 };
 

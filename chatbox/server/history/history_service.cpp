@@ -70,10 +70,22 @@ Frame HistoryService::handle(const Frame& request, const RoomMember& caller) {
             return makeError(request.header.seq, 1001, "invalid room id");
         }
         const int room_id = static_cast<int>(target_id);
-        if (!rooms_.isMember(room_id, caller.user_id)) {
+        bool member = false;
+        if (!database_.isRoomMember(room_id, caller.user_id, member, error)) {
+            logMessage(LogLevel::kError, "history", "room membership failed: " + error);
+            return makeError(request.header.seq, 2001, "internal error");
+        }
+        if (!member) {
             return makeError(request.header.seq, 1007, "not in room");
         }
-        if (!database_.listRoomHistory(room_id, before_id, limit, page, error)) {
+        uint64_t join_cursor = 0;
+        if (!database_.roomJoinMessageId(room_id, caller.user_id, join_cursor,
+                                         error)) {
+            logMessage(LogLevel::kError, "history", "join cursor failed: " + error);
+            return makeError(request.header.seq, 2001, "internal error");
+        }
+        if (!database_.listRoomHistory(room_id, join_cursor, before_id, limit,
+                                       page, error)) {
             logMessage(LogLevel::kError, "history", "room history failed: " + error);
             return makeError(request.header.seq, 2001, "internal error");
         }
@@ -139,11 +151,27 @@ Frame HistoryService::handleSearch(const Frame& request, const RoomMember& calle
     std::vector<SearchResultRow> results;
     std::string error;
     if (kind == 1) {
+        if (target_id == 0 ||
+            target_id > static_cast<uint64_t>(std::numeric_limits<int>::max())) {
+            return makeError(request.header.seq, 1001, "invalid room id");
+        }
         const int room_id = static_cast<int>(target_id);
-        if (!rooms_.isMember(room_id, caller.user_id)) {
+        bool member = false;
+        if (!database_.isRoomMember(room_id, caller.user_id, member, error)) {
+            logMessage(LogLevel::kError, "history", "room membership failed: " + error);
+            return makeError(request.header.seq, 2001, "internal error");
+        }
+        if (!member) {
             return makeError(request.header.seq, 1007, "not in room");
         }
-        if (!database_.searchRoomMessages(room_id, keyword, limit, results, error)) {
+        uint64_t join_cursor = 0;
+        if (!database_.roomJoinMessageId(room_id, caller.user_id, join_cursor,
+                                         error)) {
+            logMessage(LogLevel::kError, "history", "join cursor failed: " + error);
+            return makeError(request.header.seq, 2001, "internal error");
+        }
+        if (!database_.searchRoomMessages(room_id, join_cursor, keyword, limit,
+                                          results, error)) {
             logMessage(LogLevel::kError, "history", "room search failed: " + error);
             return makeError(request.header.seq, 2001, "internal error");
         }

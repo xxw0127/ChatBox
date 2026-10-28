@@ -58,6 +58,7 @@ int testGroupMembersAndRequests() {
     requests[0].room_id = 7;
     requests[0].user_id = 8;
     requests[0].nickname = "林一";
+    requests[0].room_name = "设计群";
     requests[0].message = "想加入";
     requests[0].status = 0;
     requests[0].created_at = "2026-10-28 10:00:00";
@@ -68,7 +69,23 @@ int testGroupMembersAndRequests() {
                                             decoded_requests));
     CHECK_EQ(request_room, 7u);
     CHECK_EQ(decoded_requests.size(), 1u);
+    CHECK_EQ(decoded_requests[0].room_name, std::string("设计群"));
     CHECK_EQ(decoded_requests[0].message, std::string("想加入"));
+
+    chatbox::GroupInfo found_group;
+    found_group.room_id = 7;
+    found_group.name = "设计群";
+    uint8_t membership = 2;
+    chatbox::GroupInfo decoded_group;
+    uint8_t decoded_membership = 0;
+    CHECK_TRUE(chatbox::decodeGroupSearch(
+        chatbox::encodeGroupSearch(found_group, membership),
+        decoded_group, decoded_membership));
+    CHECK_EQ(decoded_group.name, std::string("设计群"));
+    CHECK_EQ(decoded_membership, 2u);
+    CHECK_TRUE(chatbox::decodeGroupSearch(
+        chatbox::encodeGroupSearchNotFound(), decoded_group, decoded_membership));
+    CHECK_EQ(decoded_membership, 0u);
     return 0;
 }
 

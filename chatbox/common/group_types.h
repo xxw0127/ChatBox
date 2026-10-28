@@ -41,6 +41,7 @@ struct GroupRequestInfo {
     uint64_t room_id = 0;
     uint64_t user_id = 0;
     std::string nickname;
+    std::string room_name;
     std::string message;
     int status = 0;  // 0 pending, 1 approved, 2 rejected
     std::string created_at;

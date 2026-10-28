@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS rooms (
 INSERT IGNORE INTO rooms
     (id, name, max_members, group_no, owner_id, is_default, status)
 VALUES
-    (1, '群聊A', 0, '10000001', 4, 1, 0);
+    (1, '群聊A', 0, '10000001', 0, 1, 0);
 
 CREATE TABLE IF NOT EXISTS messages (
     id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

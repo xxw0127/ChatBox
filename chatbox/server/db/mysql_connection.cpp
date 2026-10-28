@@ -809,7 +809,10 @@ bool MysqlConnection::listRooms(std::vector<RoomRow>& rooms, std::string& error)
         return false;
     }
 
-    Stmt stmt(mysql_, "SELECT id, name, max_members FROM rooms ORDER BY id", error);
+    Stmt stmt(mysql_,
+              "SELECT id, name, max_members FROM rooms "
+              "WHERE status = 0 ORDER BY is_default DESC, id ASC",
+              error);
     if (stmt.get() == nullptr) {
         return false;
     }
@@ -989,7 +992,8 @@ bool MysqlConnection::insertPrivateMessage(uint64_t sender_id, uint64_t receiver
     return true;
 }
 
-bool MysqlConnection::listRoomHistory(int room_id, uint64_t before_id, int limit,
+bool MysqlConnection::listRoomHistory(int room_id, uint64_t after_id,
+                                      uint64_t before_id, int limit,
                                       HistoryPage& page, std::string& error) {
     if (!ensureConnected(error)) {
         return false;
@@ -1006,7 +1010,7 @@ bool MysqlConnection::listRoomHistory(int room_id, uint64_t before_id, int limit
               "DATE_FORMAT(m.created_at, '%Y-%m-%d %H:%i:%s'), "
               "m.reply_to_id, m.reply_sender_name, m.reply_content, m.recalled "
               "FROM messages m JOIN users u ON u.id = m.sender_id "
-              "WHERE m.room_id = ? AND m.id < ? "
+              "WHERE m.room_id = ? AND m.id > ? AND m.id < ? "
               "ORDER BY m.id DESC LIMIT ?",
               error);
     if (stmt.get() == nullptr) {
@@ -1014,12 +1018,14 @@ bool MysqlConnection::listRoomHistory(int room_id, uint64_t before_id, int limit
     }
 
     int room_value = room_id;
+    uint64_t after_value = after_id;
     uint64_t cursor_value = cursor;
     int limit_value = fetch_limit;
-    MYSQL_BIND params[3] = {};
+    MYSQL_BIND params[4] = {};
     bindInt(params[0], room_value);
-    bindU64(params[1], cursor_value);
-    bindInt(params[2], limit_value);
+    bindU64(params[1], after_value);
+    bindU64(params[2], cursor_value);
+    bindInt(params[3], limit_value);
     if (mysql_stmt_bind_param(stmt.get(), params) != 0) {
         error = mysql_stmt_error(stmt.get());
         return false;
@@ -1255,8 +1261,9 @@ bool MysqlConnection::markPrivateRead(uint64_t user_id, uint64_t peer_id,
     return execute(stmt.get(), error);
 }
 
-bool MysqlConnection::searchRoomMessages(int room_id, const std::string& keyword,
-                                         int limit, std::vector<SearchResultRow>& results,
+bool MysqlConnection::searchRoomMessages(int room_id, uint64_t after_id,
+                                         const std::string& keyword, int limit,
+                                         std::vector<SearchResultRow>& results,
                                          std::string& error) {
     if (!ensureConnected(error)) {
         return false;
@@ -1268,20 +1275,23 @@ bool MysqlConnection::searchRoomMessages(int room_id, const std::string& keyword
               "SELECT m.id, m.sender_id, u.nickname, m.content, "
               "DATE_FORMAT(m.created_at, '%Y-%m-%d %H:%i:%s'), m.recalled "
               "FROM messages m JOIN users u ON u.id = m.sender_id "
-              "WHERE m.room_id = ? AND m.content <> '' AND m.content LIKE ? ESCAPE '!' "
+              "WHERE m.room_id = ? AND m.id > ? AND m.content <> '' "
+              "AND m.content LIKE ? ESCAPE '!' "
               "ORDER BY m.id DESC LIMIT ?",
               error);
     if (stmt.get() == nullptr) {
         return false;
     }
     int room_value = room_id;
+    uint64_t after_value = after_id;
     int limit_value = limit;
     const std::string pattern = likePattern(keyword);
     unsigned long pattern_length = 0;
-    MYSQL_BIND params[3] = {};
+    MYSQL_BIND params[4] = {};
     bindInt(params[0], room_value);
-    bindString(params[1], pattern, pattern_length);
-    bindInt(params[2], limit_value);
+    bindU64(params[1], after_value);
+    bindString(params[2], pattern, pattern_length);
+    bindInt(params[3], limit_value);
     if (mysql_stmt_bind_param(stmt.get(), params) != 0) {
         error = mysql_stmt_error(stmt.get());
         return false;

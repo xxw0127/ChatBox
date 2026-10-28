@@ -221,7 +221,7 @@ int main(int argc, char** argv) {
                                      command == chatbox::kCmdAvatarGet ||
                                      command == chatbox::kCmdProfileUpdate;
         const bool group_command =
-            command >= chatbox::kCmdGroupList && command <= chatbox::kCmdGroupMarkRead;
+            command >= chatbox::kCmdGroupList && command <= chatbox::kCmdGroupLeave;
         if (!auth_command && !room_command && !private_command && !history_command &&
             !friend_command && !profile_command && !group_command) {
             const Frame response = makeErrorResponse(frame.header.seq, 1001, "unknown command");

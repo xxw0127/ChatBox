@@ -32,7 +32,23 @@ public:
     GroupResult handle(const Frame& request, const RoomMember& caller);
 
 private:
-    GroupResult notImplemented(const Frame& request);
+    bool loadGroupForMember(uint64_t room_id, uint64_t user_id, GroupInfo& group,
+                            GroupRole& role, std::string& error);
+    bool canJoinMoreGroups(uint64_t user_id, std::string& error);
+    GroupResult handleList(const Frame& request, const RoomMember& caller);
+    GroupResult handleCreate(const Frame& request, const RoomMember& caller);
+    GroupResult handleUpdate(const Frame& request, const RoomMember& caller);
+    GroupResult handleDisband(const Frame& request, const RoomMember& caller);
+    GroupResult handleSearch(const Frame& request, const RoomMember& caller);
+    GroupResult handleJoinRequest(const Frame& request, const RoomMember& caller);
+    GroupResult handleJoinRespond(const Frame& request, const RoomMember& caller);
+    GroupResult handleInvite(const Frame& request, const RoomMember& caller);
+    GroupResult handleInviteRespond(const Frame& request, const RoomMember& caller);
+    GroupResult handleMemberList(const Frame& request, const RoomMember& caller);
+    GroupResult handleMemberUpdate(const Frame& request, const RoomMember& caller);
+    GroupResult handleRequestList(const Frame& request, const RoomMember& caller);
+    GroupResult handleMarkRead(const Frame& request, const RoomMember& caller);
+    GroupResult handleLeave(const Frame& request, const RoomMember& caller);
 
     MysqlConnection& database_;
     RoomManager& rooms_;

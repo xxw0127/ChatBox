@@ -136,6 +136,13 @@ RoomResult RoomService::handleJoinRoom(const Frame& request, const RoomMember& c
     }
 
     std::string error;
+    bool member = false;
+    if (!database_.isRoomMember(room_id, caller.user_id, member, error)) {
+        return RoomResult{makeError(request.header.seq, 2001, "internal error")};
+    }
+    if (!member) {
+        return RoomResult{makeError(request.header.seq, 1007, "not a group member")};
+    }
     if (!rooms_.join(room_id, caller, error)) {
         return RoomResult{makeError(request.header.seq, 1006, error)};
     }
@@ -227,8 +234,14 @@ RoomResult RoomService::handleChatSend(const Frame& request, const RoomMember& c
         reply_content.size() > 2000) {
         return RoomResult{makeError(request.header.seq, 1001, "invalid reply content")};
     }
-    if (!rooms_.isMember(room_id, caller.user_id)) {
-        return RoomResult{makeError(request.header.seq, 1007, "not in room")};
+    bool member = false;
+    std::string membership_error;
+    if (!database_.isRoomMember(room_id, caller.user_id, member,
+                                membership_error)) {
+        return RoomResult{makeError(request.header.seq, 2001, "internal error")};
+    }
+    if (!member) {
+        return RoomResult{makeError(request.header.seq, 1007, "not a group member")};
     }
 
     const std::string created_at = utcNow();
@@ -290,8 +303,14 @@ RoomResult RoomService::handleRecall(const Frame& request, const RoomMember& cal
         return RoomResult{makeError(request.header.seq, 1001, "invalid recall body")};
     }
     const int room_id = static_cast<int>(target_id);
-    if (!rooms_.isMember(room_id, caller.user_id)) {
-        return RoomResult{makeError(request.header.seq, 1007, "not in room")};
+    bool member = false;
+    std::string membership_error;
+    if (!database_.isRoomMember(room_id, caller.user_id, member,
+                                membership_error)) {
+        return RoomResult{makeError(request.header.seq, 2001, "internal error")};
+    }
+    if (!member) {
+        return RoomResult{makeError(request.header.seq, 1007, "not a group member")};
     }
     std::string error;
     if (!database_.recallRoomMessage(room_id, message_id, caller.user_id, error)) {

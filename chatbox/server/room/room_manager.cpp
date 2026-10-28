@@ -51,8 +51,9 @@ bool RoomManager::join(int room_id, const RoomMember& member, std::string& error
         return true;
     }
 
-    if (static_cast<int>(room_it->second.members.size()) >=
-        room_it->second.info.max_members) {
+    if (room_it->second.info.max_members > 0 &&
+        static_cast<int>(room_it->second.members.size()) >=
+            room_it->second.info.max_members) {
         error = "room full";
         return false;
     }

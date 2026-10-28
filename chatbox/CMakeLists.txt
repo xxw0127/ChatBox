@@ -48,6 +48,7 @@ add_executable(chatbox_server
     server/main.cpp
     server/config.cpp
     server/db/mysql_connection.cpp
+    server/db/mysql_connection_groups.cpp
     server/auth/password_hash.cpp
     server/auth/token.cpp
     server/auth/login_rate_limiter.cpp
