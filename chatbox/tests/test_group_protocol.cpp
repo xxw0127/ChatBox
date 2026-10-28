@@ -89,6 +89,24 @@ int testGroupMembersAndRequests() {
     return 0;
 }
 
+int testGroupMemberFrameBudget() {
+    std::vector<chatbox::GroupMemberInfo> members(500);
+    for (std::size_t i = 0; i < members.size(); ++i) {
+        members[i].user_id = i + 1;
+        members[i].nickname = std::string(128, 'a');
+        members[i].role = chatbox::GroupRole::kMember;
+        members[i].online = i % 2 == 0;
+    }
+    const std::string body = chatbox::encodeGroupMembers(1, members);
+    CHECK_TRUE(body.size() < chatbox::kMaxInFrameBody);
+    uint32_t room_id = 0;
+    std::vector<chatbox::GroupMemberInfo> decoded;
+    CHECK_TRUE(chatbox::decodeGroupMembers(body, room_id, decoded));
+    CHECK_EQ(decoded.size(), 500u);
+    CHECK_TRUE(decoded[0].nickname.size() <= 96u);
+    return 0;
+}
+
 int testGroupRequestDecoders() {
     chatbox::ByteWriter writer;
     writer.putString("10000007");
@@ -125,6 +143,7 @@ int main() {
     int failures = 0;
     failures += testGroupListRoundTrip();
     failures += testGroupMembersAndRequests();
+    failures += testGroupMemberFrameBudget();
     failures += testGroupRequestDecoders();
     if (failures == 0) {
         std::cout << "test_group_protocol: all checks passed\n";

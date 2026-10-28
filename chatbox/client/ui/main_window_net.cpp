@@ -72,8 +72,21 @@ void MainWindow::handleGroupList(const QByteArray& body) {
             group_store_.upsert(tombstone);
         }
     }
+    for (auto it = group_requests_by_room_.begin();
+         it != group_requests_by_room_.end();) {
+        const chatbox::client::GroupInfo* group = group_store_.find(it.key());
+        if (group == nullptr || group->status != 0 || group->role < 1) {
+            it = group_requests_by_room_.erase(it);
+        } else {
+            ++it;
+        }
+    }
     QSet<quint64> active_ids;
     for (const chatbox::client::GroupInfo& group : group_store_.active()) {
+        if (group.role >= 1 &&
+            !group_requests_by_room_.contains(group.room_id)) {
+            requestGroupRequests(group.room_id);
+        }
         active_ids.insert(group.room_id);
         if (joined_groups_.contains(group.room_id)) {
             continue;
@@ -100,6 +113,11 @@ void MainWindow::handleGroupList(const QByteArray& body) {
             resetContext();
         } else if (current->status != 0) {
             selectDissolvedGroup(current->room_id, current->name);
+        } else if (!offline_mode_ && input_edit_ != nullptr &&
+                   !input_edit_->isEnabled()) {
+            // The user was reading a left/removed tombstone when a new
+            // invitation or approval made this group active again.
+            selectGroup(current->room_id, current->name);
         }
     }
     if (context_type_ == ContextType::None) {
@@ -188,14 +206,15 @@ void MainWindow::handleGroupRequestList(const QByteArray& body) {
     if (room_id == 0) {
         group_invites_ = requests;
     } else {
-        group_requests_ = requests;
+        group_requests_by_room_.insert(static_cast<quint64>(room_id), requests);
     }
     updateGroupNoticeBadge();
     if (group_notify_dialog_ != nullptr) {
         const int role = group_store_.find(static_cast<quint64>(current_room_id_))
                              ? group_store_.find(static_cast<quint64>(current_room_id_))->role
                              : 0;
-        group_notify_dialog_->setData(group_requests_, group_invites_, role >= 1);
+        group_notify_dialog_->setData(pendingGroupRequests(), group_invites_,
+                                      role >= 1);
     }
 }
 
@@ -210,17 +229,20 @@ void MainWindow::handleGroupPush(const QByteArray& body) {
         !reader.getU64(user_id) || !reader.getU8(role)) {
         return;
     }
-    Q_UNUSED(user_id);
     Q_UNUSED(role);
     requestGroupList();
-    if (context_type_ == ContextType::Room &&
+    const bool room_removed =
+        event == 3 || (event == 5 && user_id == user_id_);
+    if (!room_removed && context_type_ == ContextType::Room &&
         room_id == static_cast<uint32_t>(current_room_id_)) {
         requestGroupMembers(current_room_id_);
     }
     if (event == 7 || event == 8) {
         requestGroupRequests(0);
-        if (context_type_ == ContextType::Room && current_room_id_ != 0) {
-            requestGroupRequests(current_room_id_);
+        const chatbox::client::GroupInfo* group =
+            group_store_.find(static_cast<quint64>(room_id));
+        if (group != nullptr && group->role >= 1) {
+            requestGroupRequests(static_cast<quint64>(room_id));
         }
     }
 }
@@ -820,10 +842,14 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
         case chatbox::kCmdGroupInviteRespond:
         case chatbox::kCmdGroupMemberUpdate:
         case chatbox::kCmdGroupLeave:
-        case chatbox::kCmdGroupMarkRead:
+        case chatbox::kCmdGroupMarkRead: {
             pending_group_commands_.remove(frame.header.seq);
             requestGroupList();
-            if (context_type_ == ContextType::Room && current_room_id_ != 0) {
+            const bool room_removed_by_action =
+                frame.header.cmd == chatbox::kCmdGroupLeave ||
+                frame.header.cmd == chatbox::kCmdGroupDisband;
+            if (!room_removed_by_action &&
+                context_type_ == ContextType::Room && current_room_id_ != 0) {
                 requestGroupMembers(current_room_id_);
             }
             if (frame.header.cmd == chatbox::kCmdGroupMarkRead &&
@@ -842,6 +868,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 }
             }
             break;
+        }
         case chatbox::kCmdRoomList: {
             uint16_t count = 0;
             if (!reader.getU16(count)) {
@@ -1257,9 +1284,29 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 peer_names_.insert(sender_id, nickname);
             }
 
+            const bool is_jump = history_request_is_jump_;
             const bool was_older_page =
-                history_request_before_ != 0 && !history_request_is_jump_;
+                history_request_before_ != 0 && !is_jump;
             history_request_is_jump_ = false;
+            if (is_jump) {
+                bool target_present = false;
+                for (const chatbox::client::ChatMessage& message : page) {
+                    if (message.message_id == pending_jump_message_id_) {
+                        target_present = true;
+                        break;
+                    }
+                }
+                if (!target_present) {
+                    pending_jump_message_id_ = 0;
+                    loading_older_history_ = false;
+                    history_request_seq_ = 0;
+                    history_request_kind_ = 0;
+                    history_request_target_ = 0;
+                    history_request_before_ = 0;
+                    setStatus("消息不在当前可见范围内", true);
+                    break;
+                }
+            }
             if (was_older_page) {
                 message_store_.prependHistory(page);
                 renderCurrentConversation(ScrollMode::kPreserveAnchor);
@@ -1274,7 +1321,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             history_request_before_ = 0;
             has_more_ = has_more != 0;
             next_before_id_ = next_before;
-            if (kind == 1 && !was_older_page && !page.isEmpty()) {
+            if (kind == 1 && !was_older_page && !is_jump && !page.isEmpty()) {
                 markGroupRead(target, page.back().message_id);
             }
             if (pending_jump_message_id_ != 0) {
@@ -1907,8 +1954,21 @@ void MainWindow::handleError(quint16 code, const QString& message, quint32 seq) 
         return;
     }
 
+    if (history_request_seq_ != 0 && seq == history_request_seq_) {
+        history_request_seq_ = 0;
+        history_request_is_jump_ = false;
+        jump_history_pending_ = false;
+        pending_jump_message_id_ = 0;
+        loading_older_history_ = false;
+        setStatus(QString("加载历史失败: %1").arg(text), true);
+        return;
+    }
+
     if (panel_search_seq_ != 0 && seq == panel_search_seq_) {
         panel_search_seq_ = 0;
+        if (message_search_timeout_timer_ != nullptr) {
+            message_search_timeout_timer_->stop();
+        }
         if (right_search_status_ != nullptr) {
             right_search_status_->setText(QString("搜索失败: %1").arg(text));
         }
@@ -2015,7 +2075,7 @@ void MainWindow::clearSession() {
     group_store_.clear();
     pending_group_commands_.clear();
     joined_groups_.clear();
-    group_requests_.clear();
+    group_requests_by_room_.clear();
     group_invites_.clear();
     panel_search_seq_ = 0;
     history_request_seq_ = 0;

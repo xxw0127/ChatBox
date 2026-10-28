@@ -319,7 +319,13 @@ void MainWindow::startPanelSearch(const QString& keyword) {
         item->setToolTip(QStringLiteral("双击跳转到该消息"));
     };
 
-    if (offline_mode_) {
+    const chatbox::client::GroupInfo* search_group =
+        context_type_ == ContextType::Room
+            ? group_store_.find(static_cast<quint64>(current_room_id_))
+            : nullptr;
+    const bool local_only =
+        offline_mode_ || (search_group != nullptr && search_group->status != 0);
+    if (local_only) {
         chatbox::client::ChatContext context = chatbox::client::ChatContext::kRoom;
         quint64 target_id = 0;
         if (!currentChatContext(context, target_id) || !history_store_.isOpen()) {
@@ -355,8 +361,14 @@ void MainWindow::startPanelSearch(const QString& keyword) {
     writer.putU16(50);
     frame.body = writer.data();
     panel_search_seq_ = frame.header.seq;
+    if (message_search_timeout_timer_ != nullptr) {
+        message_search_timeout_timer_->start();
+    }
     if (!sendFrame(frame)) {
         panel_search_seq_ = 0;
+        if (message_search_timeout_timer_ != nullptr) {
+            message_search_timeout_timer_->stop();
+        }
         right_search_status_->setText(QStringLiteral("网络未连接，无法搜索"));
     }
 }
@@ -880,7 +892,11 @@ void MainWindow::maybeLoadOlder() {
     if (chat_view_->verticalScrollBar()->value() > 40) {
         return;
     }
-    if (offline_mode_) {
+    const chatbox::client::GroupInfo* group =
+        context_type_ == ContextType::Room
+            ? group_store_.find(static_cast<quint64>(current_room_id_))
+            : nullptr;
+    if (offline_mode_ || (group != nullptr && group->status != 0)) {
         loadOlderFromLocal();
         return;
     }
@@ -903,6 +919,37 @@ void MainWindow::jumpToMessage(quint64 message_id) {
             QScrollBar* bar = chat_view_->verticalScrollBar();
             bar->setValue(std::max(0, bar->value() + rect.top() - 48));
         }
+        return;
+    }
+    const chatbox::client::GroupInfo* group =
+        context_type_ == ContextType::Room
+            ? group_store_.find(static_cast<quint64>(current_room_id_))
+            : nullptr;
+    const bool local_only =
+        offline_mode_ || (group != nullptr && group->status != 0);
+    if (local_only) {
+        if (!history_store_.isOpen()) {
+            setStatus("消息不在本地记录中", true);
+            return;
+        }
+        chatbox::client::ChatContext context = chatbox::client::ChatContext::kRoom;
+        quint64 target_id = 0;
+        if (!currentChatContext(context, target_id)) {
+            return;
+        }
+        const QVector<chatbox::client::ChatMessage> page =
+            history_store_.before(context, target_id, message_id + 1, 50);
+        if (page.isEmpty()) {
+            setStatus("消息不在本地记录中", true);
+            return;
+        }
+        message_store_.replaceHistory(page);
+        next_before_id_ = page.first().message_id;
+        has_more_ = !history_store_
+                         .before(context, target_id, next_before_id_, 1)
+                         .isEmpty();
+        renderCurrentConversation(ScrollMode::kBottom);
+        jumpToMessage(message_id);
         return;
     }
     pending_jump_message_id_ = message_id;
@@ -1051,6 +1098,16 @@ void MainWindow::addIncomingMessage(const chatbox::client::ChatMessage& message)
         chatbox::client::formatLocalDate(messages.last().created_at_utc) ==
             chatbox::client::formatLocalDate(message.created_at_utc);
     const bool appended = message_store_.appendIncoming(message);
+    if (appended && context_type_ == ContextType::Room) {
+        if (at_bottom) {
+            markGroupRead(static_cast<quint64>(current_room_id_),
+                          message.message_id);
+        } else if (chatbox::client::GroupInfo* group =
+                       group_store_.find(static_cast<quint64>(current_room_id_))) {
+            ++group->unread;
+            refreshGroupListView();
+        }
+    }
     if (appended && at_bottom && same_day) {
         chatbox::client::MessageKey key;
         key.message_id = message.message_id;

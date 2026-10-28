@@ -1,10 +1,22 @@
 #include "common/group_protocol.h"
 
+#include <algorithm>
+
 #include "common/protocol.h"
 
 namespace chatbox {
 
 namespace {
+
+void putUtf8Limited(ByteWriter& writer, const std::string& value,
+                    std::size_t max_bytes) {
+    std::size_t length = std::min(max_bytes, value.size());
+    while (length > 0 && length < value.size() &&
+           (static_cast<unsigned char>(value[length]) & 0xC0) == 0x80) {
+        --length;
+    }
+    writer.putString(value.substr(0, length));
+}
 
 void putGroupInfo(ByteWriter& writer, const GroupInfo& group) {
     writer.putU32(static_cast<uint32_t>(group.room_id));
@@ -90,7 +102,9 @@ std::string encodeGroupMembers(uint32_t room_id,
     writer.putU16(static_cast<uint16_t>(members.size()));
     for (const GroupMemberInfo& member : members) {
         writer.putU64(member.user_id);
-        writer.putString(member.nickname);
+        // 500 members must fit the 64 KiB inbound frame; keep the common
+        // nickname short enough while preserving UTF-8 boundaries.
+        putUtf8Limited(writer, member.nickname, 96);
         writer.putU8(static_cast<uint8_t>(member.role));
         writer.putU8(member.online ? 1 : 0);
     }

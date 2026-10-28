@@ -825,7 +825,7 @@ bool MysqlConnection::listRooms(std::vector<RoomRow>& rooms, std::string& error)
     }
 
     int id = 0;
-    char name_buffer[33] = {0};
+    char name_buffer[129] = {0};
     int max_members = 0;
     unsigned long id_length = 0;
     unsigned long name_length = 0;

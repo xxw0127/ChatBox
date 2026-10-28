@@ -37,6 +37,16 @@ QString groupRowText(const chatbox::client::GroupInfo& group) {
 
 }  // namespace
 
+QVector<chatbox::client::GroupRequestInfo>
+MainWindow::pendingGroupRequests() const {
+    QVector<chatbox::client::GroupRequestInfo> requests;
+    for (auto it = group_requests_by_room_.constBegin();
+         it != group_requests_by_room_.constEnd(); ++it) {
+        requests += it.value();
+    }
+    return requests;
+}
+
 void MainWindow::onGroupClicked(QListWidgetItem* item) {
     if (item == nullptr) {
         return;
@@ -362,7 +372,8 @@ void MainWindow::leaveGroup(quint64 room_id) {
             this, "退出群",
             QString("退出“%1”后，服务器上的群消息和文件将不再可见。确定退出？")
                 .arg(group->name),
-            QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) {
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) !=
+        QMessageBox::Yes) {
         return;
     }
     chatbox::ByteWriter writer;
@@ -400,7 +411,8 @@ void MainWindow::openGroupNotifications() {
                                 ? group_store_.find(static_cast<quint64>(current_room_id_))->role
                                 : 0)
                          : 0;
-    group_notify_dialog_->setData(group_requests_, group_invites_, role >= 1);
+    group_notify_dialog_->setData(pendingGroupRequests(), group_invites_,
+                                  role >= 1);
     group_notify_dialog_->show();
     group_notify_dialog_->raise();
     group_notify_dialog_->activateWindow();
@@ -423,8 +435,12 @@ void MainWindow::updateGroupNoticeBadge() {
     if (group_notice_badge_ == nullptr) {
         return;
     }
-    const int count =
-        static_cast<int>(group_requests_.size() + group_invites_.size());
+    int request_count = 0;
+    for (auto it = group_requests_by_room_.constBegin();
+         it != group_requests_by_room_.constEnd(); ++it) {
+        request_count += it.value().size();
+    }
+    const int count = request_count + group_invites_.size();
     group_notice_badge_->setText(QString::number(count));
     group_notice_badge_->setVisible(count > 0);
 }

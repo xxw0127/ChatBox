@@ -77,7 +77,8 @@ Frame makeRoomMembersFrame(int room_id, const std::vector<RoomMember>& members) 
     frame.header.cmd = kCmdRoomMembers;
     ByteWriter writer;
     writer.putU32(static_cast<uint32_t>(room_id));
-    const std::size_t count = std::min<std::size_t>(members.size(), 0xFFFF);
+    // 0.2.5 only needs presence; cap the legacy frame well below 64 KiB.
+    const std::size_t count = std::min<std::size_t>(members.size(), 200);
     writer.putU16(static_cast<uint16_t>(count));
     for (std::size_t i = 0; i < count; ++i) {
         writer.putU64(members[i].user_id);
@@ -133,7 +134,9 @@ RoomResult RoomService::handleRoomList(const Frame& request,
     if (visible) {
         writer.putU32(static_cast<uint32_t>(group.room_id));
         writer.putString(group.name);
-        writer.putU32(static_cast<uint32_t>(group.member_count));
+        // 0.2.5 renders this field as capacity. The default hall is unlimited
+        // in the new model; keep its legacy display value.
+        writer.putU32(1000);
         writer.putU32(static_cast<uint32_t>(
             rooms_.onlineCount(static_cast<int>(group.room_id))));
     }

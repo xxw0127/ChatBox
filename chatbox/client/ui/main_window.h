@@ -387,8 +387,10 @@ private:
     bool last_group_search_found_ = false;
     quint64 last_group_request_id_ = 0;
     quint64 last_group_invite_id_ = 0;
-    QVector<chatbox::client::GroupRequestInfo> group_requests_;
+    QHash<quint64, QVector<chatbox::client::GroupRequestInfo>>
+        group_requests_by_room_;
     QVector<chatbox::client::GroupRequestInfo> group_invites_;
+    QVector<chatbox::client::GroupRequestInfo> pendingGroupRequests() const;
     chatbox::client::Outbox outbox_;
     QHash<quint32, QString> pending_sequences_;
     quint64 next_before_id_ = 0;

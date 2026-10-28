@@ -9,6 +9,24 @@ namespace chatbox {
 
 namespace {
 
+constexpr std::size_t kMaxHistoryBody = 48 * 1024;
+
+std::size_t stringSize(const std::string& value) {
+    return 2 + value.size();
+}
+
+std::size_t historyMessageSize(const HistoryMessage& message) {
+    return 8 + 8 + stringSize(message.nickname) + stringSize(message.content) +
+           stringSize(message.created_at) + 8 +
+           stringSize(message.reply_sender_name) +
+           stringSize(message.reply_content) + 1;
+}
+
+std::size_t searchRowSize(const SearchResultRow& row) {
+    return 8 + 8 + stringSize(row.nickname) + stringSize(row.content) +
+           stringSize(row.created_at) + 1;
+}
+
 Frame makeError(uint32_t seq, uint16_t code, const std::string& message) {
     Frame response;
     response.header.flags = kFlagResponse | kFlagError;
@@ -118,14 +136,31 @@ Frame HistoryService::handle(const Frame& request, const RoomMember& caller) {
         }
     }
 
+    std::size_t body_size = 8 + 8 + 2 + 1 + 8;
+    std::size_t start = page.messages.size();
+    for (std::size_t i = page.messages.size(); i > 0; --i) {
+        const std::size_t message_size = historyMessageSize(page.messages[i - 1]);
+        if (start < page.messages.size() &&
+            body_size + message_size > kMaxHistoryBody) {
+            break;
+        }
+        body_size += message_size;
+        start = i - 1;
+    }
+    const std::size_t send_count = page.messages.size() - start;
+    const bool has_more = page.has_more || start > 0;
+    const uint64_t next_before =
+        send_count > 0 ? page.messages[start].id : page.next_before_id;
+
     Frame response = makeSuccess(kCmdHistoryResp, request.header.seq);
     ByteWriter writer;
     writer.putU8(kind);
     writer.putU64(target_id);
-    writer.putU16(static_cast<uint16_t>(page.messages.size()));
-    writer.putU8(page.has_more ? 1 : 0);
-    writer.putU64(page.next_before_id);
-    for (const HistoryMessage& message : page.messages) {
+    writer.putU16(static_cast<uint16_t>(send_count));
+    writer.putU8(has_more ? 1 : 0);
+    writer.putU64(next_before);
+    for (std::size_t i = start; i < page.messages.size(); ++i) {
+        const HistoryMessage& message = page.messages[i];
         writer.putU64(message.id);
         writer.putU64(message.sender_id);
         writer.putString(message.nickname);
@@ -208,10 +243,22 @@ Frame HistoryService::handleSearch(const Frame& request, const RoomMember& calle
         return makeError(request.header.seq, 1001, "invalid search kind");
     }
 
+    std::size_t body_size = 2;
+    std::size_t send_count = 0;
+    for (const SearchResultRow& row : results) {
+        const std::size_t row_size = searchRowSize(row);
+        if (send_count > 0 && body_size + row_size > kMaxHistoryBody) {
+            break;
+        }
+        body_size += row_size;
+        ++send_count;
+    }
+
     Frame response = makeSuccess(kCmdMessageSearch, request.header.seq);
     ByteWriter writer;
-    writer.putU16(static_cast<uint16_t>(results.size()));
-    for (const SearchResultRow& row : results) {
+    writer.putU16(static_cast<uint16_t>(send_count));
+    for (std::size_t i = 0; i < send_count; ++i) {
+        const SearchResultRow& row = results[i];
         writer.putU64(row.id);
         writer.putU64(row.sender_id);
         writer.putString(row.nickname);

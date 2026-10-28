@@ -122,7 +122,7 @@ bool MysqlConnection::listGroupsForUser(uint64_t user_id,
         "LEFT JOIN room_read_state rr ON rr.room_id = rm.room_id "
         " AND rr.user_id = rm.user_id "
         "WHERE rm.user_id = ? "
-        "ORDER BY r.is_default DESC, r.status ASC, r.id ASC",
+        "ORDER BY r.is_default DESC, r.status ASC, r.id ASC LIMIT 200",
         error);
     if (stmt.get() == nullptr) {
         return false;
@@ -743,6 +743,8 @@ bool MysqlConnection::cancelPendingMembershipRequests(uint64_t room_id,
         "WHERE room_id = ? AND user_id = ? AND status = 0",
         "DELETE FROM room_invites "
         "WHERE room_id = ? AND invitee_id = ? AND status = 0",
+        "DELETE FROM room_invites "
+        "WHERE room_id = ? AND inviter_id = ? AND status = 0",
     };
     for (const char* sql : statements) {
         Stmt stmt(mysql_, sql, error);

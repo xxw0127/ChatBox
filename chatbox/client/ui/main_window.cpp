@@ -91,6 +91,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     message_search_timeout_timer_->setInterval(8000);
     connect(message_search_timeout_timer_, &QTimer::timeout, this, [this] {
         message_search_seq_ = 0;
+        if (panel_search_seq_ != 0) {
+            panel_search_seq_ = 0;
+            if (right_search_status_ != nullptr) {
+                right_search_status_->setText("搜索超时，请重试");
+            }
+        }
         if (message_search_dialog_ != nullptr) {
             message_search_dialog_->setBusy(false);
             message_search_dialog_->setStatus("搜索超时，请重试", true);

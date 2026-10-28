@@ -103,7 +103,8 @@ GroupSettingsDialog::GroupSettingsDialog(
         if (QMessageBox::question(
                 this, QStringLiteral("移出成员"),
                 QStringLiteral("确定把该成员移出群聊？"),
-                QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) {
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No) !=
+        QMessageBox::Yes) {
             return;
         }
         emit memberActionRequested(group_.room_id, selectedUserId(), 1);
@@ -112,7 +113,8 @@ GroupSettingsDialog::GroupSettingsDialog(
         if (QMessageBox::question(
                 this, QStringLiteral("转让群主"),
                 QStringLiteral("转让后你将成为普通成员，确定继续？"),
-                QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) {
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No) !=
+        QMessageBox::Yes) {
             return;
         }
         emit memberActionRequested(group_.room_id, selectedUserId(), 4);
@@ -187,7 +189,8 @@ void GroupSettingsDialog::disbandGroup() {
     if (QMessageBox::question(
             this, QStringLiteral("解散群"),
             QStringLiteral("解散后服务器上的群消息和文件会被删除，成员本地记录保留。确定解散？"),
-            QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) {
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) !=
+        QMessageBox::Yes) {
         return;
     }
     emit disbandRequested(group_.room_id);
