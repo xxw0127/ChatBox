@@ -270,7 +270,8 @@ QString FileTransferManager::enqueueUpload(const QString& local_path, int kind,
             display_name, mime, task.size, 0, task.state));
     }
     uploads_.append(task);
-    emit uploadQueued(task.task_id, task.name, task.size);
+    emit uploadQueued(task.task_id, task.name, task.size, context, target_id,
+                      mime);
     startNextUpload();
     return task.task_id;
 }
@@ -340,6 +341,7 @@ void FileTransferManager::requestDownload(
     task.mime = mime;
     task.save_path = save_path;
     task.open_after = open_after;
+    task.state = QStringLiteral("queued");
     if (history_ != nullptr) {
         HistoryStore::FileTask stored;
         stored.file_id = file_id;
@@ -353,6 +355,34 @@ void FileTransferManager::requestDownload(
         history_->saveFileTask(stored);
     }
     downloads_.append(task);
+    startNextDownload();
+}
+
+void FileTransferManager::toggleDownload(quint64 file_id) {
+    DownloadTask* task = findDownload(file_id);
+    if (task == nullptr) {
+        return;
+    }
+    if (active_download_id_ == file_id) {
+        download_client_->pauseDownload();
+        task->state = QStringLiteral("paused");
+        if (history_ != nullptr) {
+            history_->updateFileTask(task->file_id, task->context,
+                                     task->target_id,
+                                     QStringLiteral("paused"), task->received,
+                                     task->total);
+        }
+        active_download_id_ = 0;
+        emit downloadPaused(file_id);
+        startNextDownload();
+        return;
+    }
+    task->state = QStringLiteral("queued");
+    if (history_ != nullptr) {
+        history_->updateFileTask(task->file_id, task->context, task->target_id,
+                                 QStringLiteral("queued"), task->received,
+                                 task->total);
+    }
     startNextDownload();
 }
 
@@ -386,7 +416,8 @@ void FileTransferManager::restorePending() {
         }
         if (!exists) {
             uploads_.append(task);
-            emit uploadQueued(task.task_id, task.name, task.size);
+            emit uploadQueued(task.task_id, task.name, task.size, task.context,
+                              task.target_id, task.mime);
         }
     }
     const QVector<HistoryStore::FileTask> downloads =
@@ -476,9 +507,11 @@ void FileTransferManager::startNextDownload() {
     }
     for (int i = 0; i < downloads_.size(); ++i) {
         DownloadTask& task = downloads_[i];
-        if (task.save_path.isEmpty()) {
+        if (task.save_path.isEmpty() ||
+            task.state != QStringLiteral("queued")) {
             continue;
         }
+        task.state = QStringLiteral("downloading");
         active_download_id_ = task.file_id;
         download_client_->downloadFile(task.file_id, task.save_path);
         return;

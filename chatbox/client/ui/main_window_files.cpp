@@ -33,6 +33,32 @@ void MainWindow::startFileTransfer() {
                 [this](const QString& message) {
                     setStatus(QString("文件连接: %1").arg(message), true);
                 });
+        connect(file_transfer_, &FileTransferManager::uploadQueued, this,
+                [this](const QString& task_id, const QString& name,
+                       quint64 size, chatbox::client::ChatContext context,
+                       quint64 target_id, const QString& mime) {
+                    if (message_store_.findByClientId(task_id) != nullptr ||
+                        !message_store_.isCurrent(context, target_id)) {
+                        return;
+                    }
+                    chatbox::client::ChatMessage card;
+                    card.client_msg_id = task_id;
+                    card.context = context;
+                    card.target_id = target_id;
+                    card.sender_id = user_id_;
+                    card.sender_name = nickname_;
+                    card.content = "[\u6587\u4ef6] " + name;
+                    card.created_at_utc = QDateTime::currentDateTimeUtc();
+                    card.outgoing = true;
+                    card.status = chatbox::client::MessageStatus::kSending;
+                    card.type = chatbox::client::MessageType::kFile;
+                    card.file.name = name;
+                    card.file.size = size;
+                    card.file.mime = mime;
+                    card.transfer_state = "queued";
+                    message_store_.addPending(card);
+                    renderCurrentConversation(ScrollMode::kBottom);
+                });
         connect(file_transfer_, &FileTransferManager::uploadProgress, this,
                 [this](const QString& task_id, quint64 sent, quint64 total) {
                     const int percent =
@@ -89,6 +115,10 @@ void MainWindow::startFileTransfer() {
                     } else {
                         QDesktopServices::openUrl(QUrl::fromLocalFile(path));
                     }
+                });
+        connect(file_transfer_, &FileTransferManager::downloadPaused, this,
+                [this](quint64) {
+                    setStatus(QStringLiteral("\u4e0b\u8f7d\u5df2\u6682\u505c"));
                 });
         connect(file_transfer_, &FileTransferManager::downloadFailed, this,
                 [this](quint64, const QString& message) {
@@ -380,6 +410,14 @@ void MainWindow::openFileManager() {
     connect(file_manager_dialog_, &FileManagerDialog::downloadRequested, this,
             [this](quint64 file_id, const QString& name, const QString& mime) {
                 downloadFileTo(file_id, uniqueDownloadPath(name), name, mime, 0);
+            });
+    connect(file_manager_dialog_,
+            &FileManagerDialog::downloadToggleRequested, this,
+            [this](quint64 file_id) {
+                if (file_transfer_ != nullptr) {
+                    file_transfer_->toggleDownload(file_id);
+                    file_manager_dialog_->setStatus("\u4e0b\u8f7d\u5df2\u6682\u505c/\u7ee7\u7eed");
+                }
             });
     connect(file_manager_dialog_, &FileManagerDialog::deleteRequested, this,
             [this](quint64 file_id) {

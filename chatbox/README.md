@@ -8,6 +8,20 @@ Linux C++17 服务端：epoll ET、Acceptor + 多 IO 线程、二进制帧、心
 sudo apt-get install -y cmake g++ libmysqlclient-dev libargon2-dev libssl-dev
 ```
 
+## 文件传输（Phase 2）
+
+已有数据库升级到文件版本时执行：
+
+```bash
+sudo mysql < deploy/migrate_20261029_files.sql
+sudo ./tools/install_files_runtime.sh /home/ubuntu/chatbox/files
+```
+
+文件存放在 `/home/ubuntu/chatbox/files`（默认 0700），图片/GIF 缩略图依赖
+`ffmpeg`/`ffprobe`；缺少时服务仍启动，只是不生成缩略图。启动参数可加
+`--files-dir`、`--ffmpeg-path`、`--ffprobe-path`。完整部署、备份、回滚和配额说明见
+[`docs/files-deployment.md`](docs/files-deployment.md)。
+
 ## 初始化 MySQL 8.4
 
 ```bash

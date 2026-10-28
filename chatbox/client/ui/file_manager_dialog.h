@@ -28,6 +28,7 @@ signals:
     void uploadRequested();
     void downloadRequested(quint64 file_id, const QString& name,
                            const QString& mime);
+    void downloadToggleRequested(quint64 file_id);
     void deleteRequested(quint64 file_id);
 
 private:
@@ -43,6 +44,7 @@ private:
     QListWidget* list_ = nullptr;
     QPushButton* upload_ = nullptr;
     QPushButton* download_ = nullptr;
+    QPushButton* download_toggle_ = nullptr;
     QPushButton* remove_ = nullptr;
     QVector<chatbox::client::FileEntryView> entries_;
 };

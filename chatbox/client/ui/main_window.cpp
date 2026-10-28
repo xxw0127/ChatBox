@@ -136,8 +136,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
     connect(chat_view_, &QTextBrowser::anchorClicked, this,
             [this](const QUrl& url) {
-                qInfo("anchor clicked scheme=%s url=%s",
-                      qPrintable(url.scheme()), qPrintable(url.toString()));
                 if (url.scheme() == "retry") {
                     retryMessage(url.path());
                 } else if (url.scheme() == "file-open") {

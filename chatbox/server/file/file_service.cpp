@@ -237,13 +237,16 @@ FileResult FileService::handleUploadInit(const Frame& request,
             return errorResult(request, 1004, "group file quota exceeded");
         }
     }
-    std::error_code ec;
-    const auto space = std::filesystem::space(files_dir_, ec);
-    if (!ec && space.available < kMinFreeDiskBytes + init.size) {
-        return errorResult(request, 1004, "server disk is full");
-    }
     if (!ensureStorage(error)) {
         return errorResult(request, 2001, error);
+    }
+    std::error_code ec;
+    const auto space = std::filesystem::space(files_dir_, ec);
+    if (ec) {
+        return errorResult(request, 2001, "cannot inspect file storage");
+    }
+    if (space.available < kMinFreeDiskBytes + init.size) {
+        return errorResult(request, 1004, "server disk is full");
     }
 
     UploadState upload;
@@ -292,6 +295,10 @@ FileResult FileService::handleUploadChunk(const Frame& request,
     }
     if (offset > cache->state.offset) {
         return errorResult(request, 1004, "upload offset jumped");
+    }
+    if (offset > cache->state.size ||
+        data.size() > cache->state.size - offset) {
+        return errorResult(request, 1004, "upload exceeds declared size");
     }
     std::size_t written = 0;
     while (written < data.size()) {
@@ -590,6 +597,12 @@ FileResult FileService::handleList(const Frame& request,
             !member) {
             return errorResult(request, 1003, "not a group member");
         }
+        GroupInfo group;
+        bool group_found = false;
+        if (!database_.findGroupById(target_id, group, group_found, error) ||
+            !group_found || group.status != GroupStatus::kActive) {
+            return errorResult(request, 1003, "group is not active");
+        }
     } else if (target_id != caller.user_id) {
         // Private list target is the peer; both participants see the shared list.
     }
@@ -714,6 +727,9 @@ FileResult FileService::handleDelete(const Frame& request,
         return errorResult(request, 1003, "forbidden");
     }
     std::filesystem::remove(files_dir_ + "/" + access.storage_path);
+    if (!access.thumb_path.empty()) {
+        std::filesystem::remove(files_dir_ + "/" + access.thumb_path);
+    }
     if (!database_.markFileDeleted(file_id, error)) {
         return errorResult(request, 2001, error);
     }

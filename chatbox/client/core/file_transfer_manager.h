@@ -39,6 +39,7 @@ public:
     void resumeUpload(const QString& task_id);
     void cancelUpload(const QString& task_id);
 
+    void toggleDownload(quint64 file_id);
     void requestDownload(quint64 file_id, ChatContext context,
                          quint64 target_id, quint64 message_id,
                          const QString& name, const QString& mime,
@@ -52,7 +53,8 @@ public:
 signals:
     void connectionError(const QString& message);
     void uploadQueued(const QString& task_id, const QString& name,
-                      quint64 size);
+                      quint64 size, chatbox::client::ChatContext context,
+                      quint64 target_id, const QString& mime);
     void uploadProgress(const QString& task_id, quint64 sent, quint64 total);
     void uploadFinished(const QString& task_id, quint64 message_id,
                         quint64 file_id, const QString& created_at);
@@ -63,6 +65,7 @@ signals:
     void downloadFinished(quint64 file_id, const QString& save_path,
                           const QString& mime, bool open_after);
     void downloadFailed(quint64 file_id, const QString& message);
+    void downloadPaused(quint64 file_id);
 
     void fileListReady(int kind, quint64 target_id, quint32 total_count,
                        quint64 used_bytes,
@@ -96,6 +99,7 @@ private:
         QString mime;
         QString save_path;
         bool open_after = true;
+        QString state = QStringLiteral("queued");
         quint64 received = 0;
         quint64 total = 0;
     };

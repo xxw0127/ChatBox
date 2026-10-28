@@ -45,6 +45,7 @@ FileManagerDialog::FileManagerDialog(int kind, quint64 target_id,
     remove_->setObjectName(QStringLiteral("FileDeleteButton"));
     actions->addWidget(upload_);
     actions->addWidget(download_);
+    actions->addWidget(download_toggle_);
     actions->addWidget(remove_);
     layout->addLayout(actions);
 
@@ -72,6 +73,12 @@ FileManagerDialog::FileManagerDialog(int kind, quint64 target_id,
             emit downloadRequested(item->data(Qt::UserRole).toULongLong(),
                                    item->data(Qt::UserRole + 1).toString(),
                                    item->data(Qt::UserRole + 2).toString());
+        }
+    });
+    connect(download_toggle_, &QPushButton::clicked, this, [this] {
+        QListWidgetItem* item = list_->currentItem();
+        if (item != nullptr) {
+            emit downloadToggleRequested(item->data(Qt::UserRole).toULongLong());
         }
     });
     connect(remove_, &QPushButton::clicked, this, [this] {
@@ -141,6 +148,7 @@ void FileManagerDialog::setBusy(bool busy) {
     list_->setEnabled(!busy);
     upload_->setEnabled(!busy);
     download_->setEnabled(!busy);
+    download_toggle_->setEnabled(!busy);
     remove_->setEnabled(!busy);
 }
 
@@ -157,5 +165,6 @@ void FileManagerDialog::updateButtons() {
     const QListWidgetItem* item = list_->currentItem();
     const bool has = item != nullptr;
     download_->setEnabled(has);
+    download_toggle_->setEnabled(has);
     remove_->setEnabled(has && item->data(Qt::UserRole + 3).toBool());
 }

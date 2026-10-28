@@ -343,6 +343,9 @@ void FileTransferClient::handleFrame(quint16 cmd, quint32 seq,
                               static_cast<qint64>(download_size_));
         sendFrame(chatbox::kCmdFileReadAck, next_seq_++,
                   QByteArray());
+        if (download_paused_) {
+            return;
+        }
         if (download_received_ < download_size_) {
             requestNextDownloadChunk();
         } else {
@@ -525,10 +528,22 @@ void FileTransferClient::downloadFile(quint64 file_id,
     download_received_ = 0;
     download_token_.clear();
     state_ = State::kDownloading;
+    download_paused_ = false;
     chatbox::ByteWriter writer;
     writer.putU64(file_id);
     download_seq_ = next_seq_++;
     sendFrame(chatbox::kCmdFileOpen, download_seq_, QByteArray::fromStdString(writer.data()));
+}
+
+void FileTransferClient::pauseDownload() {
+    download_paused_ = true;
+}
+
+void FileTransferClient::resumeDownload() {
+    download_paused_ = false;
+    if (state_ == State::kDownloading) {
+        requestNextDownloadChunk();
+    }
 }
 
 void FileTransferClient::requestNextDownloadChunk() {

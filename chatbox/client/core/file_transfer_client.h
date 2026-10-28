@@ -37,6 +37,8 @@ public:
                       const QString& mime, quint64 size);
     void pauseUpload();
     void cancelUpload();
+    void pauseDownload();
+    void resumeDownload();
     void downloadFile(quint64 file_id, const QString& save_path);
     void requestThumbnail(quint64 file_id);
     void sendKeepAlive();
@@ -101,6 +103,7 @@ private:
     QString upload_name_;
     QString upload_mime_;
     bool upload_paused_ = false;
+    bool download_paused_ = false;
 
     QFile download_file_;
     QString download_path_;
