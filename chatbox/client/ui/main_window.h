@@ -8,12 +8,14 @@
 #include <QSet>
 #include <QString>
 #include <QStringList>
+#include <QVector>
 
 #include "common/protocol.h"
 #include "core/avatar_cache.h"
 #include "core/chat_message.h"
 #include "core/contact_store.h"
 #include "core/friend_view.h"
+#include "core/group_store.h"
 #include "core/history_store.h"
 #include "core/message_store.h"
 #include "core/outbox.h"
@@ -49,6 +51,9 @@ class MessageSearchDialog;
 class SettingsDialog;
 class UpdateDialog;
 class UserSearchDialog;
+class GroupCreateDialog;
+class GroupJoinDialog;
+class QTabWidget;
 
 namespace chatbox {
 namespace client {
@@ -77,6 +82,7 @@ private slots:
     void onFrameReceived(const QByteArray& data);
     void onSendClicked();
     void onRoomClicked(QListWidgetItem* item);
+    void onGroupClicked(QListWidgetItem* item);
     void onConversationClicked(QListWidgetItem* item);
     void selectAdjacentConversation(int delta);
     void onFriendAvatarClicked(QListWidgetItem* item);
@@ -121,6 +127,14 @@ private:
     void sendRegister();
     void sendResume();
     void requestRoomList();
+    void requestGroupList();
+    void requestGroupMembers(quint64 room_id);
+    void requestGroupRequests(quint64 room_id);
+    bool sendGroupCommand(quint16 command, const std::string& body);
+    void handleGroupList(const QByteArray& body);
+    void handleGroupMemberList(const QByteArray& body);
+    void handleGroupRequestList(const QByteArray& body);
+    void handleGroupPush(const QByteArray& body);
     void requestConversations();
     void requestFriendList();
     void requestFriendRequests();
@@ -170,6 +184,13 @@ private:
     void requestMembers(int room_id);
     void requestHistory(int kind, quint64 target, quint64 before_id);
     void selectRoom(int room_id, const QString& name);
+    void selectGroup(quint64 room_id, const QString& name);
+    void refreshGroupListView();
+    void openCreateGroupDialog();
+    void openJoinGroupDialog();
+    void openGroupNotifications();
+    void markGroupRead(quint64 room_id, quint64 message_id);
+    void updateGroupNoticeBadge();
     void selectPrivate(quint64 peer_id, const QString& nickname);
     // 房间列表与会话列表是两个独立控件，各自记着自己的选中项。切场景时
     // 必须清掉另一个，否则两行会同时是蓝色选中态。
@@ -236,6 +257,14 @@ private:
     LoginPage* login_page_ = nullptr;
     QWidget* chat_page_ = nullptr;
     QListWidget* room_list_ = nullptr;
+    QTabWidget* sidebar_tabs_ = nullptr;
+    QListWidget* group_list_ = nullptr;
+    QToolButton* group_notice_button_ = nullptr;
+    QLabel* group_notice_badge_ = nullptr;
+    QPushButton* create_group_button_ = nullptr;
+    QPushButton* join_group_button_ = nullptr;
+    GroupCreateDialog* group_create_dialog_ = nullptr;
+    GroupJoinDialog* group_join_dialog_ = nullptr;
     FriendListWidget* conversation_list_ = nullptr;
     QStackedWidget* conversation_stack_ = nullptr;
     EmptyState* friends_empty_state_ = nullptr;
@@ -317,6 +346,16 @@ private:
     QString current_peer_name_;
     chatbox::client::MessageStore message_store_;
     chatbox::client::HistoryStore history_store_;
+    chatbox::client::GroupStore group_store_;
+    QHash<quint32, quint16> pending_group_commands_;
+    chatbox::client::GroupInfo last_group_search_;
+    chatbox::client::GroupRequestInfo last_group_request_;
+    int last_group_search_membership_ = 0;
+    bool last_group_search_found_ = false;
+    quint64 last_group_request_id_ = 0;
+    quint64 last_group_invite_id_ = 0;
+    QVector<chatbox::client::GroupRequestInfo> group_requests_;
+    QVector<chatbox::client::GroupRequestInfo> group_invites_;
     chatbox::client::Outbox outbox_;
     QHash<quint32, QString> pending_sequences_;
     quint64 next_before_id_ = 0;

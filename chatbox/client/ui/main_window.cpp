@@ -253,45 +253,33 @@ QWidget* MainWindow::buildChatPage() {
     search_users_button_->setFixedHeight(32);
     left->addWidget(search_users_button_);
 
-    auto* rooms_label = new QLabel("群聊", left_panel);
-    rooms_label->setObjectName("SectionLabel");
-    left->addWidget(rooms_label);
-    room_list_ = new QListWidget(left_panel);
-    room_list_->setAccessibleName("房间列表");
-    room_list_->setSelectionMode(QAbstractItemView::SingleSelection);
-    room_list_->setFocusPolicy(Qt::StrongFocus);
-    room_list_->setIconSize(QSize(30, 30));
-    room_list_->setMinimumHeight(56);
-    room_list_->setMaximumHeight(160);
-    room_list_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
-    // QListWidget 的 sizeHint 是个固定值（约 192px），不会跟着房间数量收缩，
-    // 只有一个房间时会在它下面留出一大片空白。让高度跟随内容。
-    room_list_->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
-    left->addWidget(room_list_);
+    sidebar_tabs_ = new QTabWidget(left_panel);
+    sidebar_tabs_->setObjectName("SidebarTabs");
+
+    auto* conversations_page = new QWidget(sidebar_tabs_);
+    auto* conversations_layout = new QVBoxLayout(conversations_page);
+    conversations_layout->setContentsMargins(0, 0, 0, 0);
+    conversations_layout->setSpacing(6);
 
     // 好友申请属于好友体系，跟着「好友」标题走，而不是悬在群聊列表和好友
     // 列表之间独占一行。标题行右侧放图标按钮，未读数用角标提示。
-    // 用 addLayout 而不是包一层 QWidget：后者在竖直布局里量不出正确宽度，
-    // 会把右侧按钮顶出侧栏。
     auto* friends_header_layout = new QHBoxLayout();
     friends_header_layout->setContentsMargins(0, 0, 0, 0);
     friends_header_layout->setSpacing(4);
 
-    auto* conversations_label = new QLabel("好友", left_panel);
+    auto* conversations_label = new QLabel("好友", conversations_page);
     conversations_label->setObjectName("SectionLabel");
     conversations_label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     friends_header_layout->addWidget(conversations_label, 1);
 
-    friend_requests_badge_ = new QLabel(left_panel);
+    friend_requests_badge_ = new QLabel(conversations_page);
     friend_requests_badge_->setObjectName("FriendRequestBadge");
     friend_requests_badge_->setAlignment(Qt::AlignCenter);
     friend_requests_badge_->setFixedSize(16, 16);
     friend_requests_badge_->hide();
     friends_header_layout->addWidget(friend_requests_badge_, 0, Qt::AlignVCenter);
 
-    // 纯图标在这个尺寸下糊成一团（users.png 线条太细），文字是唯一可靠的
-    // 视觉锚点，所以这里只放文字，图标不再参与。
-    friend_requests_button_ = new QToolButton(left_panel);
+    friend_requests_button_ = new QToolButton(conversations_page);
     friend_requests_button_->setObjectName("HeaderAction");
     friend_requests_button_->setToolButtonStyle(Qt::ToolButtonTextOnly);
     friend_requests_button_->setText("好友申请");
@@ -301,8 +289,9 @@ QWidget* MainWindow::buildChatPage() {
     friend_requests_button_->setToolTip("好友申请");
     friend_requests_button_->setAccessibleName("好友申请");
     friends_header_layout->addWidget(friend_requests_button_, 0, Qt::AlignVCenter);
-    left->addLayout(friends_header_layout);
-    conversation_stack_ = new QStackedWidget(left_panel);
+    conversations_layout->addLayout(friends_header_layout);
+
+    conversation_stack_ = new QStackedWidget(conversations_page);
     conversation_stack_->setObjectName("ConversationStack");
     conversation_list_ = new FriendListWidget(conversation_stack_);
     conversation_list_->setAccessibleName("会话列表");
@@ -319,7 +308,63 @@ QWidget* MainWindow::buildChatPage() {
     conversation_stack_->addWidget(conversation_list_);
     conversation_stack_->addWidget(friends_empty_state_);
     conversation_stack_->setCurrentWidget(friends_empty_state_);
-    left->addWidget(conversation_stack_, 1);
+    conversations_layout->addWidget(conversation_stack_, 1);
+    sidebar_tabs_->addTab(conversations_page, "会话");
+
+    auto* groups_page = new QWidget(sidebar_tabs_);
+    auto* groups_layout = new QVBoxLayout(groups_page);
+    groups_layout->setContentsMargins(0, 0, 0, 0);
+    groups_layout->setSpacing(6);
+
+    auto* notice_row = new QHBoxLayout();
+    notice_row->setContentsMargins(0, 0, 0, 0);
+    group_notice_button_ = new QToolButton(groups_page);
+    group_notice_button_->setObjectName("GroupNoticeButton");
+    group_notice_button_->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    group_notice_button_->setText("群通知");
+    group_notice_button_->setAutoRaise(true);
+    group_notice_button_->setCursor(Qt::PointingHandCursor);
+    notice_row->addWidget(group_notice_button_);
+    group_notice_badge_ = new QLabel(groups_page);
+    group_notice_badge_->setObjectName("GroupNoticeBadge");
+    group_notice_badge_->setAlignment(Qt::AlignCenter);
+    group_notice_badge_->setFixedSize(16, 16);
+    group_notice_badge_->hide();
+    notice_row->addWidget(group_notice_badge_, 0, Qt::AlignVCenter);
+    notice_row->addStretch(1);
+    groups_layout->addLayout(notice_row);
+
+    group_list_ = new QListWidget(groups_page);
+    group_list_->setObjectName("GroupList");
+    group_list_->setAccessibleName("群组列表");
+    group_list_->setSelectionMode(QAbstractItemView::SingleSelection);
+    group_list_->setFocusPolicy(Qt::StrongFocus);
+    group_list_->setIconSize(QSize(30, 30));
+    group_list_->setMinimumHeight(120);
+    group_list_->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
+    groups_layout->addWidget(group_list_, 1);
+
+    auto* group_actions = new QHBoxLayout();
+    group_actions->setContentsMargins(0, 0, 0, 0);
+    group_actions->setSpacing(6);
+    create_group_button_ = new QPushButton("创建群", groups_page);
+    create_group_button_->setObjectName("CreateGroupButton");
+    create_group_button_->setFixedHeight(30);
+    join_group_button_ = new QPushButton("加入群", groups_page);
+    join_group_button_->setObjectName("JoinGroupButton");
+    join_group_button_->setFixedHeight(30);
+    group_actions->addWidget(create_group_button_);
+    group_actions->addWidget(join_group_button_);
+    groups_layout->addLayout(group_actions);
+    sidebar_tabs_->addTab(groups_page, "群组");
+    left->addWidget(sidebar_tabs_, 1);
+
+    // The legacy ROOM_LIST path still exists for 0.2.5 compatibility, but the
+    // new UI uses the group list above. Keep the widget hidden so old handlers
+    // and selection clearing do not need a second code path.
+    room_list_ = new QListWidget(left_panel);
+    room_list_->setObjectName("LegacyRoomList");
+    room_list_->hide();
 
     my_profile_button_ = new QPushButton(left_panel);
     my_profile_button_->setObjectName("MyProfileButton");
@@ -526,6 +571,15 @@ QWidget* MainWindow::buildChatPage() {
 
     connect(room_list_, &QListWidget::itemClicked, this, &MainWindow::onRoomClicked);
     connect(room_list_, &QListWidget::itemActivated, this, &MainWindow::onRoomClicked);
+    connect(group_list_, &QListWidget::itemClicked, this, &MainWindow::onGroupClicked);
+    connect(group_list_, &QListWidget::itemActivated, this,
+            &MainWindow::onGroupClicked);
+    connect(group_notice_button_, &QToolButton::clicked, this,
+            &MainWindow::openGroupNotifications);
+    connect(create_group_button_, &QPushButton::clicked, this,
+            &MainWindow::openCreateGroupDialog);
+    connect(join_group_button_, &QPushButton::clicked, this,
+            &MainWindow::openJoinGroupDialog);
     connect(conversation_list_, &QListWidget::itemClicked, this,
             &MainWindow::onConversationClicked);
     connect(conversation_list_, &FriendListWidget::avatarClicked, this,

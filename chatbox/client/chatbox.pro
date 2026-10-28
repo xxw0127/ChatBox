@@ -21,6 +21,9 @@ win32 {
 SOURCES += \
     main.cpp \
     ../common/protocol.cpp \
+    ../common/group_protocol.cpp \
+    core/group_types.cpp \
+    core/group_store.cpp \
     core/app_settings.cpp \
     core/autostart.cpp \
     core/client_policy.cpp \
@@ -56,7 +59,10 @@ SOURCES += \
     ui/main_window.cpp \
     ui/main_window_chat.cpp \
     ui/main_window_contacts.cpp \
+    ui/main_window_groups.cpp \
     ui/main_window_net.cpp \
+    ui/group_create_dialog.cpp \
+    ui/group_join_dialog.cpp \
     ui/main_window_profile.cpp \
     ui/main_window_tray.cpp \
     ui/message_search_dialog.cpp \
@@ -67,6 +73,8 @@ SOURCES += \
     ui/profile_dialog.cpp
 
 HEADERS += \
+    core/group_types.h \
+    core/group_store.h \
     core/app_settings.h \
     core/autostart.h \
     core/client_policy.h \
@@ -105,8 +113,12 @@ HEADERS += \
     ui/friend_list_widget.h \
     ui/main_window.h \
     ui/main_window_support.h \
+    ui/group_create_dialog.h \
+    ui/group_join_dialog.h \
     ui/message_search_dialog.h \
     ui/settings_dialog.h \
+    ui/group_create_dialog.h \
+    ui/group_join_dialog.h \
     ui/update_dialog.h \
     ui/user_search_dialog.h \
     ui/profile_dialog.h

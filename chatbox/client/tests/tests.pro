@@ -5,9 +5,14 @@ TEMPLATE = app
 TARGET = client_tests
 
 INCLUDEPATH += $$PWD/..
+INCLUDEPATH += $$PWD/../..
 RESOURCES += ../resources/resources.qrc
 SOURCES += \
     test_client_core.cpp \
+    ../../common/group_protocol.cpp \
+    ../../common/protocol.cpp \
+    ../core/group_types.cpp \
+    ../core/group_store.cpp \
     ../core/app_settings.cpp \
     ../core/autostart.cpp \
     ../core/client_policy.cpp \
@@ -35,6 +40,8 @@ SOURCES += \
     ../ui/login_page.cpp \
     ../ui/more_dots.cpp \
     ../ui/settings_dialog.cpp \
+    ../ui/group_create_dialog.cpp \
+    ../ui/group_join_dialog.cpp \
     ../ui/update_dialog.cpp \
     ../ui/account_switcher_dialog.cpp
 HEADERS += \
@@ -66,6 +73,8 @@ HEADERS += \
     ../ui/login_page.h \
     ../ui/more_dots.h \
     ../ui/settings_dialog.h \
+    ../ui/group_create_dialog.h \
+    ../ui/group_join_dialog.h \
     ../ui/update_dialog.h \
     ../ui/account_switcher_dialog.h
 

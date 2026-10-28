@@ -51,6 +51,11 @@ std::string encodeGroupInfo(const GroupInfo& group) {
     return writer.data();
 }
 
+bool decodeGroupInfo(const std::string& body, GroupInfo& group) {
+    ByteReader reader(body.data(), body.size());
+    return getGroupInfo(reader, group);
+}
+
 std::string encodeGroupList(const std::vector<GroupInfo>& groups) {
     ByteWriter writer;
     writer.putU16(static_cast<uint16_t>(groups.size()));

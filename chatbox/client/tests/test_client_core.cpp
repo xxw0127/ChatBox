@@ -56,6 +56,7 @@
 #include "core/avatar_utils.h"
 #include "core/contact_store.h"
 #include "core/history_store.h"
+#include "core/group_store.h"
 #include "core/identity.h"
 #include "core/message_renderer.h"
 #include "core/message_store.h"
@@ -73,6 +74,8 @@
 #include "ui/message_action_bar.h"
 #include "ui/profile_dialog.h"
 #include "ui/settings_dialog.h"
+#include "ui/group_create_dialog.h"
+#include "ui/group_join_dialog.h"
 #include "ui/update_dialog.h"
 #include "ui/account_switcher_dialog.h"
 
@@ -299,6 +302,9 @@ private slots:
     void appTitleUsesBrandName();
     void settingsMigrationCopiesLegacyStore();
     void settingsMigrationMovesOldServerEndpoint();
+    void groupStoreFiltersAndSorts();
+    void groupDialogsValidateInput();
+    void sidebarHasGroupTabs();
     void updateManifestParsesValid();
     void updateManifestRejectsInvalid();
     void updateVersionComparison();
@@ -2199,7 +2205,7 @@ void TestClientCore::mainWindowAccessibilityLabels() {
     QVERIFY(source.contains(QStringLiteral("my_profile_avatar_->setAccessibleName")));
     QVERIFY(source.contains(QStringLiteral("context_avatar_->setAccessibleDescription")));
     QVERIFY(source.contains(QStringLiteral("my_profile_avatar_->setAccessibleDescription")));
-    QVERIFY(source.contains(QStringLiteral("room_list_->setAccessibleName")));
+    QVERIFY(source.contains(QStringLiteral("group_list_->setAccessibleName")));
     QVERIFY(source.contains(QStringLiteral("conversation_list_->setAccessibleName")));
     QVERIFY(source.contains(QStringLiteral("member_list_->setAccessibleName")));
 }
@@ -2844,6 +2850,87 @@ void TestClientCore::updateHelperHasRollbackSafety() {
         QVERIFY2(ch.unicode() < 128,
                  "update_helper.ps1 must stay ASCII for PowerShell 5.1");
     }
+}
+
+void TestClientCore::groupStoreFiltersAndSorts() {
+    chatbox::client::GroupStore store;
+    QVector<chatbox::client::GroupInfo> groups(3);
+    groups[0].room_id = 2;
+    groups[0].name = QStringLiteral("普通群");
+    groups[1].room_id = 1;
+    groups[1].name = QStringLiteral("群聊A");
+    groups[1].is_default = true;
+    groups[1].unread = 3;
+    groups[2].room_id = 3;
+    groups[2].name = QStringLiteral("旧群");
+    groups[2].status = 1;
+    store.replaceAll(groups);
+
+    const QVector<chatbox::client::GroupInfo> active = store.active();
+    QCOMPARE(active.size(), 2);
+    QCOMPARE(active[0].room_id, quint64(1));
+    QVERIFY(active[0].is_default);
+    QCOMPARE(store.dissolved().size(), 1);
+    QCOMPARE(store.dissolved()[0].room_id, quint64(3));
+
+    QVector<chatbox::client::GroupMemberInfo> members(2);
+    members[0].user_id = 4;
+    members[0].nickname = QStringLiteral("阿杰");
+    members[1].user_id = 5;
+    store.setMembers(1, members);
+    QCOMPARE(store.members(1).size(), 2);
+    store.setUnread(1, 0);
+    QCOMPARE(store.find(1)->unread, 0);
+}
+
+void TestClientCore::groupDialogsValidateInput() {
+    GroupCreateDialog create;
+    QSignalSpy create_spy(&create, &GroupCreateDialog::createRequested);
+    auto* name = create.findChild<QLineEdit*>(QStringLiteral("GroupNameEdit"));
+    auto* create_button =
+        create.findChild<QPushButton*>(QStringLiteral("GroupCreateSubmit"));
+    QVERIFY(name != nullptr);
+    QVERIFY(create_button != nullptr);
+    create_button->click();
+    QCOMPARE(create_spy.count(), 0);
+    name->setText(QStringLiteral("设计群"));
+    create_button->click();
+    QCOMPARE(create_spy.count(), 1);
+    QCOMPARE(create_spy.takeFirst().at(0).toString(), QStringLiteral("设计群"));
+
+    GroupJoinDialog join;
+    QSignalSpy search_spy(&join, &GroupJoinDialog::searchRequested);
+    QSignalSpy join_spy(&join, &GroupJoinDialog::joinRequested);
+    auto* number = join.findChild<QLineEdit*>(QStringLiteral("GroupNumberEdit"));
+    auto* search_button =
+        join.findChild<QPushButton*>(QStringLiteral("GroupJoinSearchButton"));
+    auto* join_button =
+        join.findChild<QPushButton*>(QStringLiteral("GroupJoinSubmit"));
+    QVERIFY(number != nullptr);
+    QVERIFY(search_button != nullptr);
+    QVERIFY(join_button != nullptr);
+    number->setText(QStringLiteral("123"));
+    search_button->click();
+    QCOMPARE(search_spy.count(), 0);
+    number->setText(QStringLiteral("10000001"));
+    search_button->click();
+    QCOMPARE(search_spy.count(), 1);
+    QVERIFY(!join_button->isEnabled());
+    join.setSearchResult(true, QStringLiteral("设计群"), 12, 0);
+    QVERIFY(join_button->isEnabled());
+    join_button->click();
+    QCOMPARE(join_spy.count(), 1);
+    QCOMPARE(join_spy.takeFirst().at(0).toString(), QStringLiteral("10000001"));
+}
+
+void TestClientCore::sidebarHasGroupTabs() {
+    const QString source = readMainWindowSource();
+    QVERIFY(source.contains(QStringLiteral("SidebarTabs")));
+    QVERIFY(source.contains(QStringLiteral("group_list_")));
+    QVERIFY(source.contains(QStringLiteral("CreateGroupButton")));
+    QVERIFY(source.contains(QStringLiteral("JoinGroupButton")));
+    QVERIFY(source.contains(QStringLiteral("GroupNoticeButton")));
+    QVERIFY(source.contains(QStringLiteral("QTabWidget")));
 }
 
 void TestClientCore::settingsMigrationMovesOldServerEndpoint() {
@@ -3502,9 +3589,9 @@ void TestClientCore::layoutWeightsFollowAudit() {
     const QString source = readMainWindowSource();
     QVERIFY2(!source.isEmpty(), "ui/main_window.cpp must be readable");
     QVERIFY(!source.contains(QStringLiteral("room_list_->setFixedHeight(58)")));
-    QVERIFY(source.contains(QStringLiteral("room_list_->setMinimumHeight(56)")));
-    QVERIFY(source.contains(QStringLiteral("room_list_->setMaximumHeight(160)")));
-    QVERIFY(source.contains(QStringLiteral("QSizePolicy::Maximum")));
+    QVERIFY(source.contains(QStringLiteral("group_list_->setMinimumHeight(120)")));
+    QVERIFY(source.contains(QStringLiteral("group_list_->setSizeAdjustPolicy")));
+    QVERIFY(source.contains(QStringLiteral("groups_layout->addWidget(group_list_, 1)")));
     QVERIFY(source.contains(QStringLiteral("friend_requests_badge_")));
     QVERIFY(source.contains(QStringLiteral("FriendRequestBadge")));
     QVERIFY(source.contains(QStringLiteral("member_count_label_")));

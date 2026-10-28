@@ -42,6 +42,7 @@
 #include <QScreen>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QTabWidget>
 #include <QStyle>
 #include <QSystemTrayIcon>
 #include <QTextBrowser>

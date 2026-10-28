@@ -11,6 +11,7 @@
 namespace chatbox {
 
 std::string encodeGroupInfo(const GroupInfo& group);
+bool decodeGroupInfo(const std::string& body, GroupInfo& group);
 std::string encodeGroupList(const std::vector<GroupInfo>& groups);
 bool decodeGroupList(const std::string& body, std::vector<GroupInfo>& groups);
 

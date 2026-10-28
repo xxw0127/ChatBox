@@ -1,5 +1,134 @@
 #include "ui/main_window_support.h"
 
+#include "common/group_protocol.h"
+#include "core/group_types.h"
+#include "ui/group_join_dialog.h"
+
+bool MainWindow::sendGroupCommand(quint16 command, const std::string& body) {
+    chatbox::Frame frame;
+    frame.header.cmd = command;
+    frame.header.seq = next_seq_++;
+    frame.body = body;
+    pending_group_commands_.insert(frame.header.seq, command);
+    return sendFrame(frame);
+}
+
+void MainWindow::requestGroupList() {
+    if (offline_mode_) {
+        return;
+    }
+    sendGroupCommand(chatbox::kCmdGroupList, {});
+}
+
+void MainWindow::requestGroupMembers(quint64 room_id) {
+    if (offline_mode_ || room_id == 0) {
+        return;
+    }
+    chatbox::ByteWriter writer;
+    writer.putU32(static_cast<uint32_t>(room_id));
+    sendGroupCommand(chatbox::kCmdGroupMemberList, writer.data());
+}
+
+void MainWindow::requestGroupRequests(quint64 room_id) {
+    if (offline_mode_) {
+        return;
+    }
+    chatbox::ByteWriter writer;
+    writer.putU32(static_cast<uint32_t>(room_id));
+    sendGroupCommand(chatbox::kCmdGroupRequestList, writer.data());
+}
+
+void MainWindow::handleGroupList(const QByteArray& body) {
+    std::vector<chatbox::GroupInfo> wire_groups;
+    if (!chatbox::decodeGroupList(
+            std::string(body.constData(), static_cast<std::size_t>(body.size())),
+            wire_groups)) {
+        setStatus("群列表格式错误", true);
+        return;
+    }
+    QVector<chatbox::client::GroupInfo> groups;
+    groups.reserve(static_cast<int>(wire_groups.size()));
+    for (const chatbox::GroupInfo& wire : wire_groups) {
+        groups.push_back(chatbox::client::groupInfoFromWire(wire));
+    }
+    group_store_.replaceAll(groups);
+    refreshGroupListView();
+    if (context_type_ == ContextType::None) {
+        const QVector<chatbox::client::GroupInfo> active = group_store_.active();
+        for (const chatbox::client::GroupInfo& group : active) {
+            if (group.is_default) {
+                selectGroup(group.room_id, group.name);
+                break;
+            }
+        }
+    }
+}
+
+void MainWindow::handleGroupMemberList(const QByteArray& body) {
+    uint32_t room_id = 0;
+    std::vector<chatbox::GroupMemberInfo> wire_members;
+    if (!chatbox::decodeGroupMembers(
+            std::string(body.constData(), static_cast<std::size_t>(body.size())),
+            room_id, wire_members)) {
+        setStatus("群成员格式错误", true);
+        return;
+    }
+    QVector<chatbox::client::GroupMemberInfo> members;
+    members.reserve(static_cast<int>(wire_members.size()));
+    for (const chatbox::GroupMemberInfo& wire : wire_members) {
+        members.push_back(chatbox::client::groupMemberFromWire(wire));
+    }
+    group_store_.setMembers(room_id, members);
+}
+
+void MainWindow::handleGroupRequestList(const QByteArray& body) {
+    uint32_t room_id = 0;
+    std::vector<chatbox::GroupRequestInfo> wire_requests;
+    if (!chatbox::decodeGroupRequests(
+            std::string(body.constData(), static_cast<std::size_t>(body.size())),
+            room_id, wire_requests)) {
+        setStatus("群申请格式错误", true);
+        return;
+    }
+    QVector<chatbox::client::GroupRequestInfo> requests;
+    requests.reserve(static_cast<int>(wire_requests.size()));
+    for (const chatbox::GroupRequestInfo& wire : wire_requests) {
+        requests.push_back(chatbox::client::groupRequestFromWire(wire));
+    }
+    if (room_id == 0) {
+        group_invites_ = requests;
+    } else {
+        group_requests_ = requests;
+    }
+    updateGroupNoticeBadge();
+}
+
+void MainWindow::handleGroupPush(const QByteArray& body) {
+    chatbox::ByteReader reader(body.constData(),
+                               static_cast<std::size_t>(body.size()));
+    uint8_t event = 0;
+    uint32_t room_id = 0;
+    uint64_t user_id = 0;
+    uint8_t role = 0;
+    if (!reader.getU8(event) || !reader.getU32(room_id) ||
+        !reader.getU64(user_id) || !reader.getU8(role)) {
+        return;
+    }
+    Q_UNUSED(user_id);
+    Q_UNUSED(role);
+    requestGroupList();
+    if (context_type_ == ContextType::Room &&
+        room_id == static_cast<uint32_t>(current_room_id_)) {
+        requestGroupMembers(current_room_id_);
+    }
+    if (event == 7 || event == 8) {
+        requestGroupRequests(0);
+        if (context_type_ == ContextType::Room && current_room_id_ != 0) {
+            requestGroupRequests(current_room_id_);
+        }
+    }
+}
+
 void MainWindow::onLoginRequested(const QString& host, quint16 port, const QString& username,
                                   const QString& password, bool tls) {
     logging_out_ = false;
@@ -384,6 +513,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             setOnline(true);
             resetContext();
             requestRoomList();
+            requestGroupList();
             requestConversations();
             requestFriendList();
             requestFriendRequests();
@@ -481,6 +611,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 resetContext();
             }
             requestRoomList();
+            requestGroupList();
             requestConversations();
             requestFriendList();
             requestFriendRequests();
@@ -492,6 +623,98 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             setStatus("会话已恢复");
             break;
         }
+        case chatbox::kCmdGroupList:
+            pending_group_commands_.remove(frame.header.seq);
+            handleGroupList(QByteArray(frame.body.data(),
+                                       static_cast<int>(frame.body.size())));
+            break;
+        case chatbox::kCmdGroupCreate: {
+            pending_group_commands_.remove(frame.header.seq);
+            chatbox::GroupInfo wire;
+            if (chatbox::decodeGroupInfo(frame.body, wire)) {
+                const chatbox::client::GroupInfo group =
+                    chatbox::client::groupInfoFromWire(wire);
+                group_store_.upsert(group);
+                refreshGroupListView();
+                selectGroup(group.room_id, group.name);
+                setStatus(QString("群已创建，群号 %1").arg(group.group_no));
+            } else {
+                setStatus("创建群响应格式错误", true);
+            }
+            break;
+        }
+        case chatbox::kCmdGroupSearch: {
+            pending_group_commands_.remove(frame.header.seq);
+            chatbox::GroupInfo wire;
+            uint8_t membership = 0;
+            if (!chatbox::decodeGroupSearch(frame.body, wire, membership)) {
+                setStatus("群搜索响应格式错误", true);
+                break;
+            }
+            last_group_search_found_ = wire.room_id != 0;
+            last_group_search_ = chatbox::client::groupInfoFromWire(wire);
+            last_group_search_membership_ = membership;
+            if (group_join_dialog_ != nullptr) {
+                group_join_dialog_->setSearchResult(
+                    last_group_search_found_, last_group_search_.name,
+                    last_group_search_.member_count, membership);
+            }
+            break;
+        }
+        case chatbox::kCmdGroupJoinRequest: {
+            pending_group_commands_.remove(frame.header.seq);
+            chatbox::ByteReader reader(frame.body.data(), frame.body.size());
+            uint64_t request_id = 0;
+            if (reader.getU64(request_id)) {
+                last_group_request_id_ = request_id;
+                if (group_join_dialog_ != nullptr) {
+                    group_join_dialog_->setSearchResult(
+                        true, last_group_search_.name,
+                        last_group_search_.member_count, 2);
+                }
+            }
+            break;
+        }
+        case chatbox::kCmdGroupInvite: {
+            pending_group_commands_.remove(frame.header.seq);
+            chatbox::ByteReader reader(frame.body.data(), frame.body.size());
+            uint64_t invite_id = 0;
+            if (reader.getU64(invite_id)) {
+                last_group_invite_id_ = invite_id;
+            }
+            break;
+        }
+        case chatbox::kCmdGroupMemberList:
+            pending_group_commands_.remove(frame.header.seq);
+            handleGroupMemberList(QByteArray(frame.body.data(),
+                                             static_cast<int>(frame.body.size())));
+            break;
+        case chatbox::kCmdGroupRequestList:
+            pending_group_commands_.remove(frame.header.seq);
+            handleGroupRequestList(QByteArray(frame.body.data(),
+                                               static_cast<int>(frame.body.size())));
+            break;
+        case chatbox::kCmdGroupPush:
+            handleGroupPush(QByteArray(frame.body.data(),
+                                       static_cast<int>(frame.body.size())));
+            break;
+        case chatbox::kCmdGroupUpdate:
+        case chatbox::kCmdGroupDisband:
+        case chatbox::kCmdGroupJoinRespond:
+        case chatbox::kCmdGroupInviteRespond:
+        case chatbox::kCmdGroupMemberUpdate:
+        case chatbox::kCmdGroupLeave:
+        case chatbox::kCmdGroupMarkRead:
+            pending_group_commands_.remove(frame.header.seq);
+            requestGroupList();
+            if (context_type_ == ContextType::Room && current_room_id_ != 0) {
+                requestGroupMembers(current_room_id_);
+            }
+            if (frame.header.cmd == chatbox::kCmdGroupMarkRead &&
+                context_type_ == ContextType::Room) {
+                group_store_.setUnread(static_cast<quint64>(current_room_id_), 0);
+            }
+            break;
         case chatbox::kCmdRoomList: {
             uint16_t count = 0;
             if (!reader.getU16(count)) {
@@ -1349,6 +1572,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 setStatus("错误响应格式错误", true);
                 return;
             }
+            pending_group_commands_.remove(frame.header.seq);
             handleError(code, message, frame.header.seq);
             break;
         }

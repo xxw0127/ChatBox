@@ -571,6 +571,10 @@ void MainWindow::clearStaleListSelection(ContextType keep) {
         conversation_list_->clearSelection();
         conversation_list_->setCurrentRow(-1);
     }
+    if (keep != ContextType::Room && group_list_ != nullptr) {
+        group_list_->clearSelection();
+        group_list_->setCurrentRow(-1);
+    }
 }
 
 void MainWindow::selectRoom(int room_id, const QString& name) {
