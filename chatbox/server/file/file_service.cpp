@@ -113,7 +113,23 @@ FileService::FileService(MysqlConnection& database, RoomManager& rooms,
     : database_(database),
       rooms_(rooms),
       files_dir_(std::move(files_dir)),
-      thumbnailer_(std::move(ffmpeg_path), std::move(ffprobe_path)) {}
+      thumbnailer_(std::move(ffmpeg_path), std::move(ffprobe_path)) {
+    std::string error;
+    ensureStorage(error);
+    database_.expireFileUploads(error);
+    std::error_code ec;
+    const auto now = std::filesystem::file_time_type::clock::now();
+    for (const auto& entry : std::filesystem::directory_iterator(
+             files_dir_ + "/tmp", ec)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        const auto age = now - entry.last_write_time();
+        if (age > std::chrono::hours(24 * 7)) {
+            std::filesystem::remove(entry.path(), ec);
+        }
+    }
+}
 
 FileService::~FileService() {
     for (auto& entry : uploads_) {
@@ -266,6 +282,7 @@ FileResult FileService::handleUploadInit(const Frame& request,
     int fd = ::open((files_dir_ + "/" + upload.temp_path).c_str(),
                     O_RDWR | O_CREAT | O_TRUNC, 0640);
     if (fd < 0) {
+        database_.updateFileUploadStatus(upload.upload_id, 2, error);
         return errorResult(request, 2001, "cannot create temp file");
     }
     UploadCache cache;
@@ -328,14 +345,26 @@ FileResult FileService::handleUploadStatus(const Frame& request,
         return errorResult(request, 1001, "invalid upload status");
     }
     std::string error;
-    UploadCache* cache = loadUpload(upload_id, caller.user_id, error);
-    if (cache == nullptr) {
-        return errorResult(request, 1004, error);
+    auto cached = uploads_.find(upload_id);
+    if (cached != uploads_.end() &&
+        cached->second.state.uploader_id == caller.user_id) {
+        return successResult(
+            request,
+            encodeUploadStatusResponse(
+                cached->second.state.offset,
+                static_cast<uint8_t>(cached->second.state.status)));
     }
-    return successResult(request,
-                         encodeUploadStatusResponse(cache->state.offset,
-                                                    static_cast<uint8_t>(
-                                                        cache->state.status)));
+    UploadState state;
+    bool found = false;
+    if (!database_.findFileUpload(upload_id, state, found, error)) {
+        return errorResult(request, 2001, error);
+    }
+    if (!found || state.uploader_id != caller.user_id) {
+        return errorResult(request, 1004, "upload not found");
+    }
+    return successResult(
+        request, encodeUploadStatusResponse(state.offset,
+                                            static_cast<uint8_t>(state.status)));
 }
 
 FileResult FileService::handleUploadCommit(const Frame& request,
@@ -346,6 +375,20 @@ FileResult FileService::handleUploadCommit(const Frame& request,
         return errorResult(request, 1001, "invalid upload commit");
     }
     std::string error;
+
+    // Idempotent commit: a client that lost the first response can ask again
+    // and receives the original message/file ids instead of a new upload.
+    UploadState stored;
+    bool stored_found = false;
+    if (database_.findFileUpload(upload_id, stored, stored_found, error) &&
+        stored_found && stored.status == 1 &&
+        stored.committed_message_id != 0 && stored.committed_file_id != 0) {
+        return successResult(
+            request, encodeUploadCommitResponse(
+                         stored.committed_message_id, stored.committed_file_id,
+                         stored.committed_at));
+    }
+
     UploadCache* cache = loadUpload(upload_id, caller.user_id, error);
     if (cache == nullptr) {
         return errorResult(request, 1004, error);
@@ -355,6 +398,25 @@ FileResult FileService::handleUploadCommit(const Frame& request,
     }
     if (cache->state.offset != cache->state.size) {
         return errorResult(request, 1004, "upload is incomplete");
+    }
+    // Authorization and quota can change while the bytes are in flight.
+    if (cache->state.kind == FileKind::kRoom) {
+        if (!checkRoom(cache->state, caller, error)) {
+            return errorResult(request, 1003, error);
+        }
+        std::vector<FileEntry> used_entries;
+        uint32_t total = 0;
+        uint64_t used = 0;
+        if (!database_.listFileRecords(FileKind::kRoom, caller.user_id,
+                                       cache->state.target_id, 0, 1,
+                                       used_entries, total, used, error)) {
+            return errorResult(request, 2001, error);
+        }
+        if (used + cache->state.size > kMaxGroupFileBytes) {
+            return errorResult(request, 1004, "group file quota exceeded");
+        }
+    } else if (!checkPrivate(cache->state, caller, error)) {
+        return errorResult(request, 1003, error);
     }
     if (cache->fd >= 0) {
         ::fsync(cache->fd);
@@ -380,50 +442,70 @@ FileResult FileService::handleUploadCommit(const Frame& request,
                                     error)) {
         return errorResult(request, 2001, error);
     }
-    std::error_code ec;
     const std::string relative = finalPath(entry.file_id);
     const std::string final_path = files_dir_ + "/" + relative;
+    std::error_code ec;
     std::filesystem::create_directories(
         std::filesystem::path(final_path).parent_path(), ec);
     std::filesystem::rename(temp_path, final_path, ec);
     if (ec) {
-        database_.markFileDeleted(entry.file_id, error);
+        database_.deleteFileRecord(entry.file_id, error);
         return errorResult(request, 2001, "cannot store file");
     }
     if (!database_.setFileStoragePath(entry.file_id, relative, error)) {
-        database_.markFileDeleted(entry.file_id, error);
+        std::filesystem::remove(final_path, ec);
+        database_.deleteFileRecord(entry.file_id, error);
         return errorResult(request, 2001, error);
     }
+    std::string thumb_relative;
     if (isThumbnailMime(cache->state.mime)) {
-        const std::string thumb_relative = thumbPath(entry.file_id);
+        thumb_relative = thumbPath(entry.file_id);
         const ThumbnailResult thumb = thumbnailer_.generate(
-            final_path, files_dir_ + "/" + thumb_relative, cache->state.mime);
+            final_path, files_dir_ + "/" + thumb_relative,
+            cache->state.mime);
         if (thumb.ok) {
             meta.thumb_available = true;
             meta.width = thumb.width;
             meta.height = thumb.height;
             meta.duration_ms = thumb.duration_ms;
+        } else {
+            thumb_relative.clear();
         }
-        database_.setFileThumbnail(entry.file_id,
-                                   thumb.ok ? thumb_relative : std::string(),
-                                   thumb.width, thumb.height,
-                                   thumb.duration_ms, error);
+        database_.setFileThumbnail(entry.file_id, thumb_relative, thumb.width,
+                                   thumb.height, thumb.duration_ms, error);
     }
-    const std::string content = "[文件] " + cache->state.name;
+    const std::string content = std::string("[") + "\xE6\x96\x87\xE4\xBB\xB6" + "] " + cache->state.name;
     const std::string created_at = utcNow();
     uint64_t message_id = 0;
+    auto rollback = [&]() {
+        std::error_code cleanup_ec;
+        std::filesystem::remove(final_path, cleanup_ec);
+        if (!thumb_relative.empty()) {
+            std::filesystem::remove(files_dir_ + "/" + thumb_relative,
+                                    cleanup_ec);
+        }
+        database_.deleteFileRecord(entry.file_id, error);
+    };
     if (cache->state.kind == FileKind::kRoom) {
         if (!database_.insertRoomFileMessage(
                 static_cast<int>(cache->state.target_id), caller.user_id,
                 cache->state.upload_id, content, entry.file_id, created_at,
                 message_id, error)) {
-            database_.markFileDeleted(entry.file_id, error);
+            rollback();
             return errorResult(request, 2001, error);
         }
         if (!database_.setFileMessageId(entry.file_id, message_id, error)) {
+            database_.updateFileMessageDeleted(message_id, true, error);
+            rollback();
             return errorResult(request, 2001, error);
         }
-        database_.updateFileUploadStatus(upload_id, 1, error);
+        if (!database_.setFileUploadCommitted(upload_id, message_id,
+                                              entry.file_id, created_at,
+                                              error)) {
+            database_.updateFileMessageDeleted(message_id, true, error);
+            rollback();
+            return errorResult(request, 2001, error);
+        }
         FileResult result = successResult(
             request, encodeUploadCommitResponse(message_id, entry.file_id,
                                                 created_at));
@@ -433,19 +515,32 @@ FileResult FileService::handleUploadCommit(const Frame& request,
         result.broadcast_frame = buildRoomPush(
             cache->state, message_id, entry.file_id, created_at, push_meta,
             caller);
-        rooms_.snapshot(static_cast<int>(cache->state.target_id), result.targets);
+        rooms_.snapshot(static_cast<int>(cache->state.target_id),
+                        result.targets);
+        if (cache->fd >= 0) {
+            ::close(cache->fd);
+            cache->fd = -1;
+        }
+        uploads_.erase(upload_id);
         return result;
     }
     if (!database_.insertPrivateFileMessage(
             caller.user_id, cache->state.target_id, cache->state.upload_id,
             content, entry.file_id, created_at, message_id, error)) {
-        database_.markFileDeleted(entry.file_id, error);
+        rollback();
         return errorResult(request, 2001, error);
     }
     if (!database_.setFileMessageId(entry.file_id, message_id, error)) {
+        database_.updateFileMessageDeleted(message_id, false, error);
+        rollback();
         return errorResult(request, 2001, error);
     }
-    database_.updateFileUploadStatus(upload_id, 1, error);
+    if (!database_.setFileUploadCommitted(upload_id, message_id, entry.file_id,
+                                          created_at, error)) {
+        database_.updateFileMessageDeleted(message_id, false, error);
+        rollback();
+        return errorResult(request, 2001, error);
+    }
     FileResult result = successResult(
         request, encodeUploadCommitResponse(message_id, entry.file_id,
                                             created_at));
@@ -456,6 +551,11 @@ FileResult FileService::handleUploadCommit(const Frame& request,
     notice.frame = buildPrivatePush(cache->state, message_id, entry.file_id,
                                     created_at, push_meta, caller);
     result.notices.push_back(std::move(notice));
+    if (cache->fd >= 0) {
+        ::close(cache->fd);
+        cache->fd = -1;
+    }
+    uploads_.erase(upload_id);
     return result;
 }
 
@@ -493,17 +593,17 @@ FileResult FileService::handleOpen(const Frame& request,
     if (!database_.findFileAccess(file_id, access, found, error) || !found) {
         return errorResult(request, 1004, "file not found");
     }
-    if (access.status != 0 ||
-        !canAccess(access.kind, access.room_id == 0 ? access.private_receiver_id
-                                                    : access.room_id,
-                   caller.user_id, access.uploader_id, false, error)) {
-        if (access.kind == FileKind::kPrivate &&
-            (access.private_sender_id == caller.user_id ||
-             access.private_receiver_id == caller.user_id)) {
-            error.clear();
-        } else {
-            return errorResult(request, 1003, error.empty() ? "forbidden" : error);
-        }
+    if (access.status != 0) {
+        return errorResult(request, 1004, "file not found");
+    }
+    const bool allowed =
+        access.kind == FileKind::kRoom
+            ? roomAccessible(access.room_id, caller.user_id, error)
+            : (access.private_sender_id == caller.user_id ||
+               access.private_receiver_id == caller.user_id);
+    if (!allowed) {
+        return errorResult(request, 1003,
+                           error.empty() ? "forbidden" : error);
     }
     return successResult(
         request, encodeFileOpenResponse(access.size,
@@ -538,9 +638,7 @@ FileResult FileService::handleRead(const Frame& request,
     }
     const bool allowed =
         (access.kind == FileKind::kRoom &&
-         database_.isRoomMember(static_cast<int>(access.room_id), caller.user_id,
-                                found, error) &&
-         found) ||
+         roomAccessible(access.room_id, caller.user_id, error)) ||
         (access.kind == FileKind::kPrivate &&
          (access.private_sender_id == caller.user_id ||
           access.private_receiver_id == caller.user_id));
@@ -644,14 +742,11 @@ FileResult FileService::handleInfo(const Frame& request,
     if (!database_.findFileAccess(file_id, access, found, error) || !found) {
         return errorResult(request, 1004, "file not found");
     }
-    bool member = false;
-    if (access.kind == FileKind::kRoom) {
-        database_.isRoomMember(static_cast<int>(access.room_id), caller.user_id,
-                               member, error);
-    } else {
-        member = access.private_sender_id == caller.user_id ||
-                 access.private_receiver_id == caller.user_id;
-    }
+    const bool member =
+        access.kind == FileKind::kRoom
+            ? roomAccessible(access.room_id, caller.user_id, error)
+            : (access.private_sender_id == caller.user_id ||
+               access.private_receiver_id == caller.user_id);
     if (!member) {
         return errorResult(request, 1003, "forbidden");
     }
@@ -674,14 +769,11 @@ FileResult FileService::handleThumb(const Frame& request,
     if (!database_.findFileAccess(file_id, access, found, error) || !found) {
         return errorResult(request, 1004, "file not found");
     }
-    bool member = false;
-    if (access.kind == FileKind::kRoom) {
-        database_.isRoomMember(static_cast<int>(access.room_id), caller.user_id,
-                               member, error);
-    } else {
-        member = access.private_sender_id == caller.user_id ||
-                 access.private_receiver_id == caller.user_id;
-    }
+    const bool member =
+        access.kind == FileKind::kRoom
+            ? roomAccessible(access.room_id, caller.user_id, error)
+            : (access.private_sender_id == caller.user_id ||
+               access.private_receiver_id == caller.user_id);
     if (!member || access.status != 0) {
         return errorResult(request, 1003, "forbidden");
     }
@@ -697,7 +789,10 @@ FileResult FileService::handleThumb(const Frame& request,
     response.header.flags = kFlagResponse;
     response.header.cmd = kCmdFileThumb;
     response.header.seq = request.header.seq;
-    response.body = std::move(bytes);
+    ByteWriter thumb_writer;
+    thumb_writer.putU64(file_id);
+    thumb_writer.putString(bytes);
+    response.body = thumb_writer.data();
     result.responses.push_back(std::move(response));
     return result;
 }
@@ -713,6 +808,15 @@ FileResult FileService::handleDelete(const Frame& request,
     std::string error;
     if (!database_.findFileAccess(file_id, access, found, error) || !found) {
         return errorResult(request, 1004, "file not found");
+    }
+    const bool member =
+        access.kind == FileKind::kRoom
+            ? roomAccessible(access.room_id, caller.user_id, error)
+            : (access.private_sender_id == caller.user_id ||
+               access.private_receiver_id == caller.user_id);
+    if (!member || access.status != 0) {
+        return errorResult(request, 1003,
+                           error.empty() ? "forbidden" : error);
     }
     bool allowed = access.uploader_id == caller.user_id;
     if (!allowed && access.kind == FileKind::kRoom) {
@@ -736,35 +840,54 @@ FileResult FileService::handleDelete(const Frame& request,
     database_.updateFileMessageDeleted(access.message_id,
                                        access.kind == FileKind::kRoom, error);
     FileResult result = successResult(request, encodeFileIdResponse(file_id));
-    const std::string frame =
-        buildFileDeletedFrame(file_id, access.message_id);
     if (access.kind == FileKind::kRoom) {
         result.broadcast = true;
-        result.broadcast_frame = frame;
+        result.broadcast_frame = buildFileDeletedFrame(
+            file_id, access.message_id, access.kind, access.room_id);
         rooms_.snapshot(static_cast<int>(access.room_id), result.targets);
     } else {
         FileNotice to_sender;
         to_sender.user_id = access.private_sender_id;
-        to_sender.frame = frame;
+        to_sender.frame = buildFileDeletedFrame(
+            file_id, access.message_id, access.kind,
+            access.private_receiver_id);
         result.notices.push_back(std::move(to_sender));
         if (access.private_receiver_id != access.private_sender_id) {
             FileNotice to_receiver;
             to_receiver.user_id = access.private_receiver_id;
-            to_receiver.frame = frame;
+            to_receiver.frame = buildFileDeletedFrame(
+                file_id, access.message_id, access.kind,
+                access.private_sender_id);
             result.notices.push_back(std::move(to_receiver));
         }
     }
     return result;
 }
 
+bool FileService::roomAccessible(uint64_t room_id, uint64_t user_id,
+                                 std::string& error) {
+    bool member = false;
+    if (!database_.isRoomMember(static_cast<int>(room_id), user_id, member,
+                                error) ||
+        !member) {
+        error = "not a group member";
+        return false;
+    }
+    GroupInfo group;
+    bool found = false;
+    if (!database_.findGroupById(room_id, group, found, error) || !found ||
+        group.status != GroupStatus::kActive) {
+        error = "group is not active";
+        return false;
+    }
+    return true;
+}
+
 bool FileService::canAccess(FileKind kind, uint64_t target_id, uint64_t user_id,
                             uint64_t, bool,
                             std::string& error) {
     if (kind == FileKind::kRoom) {
-        bool member = false;
-        return database_.isRoomMember(static_cast<int>(target_id), user_id,
-                                      member, error) &&
-               member;
+        return roomAccessible(target_id, user_id, error);
     }
     (void)target_id;
     return true;
@@ -910,12 +1033,16 @@ FileResult FileService::successResult(const Frame& request,
 }
 
 std::string FileService::buildFileDeletedFrame(uint64_t file_id,
-                                               uint64_t message_id) const {
+                                               uint64_t message_id,
+                                               FileKind kind,
+                                               uint64_t target_id) const {
     Frame push;
     push.header.cmd = kCmdFileDeleted;
     ByteWriter writer;
     writer.putU64(file_id);
     writer.putU64(message_id);
+    writer.putU8(kind == FileKind::kRoom ? 0 : 1);
+    writer.putU64(target_id);
     push.body = writer.data();
     return encodeFrame(push);
 }

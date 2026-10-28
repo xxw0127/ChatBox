@@ -73,6 +73,7 @@
 #include "ui/message_input.h"
 #include "ui/message_action_bar.h"
 #include "ui/profile_dialog.h"
+#include "ui/file_manager_dialog.h"
 #include "ui/settings_dialog.h"
 #include "ui/group_create_dialog.h"
 #include "ui/group_join_dialog.h"
@@ -344,6 +345,7 @@ private slots:
     void historyStoreMigratesV1();
     void historyStorePendingUploadRoundTrip();
     void historyStoreFileTaskRoundTrip();
+    void historyStoreFileDeleteIsConversationScoped();
     void messageStoreConfirmsFileUpload();
     void rendererFileCardShowsProgress();
     void historyStoreReportsOpenFailure();
@@ -389,6 +391,7 @@ private slots:
     void offlineModeIsReadOnlyAndLocal();
     void settingsDialogShowsHistoryInfo();
     void settingsDialogExposesHistoryActions();
+    void fileManagerDialogBuilds();
 };
 
 void TestClientCore::parseServerUtc() {
@@ -3632,6 +3635,45 @@ void TestClientCore::rendererFileCardShowsProgress() {
     QVERIFY(!queued.contains(QStringLiteral("file-open://")));
 }
 
+void TestClientCore::historyStoreFileDeleteIsConversationScoped() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    chatbox::client::HistoryStore store;
+    QString error;
+    QVERIFY2(store.open(dir.path(), 33, &error), qPrintable(error));
+    chatbox::client::ChatMessage room;
+    room.message_id = 1;
+    room.context = chatbox::client::ChatContext::kRoom;
+    room.target_id = 1;
+    room.sender_id = 2;
+    room.content = QStringLiteral("room file");
+    room.type = chatbox::client::MessageType::kFile;
+    room.file.file_id = 10;
+    room.file.name = QStringLiteral("a.txt");
+    room.file.size = 10;
+    QVERIFY(store.saveMessage(room));
+    chatbox::client::ChatMessage private_chat = room;
+    private_chat.context = chatbox::client::ChatContext::kPrivate;
+    private_chat.target_id = 2;
+    private_chat.content = QStringLiteral("private file");
+    private_chat.file.file_id = 11;
+    QVERIFY(store.saveMessage(private_chat));
+
+    QVERIFY(store.markFileDeleted(chatbox::client::ChatContext::kRoom, 1, 1));
+    const QVector<chatbox::client::ChatMessage> room_rows =
+        store.recent(chatbox::client::ChatContext::kRoom, 1, 10);
+    QCOMPARE(room_rows.size(), 1);
+    QCOMPARE(room_rows[0].content,
+             QStringLiteral("\u6587\u4ef6\u5df2\u5220\u9664"));
+    QCOMPARE(room_rows[0].type, chatbox::client::MessageType::kText);
+    const QVector<chatbox::client::ChatMessage> private_rows =
+        store.recent(chatbox::client::ChatContext::kPrivate, 2, 10);
+    QCOMPARE(private_rows.size(), 1);
+    QCOMPARE(private_rows[0].content, QStringLiteral("private file"));
+    QCOMPARE(private_rows[0].type, chatbox::client::MessageType::kFile);
+    store.close();
+}
+
 void TestClientCore::historyStoreReportsOpenFailure() {
     QTemporaryDir dir;
     QFile blocker(dir.filePath(QStringLiteral("not-a-dir")));
@@ -4351,6 +4393,23 @@ void TestClientCore::settingsDialogShowsHistoryInfo() {
 }
 
 // 设置页的三个历史操作都要有中文文案，并落到 MainWindow 的落盘逻辑上。
+void TestClientCore::fileManagerDialogBuilds() {
+    FileManagerDialog dialog(1, 1, true);
+    QVector<chatbox::client::FileEntryView> entries(1);
+    entries[0].file_id = 9;
+    entries[0].name = QStringLiteral("a.txt");
+    entries[0].size = 12;
+    entries[0].uploader_name = QStringLiteral("A");
+    entries[0].can_delete = true;
+    dialog.setFiles(1, 12, entries);
+    auto* list = dialog.findChild<QListWidget*>(QStringLiteral("FileList"));
+    QVERIFY(list != nullptr);
+    QCOMPARE(list->count(), 1);
+    QVERIFY(dialog.findChild<QPushButton*>(
+                QStringLiteral("FileDownloadPauseButton")) != nullptr);
+    dialog.setBusy(false);
+}
+
 void TestClientCore::settingsDialogExposesHistoryActions() {
     const QString dialog = readClientSource(QStringLiteral("ui/settings_dialog.cpp"));
     QVERIFY(!dialog.isEmpty());

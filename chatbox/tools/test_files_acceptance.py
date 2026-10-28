@@ -7,7 +7,7 @@ delete propagation, group disband cleanup, and (optionally) a 2GB transfer.
 
 Examples:
   python3 tools/test_files_acceptance.py --host 127.0.0.1 --port 19100 \
-      --db chatbox_test_groups --files-dir /home/ubuntu/chatbox/files
+      --files-dir /home/ubuntu/chatbox/files
   python3 tools/test_files_acceptance.py ... --large
 """
 
@@ -254,7 +254,7 @@ def upload_file(client, kind, target_id, name, data, mime):
         offset = upload_chunk(
             client, upload_id, offset, data[offset:offset + CHUNK])
     message_id, file_id, _ = upload_commit(client, upload_id)
-    return file_id, message_id
+    return file_id, message_id, upload_id
 
 
 def download_file(client, file_id, expected_sha):
@@ -366,9 +366,11 @@ def main():
 
     # 1. Small upload + download round trip.
     small = b"hello acceptance file"
-    small_id, _ = upload_file(
+    small_id, small_message, small_upload = upload_file(
         file_conn, 1, 1, "hello.txt", small, "text/plain")
     download_file(file_conn, small_id, hashlib.sha256(small).hexdigest())
+    retry_message, retry_file, _ = upload_commit(file_conn, small_upload)
+    assert retry_message == small_message and retry_file == small_id
 
     # 2. Interrupted upload resumes from the server offset.
     large = bytes(range(256)) * 800  # 200 KiB
@@ -392,14 +394,17 @@ def main():
 
     # 3. Image thumbnail.
     image = make_png()
-    image_id, image_message = upload_file(
+    image_id, image_message, _ = upload_file(
         file_conn, 1, 1, "thumb.png", image, "image/png")
     _, _, entries = list_files(file_conn, 1, 1)
     image_entry = [e for e in entries if e["file_id"] == image_id]
     assert image_entry and image_entry[0]["thumb"] == 1, image_entry
     assert image_entry[0]["width"] == 64 and image_entry[0]["height"] == 48
     _, thumb = file_conn.call(CMD_FILE_THUMB, struct.pack(">Q", image_id))
-    assert thumb[:2] == b"\xff\xd8", thumb[:4]
+    thumb_reader = Reader(thumb)
+    assert thumb_reader.u64() == image_id
+    thumb_bytes = thumb_reader.string()
+    assert thumb_bytes[:2] == b"\xff\xd8", thumb_bytes[:4]
 
     # 4. Only the uploader may delete a private/group file (bob is not the uploader).
     expect_error(lambda: bob_files.call(
@@ -422,7 +427,7 @@ def main():
     group = Reader(group_body)
     room_id = group.u32()
     group_file = b"group file payload"
-    group_file_id, _ = upload_file(
+    group_file_id, _, _ = upload_file(
         file_conn, 1, room_id, "group.txt", group_file, "text/plain")
     storage = os.path.join(
         args.files_dir, "%02x" % (group_file_id & 0xFF), str(group_file_id))

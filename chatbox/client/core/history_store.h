@@ -52,7 +52,8 @@ public:
     // 只会更新既有行。message_id == 0（未确认）时返回 false，不写库也不报错。
     // 时间为空时用当前 UTC 落库；recalled 为真时正文写空。
     bool saveMessage(const ChatMessage& message);
-    bool markFileDeletedAny(quint64 message_id);
+    bool markFileDeleted(ChatContext context, quint64 target_id,
+                         quint64 message_id);
 
     struct PendingUpload {
         QString upload_id;

@@ -96,6 +96,10 @@ bool FileTransferClient::isReady() const {
            state_ == State::kDownloading;
 }
 
+bool FileTransferClient::isIdle() const {
+    return state_ == State::kReady;
+}
+
 void FileTransferClient::onConnected() {
     state_ = State::kAuthenticating;
     chatbox::ByteWriter writer;
@@ -135,6 +139,13 @@ void FileTransferClient::onReadyRead() {
                               static_cast<int>(frame.body.size()));
         if (frame.header.flags & chatbox::kFlagError) {
             const QString message = errorText(body);
+            if (frame.header.cmd == chatbox::kCmdFileList ||
+                frame.header.cmd == chatbox::kCmdFileInfo ||
+                frame.header.cmd == chatbox::kCmdFileThumb ||
+                frame.header.cmd == chatbox::kCmdFileDelete) {
+                emit fileOperationFailed(message);
+                continue;
+            }
             if (state_ == State::kUploading) {
                 emit uploadFailed(message);
             } else if (state_ == State::kDownloading) {
@@ -244,7 +255,11 @@ void FileTransferClient::handleFrame(quint16 cmd, quint32 seq,
             return;
         }
         if (status == 1) {
-            emit uploadFailed("文件已上传完成");
+            // The previous commit response was lost; ask for the original ids.
+            chatbox::ByteWriter commit_writer;
+            commit_writer.putString(chatbox::toUtf8(upload_id_));
+            sendFrame(chatbox::kCmdFileUploadCommit, next_seq_++,
+                      QByteArray::fromStdString(commit_writer.data()));
             return;
         }
         if (status == 2) {
@@ -354,7 +369,19 @@ void FileTransferClient::handleFrame(quint16 cmd, quint32 seq,
         return;
     }
     if (cmd == chatbox::kCmdFileThumb) {
-        emit thumbnailReady(thumb_file_id_, body);
+        if (body.size() < 8) {
+            emit fileOperationFailed(QStringLiteral("???????"));
+            return;
+        }
+        chatbox::ByteReader reader(body.constData(),
+                                   static_cast<std::size_t>(body.size()));
+        uint64_t file_id = 0;
+        if (!reader.getU64(file_id)) {
+            emit fileOperationFailed(QStringLiteral("???????"));
+            return;
+        }
+        const int header = static_cast<int>(body.size()) - reader.remaining();
+        emit thumbnailReady(file_id, body.mid(header));
         return;
     }
     if (cmd == chatbox::kCmdFileList) {

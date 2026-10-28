@@ -220,6 +220,9 @@ CREATE TABLE IF NOT EXISTS file_uploads (
     created_at          DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at          DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     expires_at          DATETIME(3)     NOT NULL,
+    committed_message_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    committed_file_id    BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    committed_at         DATETIME(3)     NULL,
     PRIMARY KEY (upload_id),
     KEY idx_file_uploads_uploader (uploader_id),
     KEY idx_file_uploads_expiry (status, expires_at)

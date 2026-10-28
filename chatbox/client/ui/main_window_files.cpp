@@ -125,11 +125,27 @@ void MainWindow::startFileTransfer() {
                     setStatus(QString("下载失败: %1").arg(message), true);
                 });
         connect(file_transfer_, &FileTransferManager::fileListReady, this,
-                [this](int, quint64, quint32 total, quint64 used,
+                [this](int kind, quint64 target, quint32 total, quint64 used,
                        const QVector<chatbox::client::FileEntryView>& entries) {
+                    const int current_kind =
+                        context_type_ == ContextType::Room ? 1 : 2;
+                    const quint64 current_target =
+                        context_type_ == ContextType::Room
+                            ? static_cast<quint64>(current_room_id_)
+                            : current_peer_id_;
+                    if (kind != current_kind || target != current_target) {
+                        return;
+                    }
                     if (file_manager_dialog_ != nullptr) {
                         file_manager_dialog_->setBusy(false);
                         file_manager_dialog_->setFiles(total, used, entries);
+                    }
+                });
+        connect(file_transfer_, &FileTransferManager::fileOperationFailed, this,
+                [this](const QString& message) {
+                    if (file_manager_dialog_ != nullptr) {
+                        file_manager_dialog_->setBusy(false);
+                        file_manager_dialog_->setStatus(message, true);
                     }
                 });
         connect(file_transfer_, &FileTransferManager::fileInfoReady, this,
@@ -268,9 +284,11 @@ void MainWindow::uploadPastedImage(const QImage& image) {
     }
 }
 
-void MainWindow::onFileUploadFinished(const QString& task_id,
-                                      quint64 message_id, quint64 file_id,
-                                      const QString& created_at) {
+void MainWindow::onFileUploadFinished(
+    const QString& task_id, quint64 message_id, quint64 file_id,
+    const QString& created_at, const QString& name, quint64 size,
+    const QString& mime, chatbox::client::ChatContext context,
+    quint64 target_id) {
     const QDateTime created = chatbox::client::parseServerUtc(created_at);
     bool confirmed = message_store_.confirmFileUpload(task_id, message_id,
                                                       file_id, created);
@@ -289,9 +307,9 @@ void MainWindow::onFileUploadFinished(const QString& task_id,
         message.status = chatbox::client::MessageStatus::kSent;
         message.type = chatbox::client::MessageType::kFile;
         message.file.file_id = file_id;
-        message.file.name = pending_upload_name_;
-        message.file.size = static_cast<quint64>(pending_upload_size_);
-        message.file.mime = pending_upload_mime_;
+        message.file.name = name;
+        message.file.size = size;
+        message.file.mime = mime;
         const bool current = message_store_.isCurrent(message.context,
                                                       message.target_id);
         if (current) {
@@ -300,11 +318,7 @@ void MainWindow::onFileUploadFinished(const QString& task_id,
         } else if (history_store_.isOpen()) {
             history_store_.saveMessage(message);
         }
-    } else if (message_store_.isCurrent(
-                   pending_upload_kind_ == 1
-                       ? chatbox::client::ChatContext::kRoom
-                       : chatbox::client::ChatContext::kPrivate,
-                   pending_upload_target_)) {
+    } else if (message_store_.isCurrent(context, target_id)) {
         renderCurrentConversation(ScrollMode::kBottom);
     }
     setStatus("文件已发送");
@@ -401,10 +415,14 @@ void MainWindow::openFileManager() {
         file_manager_dialog_->deleteLater();
         file_manager_dialog_ = nullptr;
     }
-    file_manager_dialog_ = new FileManagerDialog(kind, target, true, this);
-    file_manager_dialog_->setAttribute(Qt::WA_DeleteOnClose, true);
-    connect(file_manager_dialog_, &QObject::destroyed, this,
-            [this] { file_manager_dialog_ = nullptr; });
+    auto* dialog = new FileManagerDialog(kind, target, true, this);
+    file_manager_dialog_ = dialog;
+    dialog->setAttribute(Qt::WA_DeleteOnClose, true);
+    connect(dialog, &QObject::destroyed, this, [this, dialog] {
+        if (file_manager_dialog_ == dialog) {
+            file_manager_dialog_ = nullptr;
+        }
+    });
     connect(file_manager_dialog_, &FileManagerDialog::uploadRequested, this,
             &MainWindow::chooseAndUploadFile);
     connect(file_manager_dialog_, &FileManagerDialog::downloadRequested, this,

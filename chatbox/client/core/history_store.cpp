@@ -1201,7 +1201,8 @@ QVector<ChatMessage> HistoryStore::search(ChatContext context, quint64 target_id
     return rows;
 }
 
-bool HistoryStore::markFileDeletedAny(quint64 message_id) {
+bool HistoryStore::markFileDeleted(ChatContext context, quint64 target_id,
+                                   quint64 message_id) {
     if (!isOpen() || message_id == 0) {
         return false;
     }
@@ -1214,11 +1215,14 @@ bool HistoryStore::markFileDeletedAny(quint64 message_id) {
             "UPDATE messages SET content = ?, msg_type = 0, file_id = 0,"
             " file_name = '', file_size = 0, mime = '', thumb_path = '',"
             " transfer_state = '', transfer_progress = 0"
-            " WHERE user_id = ? AND message_id = ?"))) {
+            " WHERE user_id = ? AND context = ? AND target_id = ?"
+            " AND message_id = ?"))) {
         return false;
     }
     query.addBindValue(QStringLiteral("\u6587\u4ef6\u5df2\u5220\u9664"));
     query.addBindValue(QVariant::fromValue<qulonglong>(user_id_));
+    query.addBindValue(static_cast<int>(context));
+    query.addBindValue(QVariant::fromValue<qulonglong>(target_id));
     query.addBindValue(QVariant::fromValue<qulonglong>(message_id));
     return query.exec();
 }

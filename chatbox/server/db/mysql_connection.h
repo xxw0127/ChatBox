@@ -261,6 +261,11 @@ public:
                                 std::string& error);
     bool updateFileUploadStatus(const std::string& upload_id, int status,
                                 std::string& error);
+    bool expireFileUploads(std::string& error);
+    bool setFileUploadCommitted(const std::string& upload_id,
+                                uint64_t message_id, uint64_t file_id,
+                                const std::string& created_at,
+                                std::string& error);
     bool insertFileRecord(uint64_t uploader_id, FileKind kind, uint64_t target_id,
                           const FileMeta& meta, const std::string& storage_path,
                           FileEntry& entry, std::string& error);
@@ -273,6 +278,7 @@ public:
                          std::vector<FileEntry>& entries, uint32_t& total_count,
                          uint64_t& used_bytes, std::string& error);
     bool markFileDeleted(uint64_t file_id, std::string& error);
+    bool deleteFileRecord(uint64_t file_id, std::string& error);
     bool listRoomFilePaths(uint64_t room_id,
                            std::vector<std::pair<std::string, std::string>>& paths,
                            std::string& error);

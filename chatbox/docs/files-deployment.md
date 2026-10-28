@@ -74,7 +74,7 @@ ExecStart=/home/ubuntu/chatbox/tools/run_server.sh --listen 127.0.0.1 --port 910
 
 ```bash
 python3 tools/test_files_acceptance.py --host 127.0.0.1 --port 19100 \
-  --db chatbox_test_groups --files-dir /home/ubuntu/chatbox/files
+  --files-dir /home/ubuntu/chatbox/files
 ```
 慢速 2GB 用例：
 ```bash

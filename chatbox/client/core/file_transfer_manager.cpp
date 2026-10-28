@@ -55,6 +55,10 @@ FileTransferManager::FileTransferManager(QObject* parent) : QObject(parent) {
                 if (task == nullptr) {
                     return;
                 }
+                if (history_ != nullptr && task->upload_id.isEmpty() &&
+                    task->task_id != upload_id) {
+                    history_->removePendingUpload(task->task_id);
+                }
                 task->upload_id = upload_id;
                 task->offset = static_cast<quint64>(offset);
                 task->state = QStringLiteral("uploading");
@@ -85,13 +89,20 @@ FileTransferManager::FileTransferManager(QObject* parent) : QObject(parent) {
                     return;
                 }
                 const QString task_id = task->task_id;
-                if (history_ != nullptr && !task->upload_id.isEmpty()) {
-                    history_->removePendingUpload(task->upload_id);
+                if (history_ != nullptr) {
+                    if (!task->upload_id.isEmpty()) {
+                        history_->removePendingUpload(task->upload_id);
+                    }
+                    if (task->task_id != task->upload_id) {
+                        history_->removePendingUpload(task->task_id);
+                    }
                 }
                 task->state = QStringLiteral("done");
                 emit uploadStateChanged(task_id, task->state);
                 active_upload_id_.clear();
-                emit uploadFinished(task_id, message_id, file_id, created_at);
+                emit uploadFinished(task_id, message_id, file_id, created_at,
+                                    task->name, task->size, task->mime,
+                                    task->context, task->target_id);
                 startNextUpload();
             });
     connect(upload_client_, &FileTransferClient::uploadFailed, this,
@@ -104,8 +115,13 @@ FileTransferManager::FileTransferManager(QObject* parent) : QObject(parent) {
                     message.contains(QStringLiteral("upload is closed"))) {
                     // The server lost the temporary upload (e.g. test DB reset).
                     // Restart it from byte zero instead of failing forever.
-                    if (history_ != nullptr && !task->upload_id.isEmpty()) {
-                        history_->removePendingUpload(task->upload_id);
+                    if (history_ != nullptr) {
+                        if (!task->upload_id.isEmpty()) {
+                            history_->removePendingUpload(task->upload_id);
+                        }
+                        if (task->task_id != task->upload_id) {
+                            history_->removePendingUpload(task->task_id);
+                        }
                     }
                     task->upload_id.clear();
                     task->offset = 0;
@@ -147,7 +163,11 @@ FileTransferManager::FileTransferManager(QObject* parent) : QObject(parent) {
                 }
                 task->received = static_cast<quint64>(received);
                 task->total = static_cast<quint64>(total);
-                if (history_ != nullptr) {
+                const bool persist =
+                    task->received - task->persisted_received >= kPersistStep ||
+                    task->received >= task->total;
+                if (history_ != nullptr && persist) {
+                    task->persisted_received = task->received;
                     history_->updateFileTask(
                         task->file_id, task->context, task->target_id,
                         QStringLiteral("downloading"), task->received,
@@ -167,6 +187,13 @@ FileTransferManager::FileTransferManager(QObject* parent) : QObject(parent) {
                 if (history_ != nullptr) {
                     history_->removeFileTask(task->file_id, task->context,
                                              task->target_id);
+                }
+                for (int i = 0; i < downloads_.size(); ++i) {
+                    if (downloads_[i].file_id == file_id &&
+                        downloads_[i].save_path == save_path) {
+                        downloads_.removeAt(i);
+                        break;
+                    }
                 }
                 active_download_id_ = 0;
                 emit downloadFinished(file_id, save_path, mime, open_after);
@@ -190,6 +217,8 @@ FileTransferManager::FileTransferManager(QObject* parent) : QObject(parent) {
 
     connect(upload_client_, &FileTransferClient::connectionError, this,
             &FileTransferManager::connectionError);
+    connect(upload_client_, &FileTransferClient::fileOperationFailed, this,
+            &FileTransferManager::fileOperationFailed);
     connect(download_client_, &FileTransferClient::connectionError, this,
             &FileTransferManager::connectionError);
     connect(upload_client_, &FileTransferClient::connectionError, this,
@@ -242,6 +271,9 @@ void FileTransferManager::stop() {
     }
     active_upload_id_.clear();
     active_download_id_ = 0;
+    uploads_.clear();
+    downloads_.clear();
+    restored_ = false;
     upload_client_->stop();
     download_client_->stop();
 }
@@ -285,8 +317,6 @@ void FileTransferManager::pauseUpload(const QString& task_id) {
             persistUpload(*task);
             emit uploadStateChanged(task_id, task->state);
         }
-        active_upload_id_.clear();
-        startNextUpload();
         return;
     }
     UploadTask* task = findUpload(task_id);
@@ -300,6 +330,15 @@ void FileTransferManager::pauseUpload(const QString& task_id) {
 void FileTransferManager::resumeUpload(const QString& task_id) {
     UploadTask* task = findUpload(task_id);
     if (task == nullptr) {
+        return;
+    }
+    if (task_id == active_upload_id_) {
+        task->state = QStringLiteral("uploading");
+        persistUpload(*task);
+        emit uploadStateChanged(task_id, task->state);
+        upload_client_->resumeUpload(task->upload_id, task->source_path,
+                                     task->kind, task->target_id, task->name,
+                                     task->mime, task->size);
         return;
     }
     task->state = QStringLiteral("queued");
@@ -317,8 +356,13 @@ void FileTransferManager::cancelUpload(const QString& task_id) {
         upload_client_->cancelUpload();
         active_upload_id_.clear();
     }
-    if (history_ != nullptr && !task->upload_id.isEmpty()) {
-        history_->removePendingUpload(task->upload_id);
+    if (history_ != nullptr) {
+        if (!task->upload_id.isEmpty()) {
+            history_->removePendingUpload(task->upload_id);
+        }
+        if (task->task_id != task->upload_id) {
+            history_->removePendingUpload(task->task_id);
+        }
     }
     task->state = QStringLiteral("cancelled");
     emit uploadStateChanged(task_id, task->state);
@@ -364,17 +408,19 @@ void FileTransferManager::toggleDownload(quint64 file_id) {
         return;
     }
     if (active_download_id_ == file_id) {
-        download_client_->pauseDownload();
-        task->state = QStringLiteral("paused");
+        if (task->state == QStringLiteral("paused")) {
+            task->state = QStringLiteral("downloading");
+            download_client_->resumeDownload();
+        } else {
+            download_client_->pauseDownload();
+            task->state = QStringLiteral("paused");
+            emit downloadPaused(file_id);
+        }
         if (history_ != nullptr) {
             history_->updateFileTask(task->file_id, task->context,
-                                     task->target_id,
-                                     QStringLiteral("paused"), task->received,
-                                     task->total);
+                                     task->target_id, task->state,
+                                     task->received, task->total);
         }
-        active_download_id_ = 0;
-        emit downloadPaused(file_id);
-        startNextDownload();
         return;
     }
     task->state = QStringLiteral("queued");
@@ -396,7 +442,11 @@ void FileTransferManager::restorePending() {
     for (const HistoryStore::PendingUpload& item : pending) {
         UploadTask task;
         task.task_id = item.upload_id;
-        task.upload_id = item.upload_id;
+        if (item.upload_id.contains('-')) {
+            task.upload_id.clear();
+        } else {
+            task.upload_id = item.upload_id;
+        }
         task.kind = item.context == ChatContext::kRoom ? 1 : 2;
         task.target_id = item.target_id;
         task.context = item.context;
@@ -470,7 +520,7 @@ void FileTransferManager::requestThumbnail(quint64 file_id) {
 
 void FileTransferManager::startNextUpload() {
     if (!started_ || !active_upload_id_.isEmpty() ||
-        !upload_client_->isReady()) {
+        !upload_client_->isIdle()) {
         return;
     }
     for (UploadTask& task : uploads_) {
@@ -502,7 +552,7 @@ void FileTransferManager::startNextUpload() {
 
 void FileTransferManager::startNextDownload() {
     if (!started_ || active_download_id_ != 0 ||
-        !download_client_->isReady()) {
+        !download_client_->isIdle()) {
         return;
     }
     for (int i = 0; i < downloads_.size(); ++i) {

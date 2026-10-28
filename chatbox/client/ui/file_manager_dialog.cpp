@@ -41,6 +41,9 @@ FileManagerDialog::FileManagerDialog(int kind, quint64 target_id,
     upload_->setVisible(can_upload);
     download_ = new QPushButton(QStringLiteral("下载/打开"), this);
     download_->setObjectName(QStringLiteral("FileDownloadButton"));
+    download_toggle_ = new QPushButton(QStringLiteral("暂停/继续下载"), this);
+    download_toggle_->setObjectName(
+        QStringLiteral("FileDownloadPauseButton"));
     remove_ = new QPushButton(QStringLiteral("删除服务器文件"), this);
     remove_->setObjectName(QStringLiteral("FileDeleteButton"));
     actions->addWidget(upload_);

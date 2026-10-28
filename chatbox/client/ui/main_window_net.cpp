@@ -1850,10 +1850,17 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
         case chatbox::kCmdFileDeleted: {
             uint64_t file_id = 0;
             uint64_t message_id = 0;
-            if (!reader.getU64(file_id) || !reader.getU64(message_id)) {
+            uint8_t kind = 0;
+            uint64_t target_id = 0;
+            if (!reader.getU64(file_id) || !reader.getU64(message_id) ||
+                !reader.getU8(kind) || !reader.getU64(target_id)) {
                 return;
             }
-            history_store_.markFileDeletedAny(message_id);
+            (void)file_id;
+            history_store_.markFileDeleted(
+                kind == 0 ? chatbox::client::ChatContext::kRoom
+                          : chatbox::client::ChatContext::kPrivate,
+                target_id, message_id);
             if (message_store_.markFileDeleted(message_id)) {
                 renderCurrentConversation(ScrollMode::kPreserve);
             }

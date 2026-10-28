@@ -29,6 +29,7 @@ public:
                const QString& ca_path, const QString& token);
     void stop();
     bool isReady() const;
+    bool isIdle() const;
 
     void uploadFile(const QString& local_path, int kind, quint64 target_id,
                     const QString& display_name, const QString& mime);
@@ -49,6 +50,7 @@ public:
 signals:
     void authenticated(quint64 user_id);
     void connectionError(const QString& message);
+    void fileOperationFailed(const QString& message);
     void uploadInitialized(const QString& upload_id, qint64 offset);
     void uploadProgress(qint64 sent, qint64 total);
     void uploadFinished(quint64 message_id, quint64 file_id,

@@ -37,6 +37,9 @@ struct UploadState {
     std::string temp_path;
     uint64_t offset = 0;
     int status = 0;
+    uint64_t committed_message_id = 0;
+    uint64_t committed_file_id = 0;
+    std::string committed_at;
 };
 
 }  // namespace chatbox

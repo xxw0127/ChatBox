@@ -85,11 +85,12 @@ bool readEntry(MYSQL_STMT* stmt, FileEntry& entry) {
     uint32_t width = 0, height = 0, duration = 0;
     int thumb = 0;
     char nickname[129] = {0}, name[181] = {0}, mime[129] = {0};
-    char sha[65] = {0};
-    unsigned long nickname_len = 0, name_len = 0, mime_len = 0, sha_len = 0;
+    char sha[65] = {0}, created[32] = {0};
+    unsigned long nickname_len = 0, name_len = 0, mime_len = 0, sha_len = 0,
+                  created_len = 0;
     bool nickname_null = false, name_null = false, mime_null = false,
-         sha_null = false;
-    MYSQL_BIND out[12] = {};
+         sha_null = false, created_null = false;
+    MYSQL_BIND out[13] = {};
     out[0].buffer_type = MYSQL_TYPE_LONGLONG; out[0].buffer = &file_id;
     out[0].is_unsigned = true;
     out[1].buffer_type = MYSQL_TYPE_LONGLONG; out[1].buffer = &uploader_id;
@@ -114,6 +115,9 @@ bool readEntry(MYSQL_STMT* stmt, FileEntry& entry) {
     out[9].buffer_type = MYSQL_TYPE_LONG; out[9].buffer = &width;
     out[10].buffer_type = MYSQL_TYPE_LONG; out[10].buffer = &height;
     out[11].buffer_type = MYSQL_TYPE_LONG; out[11].buffer = &duration;
+    out[12].buffer_type = MYSQL_TYPE_STRING; out[12].buffer = created;
+    out[12].buffer_length = sizeof(created) - 1; out[12].length = &created_len;
+    out[12].is_null = &created_null;
     if (mysql_stmt_bind_result(stmt, out) != 0) {
         return false;
     }
@@ -133,12 +137,14 @@ bool readEntry(MYSQL_STMT* stmt, FileEntry& entry) {
     entry.width = width;
     entry.height = height;
     entry.duration_ms = duration;
+    entry.created_at = text(created, created_len, created_null, 31);
     return true;
 }
 
 const char* const kFileEntrySelect =
     "SELECT f.id, f.uploader_id, u.nickname, f.message_id, f.name, f.size, "
-    "f.mime, f.sha256, f.thumb_available, f.width, f.height, f.duration_ms "
+    "f.mime, f.sha256, f.thumb_available, f.width, f.height, f.duration_ms, "
+    "DATE_FORMAT(f.created_at, '%Y-%m-%d %H:%i:%s') "
     "FROM files f JOIN users u ON u.id = f.uploader_id ";
 
 }  // namespace
@@ -199,7 +205,9 @@ bool MysqlConnection::findFileUpload(const std::string& upload_id,
     Stmt stmt(mysql_,
               "SELECT upload_id, uploader_id, kind, room_id, "
               " private_sender_id, private_receiver_id, name, size, mime, "
-              " sha256, temp_path, offset, status "
+              " sha256, temp_path, offset, status, committed_message_id, "
+              " committed_file_id, "
+              " DATE_FORMAT(committed_at, '%Y-%m-%d %H:%i:%s') "
               "FROM file_uploads WHERE upload_id = ? LIMIT 1",
               error);
     if (stmt.get() == nullptr) {
@@ -220,10 +228,13 @@ bool MysqlConnection::findFileUpload(const std::string& upload_id,
          path[256] = {0};
     unsigned long id_l = 0, name_l = 0, mime_l = 0, sha_l = 0, path_l = 0;
     uint64_t uploader = 0, room = 0, psender = 0, preceiver = 0, size = 0,
-             offset = 0;
+             offset = 0, committed_message = 0, committed_file = 0;
+    char committed_at[32] = {0};
+    unsigned long committed_at_len = 0;
+    bool committed_at_null = false;
     int kind = 0, status = 0;
     bool n1 = false, n2 = false, n3 = false, n4 = false;
-    MYSQL_BIND out[13] = {};
+    MYSQL_BIND out[16] = {};
     out[0].buffer_type = MYSQL_TYPE_STRING; out[0].buffer = id;
     out[0].buffer_length = sizeof(id) - 1; out[0].length = &id_l;
     out[1].buffer_type = MYSQL_TYPE_LONGLONG; out[1].buffer = &uploader;
@@ -252,6 +263,13 @@ bool MysqlConnection::findFileUpload(const std::string& upload_id,
     out[11].buffer_type = MYSQL_TYPE_LONGLONG; out[11].buffer = &offset;
     out[11].is_unsigned = true;
     out[12].buffer_type = MYSQL_TYPE_LONG; out[12].buffer = &status;
+    out[13].buffer_type = MYSQL_TYPE_LONGLONG;
+    out[13].buffer = &committed_message; out[13].is_unsigned = true;
+    out[14].buffer_type = MYSQL_TYPE_LONGLONG;
+    out[14].buffer = &committed_file; out[14].is_unsigned = true;
+    out[15].buffer_type = MYSQL_TYPE_STRING; out[15].buffer = committed_at;
+    out[15].buffer_length = sizeof(committed_at) - 1;
+    out[15].length = &committed_at_len; out[15].is_null = &committed_at_null;
     if (mysql_stmt_bind_result(stmt.get(), out) != 0) {
         error = mysql_stmt_error(stmt.get());
         return false;
@@ -278,6 +296,11 @@ bool MysqlConnection::findFileUpload(const std::string& upload_id,
     upload.temp_path = text(path, path_l, n4, 255);
     upload.offset = offset;
     upload.status = status;
+    upload.committed_message_id = committed_message;
+    upload.committed_file_id = committed_file;
+    if (!committed_at_null) {
+        upload.committed_at.assign(committed_at, committed_at_len);
+    }
     found = true;
     error.clear();
     return true;
@@ -321,6 +344,48 @@ bool MysqlConnection::updateFileUploadStatus(const std::string& upload_id,
     MYSQL_BIND p[2] = {};
     bindInt(p[0], status_value);
     bindString(p[1], upload_id, id_len);
+    if (mysql_stmt_bind_param(stmt.get(), p) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    return execute(stmt.get(), error);
+}
+
+bool MysqlConnection::expireFileUploads(std::string& error) {
+    if (!ensureConnected(error)) {
+        return false;
+    }
+    Stmt stmt(mysql_,
+              "UPDATE file_uploads SET status = 2"
+              " WHERE status = 0 AND expires_at < UTC_TIMESTAMP(3)",
+              error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+    return execute(stmt.get(), error);
+}
+
+bool MysqlConnection::setFileUploadCommitted(
+    const std::string& upload_id, uint64_t message_id, uint64_t file_id,
+    const std::string& created_at, std::string& error) {
+    if (!ensureConnected(error)) {
+        return false;
+    }
+    Stmt stmt(mysql_,
+              "UPDATE file_uploads SET status = 1, committed_message_id = ?,"
+              " committed_file_id = ?, committed_at = ? WHERE upload_id = ?",
+              error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+    uint64_t message = message_id;
+    uint64_t file = file_id;
+    unsigned long id_len = 0, created_len = 0;
+    MYSQL_BIND p[4] = {};
+    bindU64(p[0], message);
+    bindU64(p[1], file);
+    bindString(p[2], created_at, created_len);
+    bindString(p[3], upload_id, id_len);
     if (mysql_stmt_bind_param(stmt.get(), p) != 0) {
         error = mysql_stmt_error(stmt.get());
         return false;
@@ -661,6 +726,24 @@ bool MysqlConnection::markFileDeleted(uint64_t file_id, std::string& error) {
         return false;
     }
     Stmt stmt(mysql_, "UPDATE files SET status = 1 WHERE id = ?", error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+    uint64_t id = file_id;
+    MYSQL_BIND p[1] = {};
+    bindU64(p[0], id);
+    if (mysql_stmt_bind_param(stmt.get(), p) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    return execute(stmt.get(), error);
+}
+
+bool MysqlConnection::deleteFileRecord(uint64_t file_id, std::string& error) {
+    if (!ensureConnected(error)) {
+        return false;
+    }
+    Stmt stmt(mysql_, "DELETE FROM files WHERE id = ?", error);
     if (stmt.get() == nullptr) {
         return false;
     }

@@ -61,6 +61,8 @@ private:
     FileResult handleThumb(const Frame& request, const RoomMember& caller);
     FileResult handleDelete(const Frame& request, const RoomMember& caller);
 
+    bool roomAccessible(uint64_t room_id, uint64_t user_id,
+                        std::string& error);
     bool canAccess(FileKind kind, uint64_t target_id, uint64_t user_id,
                    uint64_t uploader_id, bool write, std::string& error);
     bool checkRoom(const UploadState& upload, const RoomMember& caller,
@@ -85,8 +87,9 @@ private:
                                  const std::string& created_at,
                                  const FileMeta& meta,
                                  const RoomMember& caller) const;
-    std::string buildFileDeletedFrame(uint64_t file_id,
-                                      uint64_t message_id) const;
+    std::string buildFileDeletedFrame(uint64_t file_id, uint64_t message_id,
+                                      FileKind kind,
+                                      uint64_t target_id) const;
 
     MysqlConnection& database_;
     RoomManager& rooms_;

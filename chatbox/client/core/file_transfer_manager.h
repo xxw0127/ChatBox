@@ -52,12 +52,16 @@ public:
 
 signals:
     void connectionError(const QString& message);
+    void fileOperationFailed(const QString& message);
     void uploadQueued(const QString& task_id, const QString& name,
                       quint64 size, chatbox::client::ChatContext context,
                       quint64 target_id, const QString& mime);
     void uploadProgress(const QString& task_id, quint64 sent, quint64 total);
     void uploadFinished(const QString& task_id, quint64 message_id,
-                        quint64 file_id, const QString& created_at);
+                        quint64 file_id, const QString& created_at,
+                        const QString& name, quint64 size, const QString& mime,
+                        chatbox::client::ChatContext context,
+                        quint64 target_id);
     void uploadFailed(const QString& task_id, const QString& message);
     void uploadStateChanged(const QString& task_id, const QString& state);
 
@@ -102,6 +106,7 @@ private:
         QString state = QStringLiteral("queued");
         quint64 received = 0;
         quint64 total = 0;
+        quint64 persisted_received = 0;
     };
 
     void reconnectIdle();
