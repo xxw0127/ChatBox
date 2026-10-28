@@ -21,6 +21,23 @@ enum class MessageStatus {
     kFailed = 2,
 };
 
+enum class MessageType {
+    kText = 0,
+    kFile = 1,
+};
+
+struct FileMeta {
+    quint64 file_id = 0;
+    QString name;
+    quint64 size = 0;
+    QString mime;
+    QString sha256;
+    bool thumb_available = false;
+    quint32 width = 0;
+    quint32 height = 0;
+    quint32 duration_ms = 0;
+};
+
 struct ChatMessage {
     QString client_msg_id;
     quint64 message_id = 0;
@@ -36,6 +53,11 @@ struct ChatMessage {
     bool recalled = false;
     bool outgoing = false;
     MessageStatus status = MessageStatus::kSent;
+    MessageType type = MessageType::kText;
+    FileMeta file;
+    QString transfer_state;
+    quint64 transfer_progress = 0;
+    QString local_path;
 };
 
 // Identifies one rendered conversation bubble: the server message id when

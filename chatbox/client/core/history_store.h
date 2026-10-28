@@ -52,6 +52,47 @@ public:
     // 只会更新既有行。message_id == 0（未确认）时返回 false，不写库也不报错。
     // 时间为空时用当前 UTC 落库；recalled 为真时正文写空。
     bool saveMessage(const ChatMessage& message);
+    bool markFileDeletedAny(quint64 message_id);
+
+    struct PendingUpload {
+        QString upload_id;
+        ChatContext context = ChatContext::kRoom;
+        quint64 target_id = 0;
+        QString source_path;
+        QString name;
+        quint64 size = 0;
+        QString mime;
+        QString sha256;
+        quint64 offset = 0;
+        QString status = QStringLiteral("queued");
+    };
+
+    struct FileTask {
+        quint64 file_id = 0;
+        ChatContext context = ChatContext::kRoom;
+        quint64 target_id = 0;
+        quint64 message_id = 0;
+        QString name;
+        QString save_path;
+        QString mime;
+        QString state;
+        quint64 received = 0;
+        quint64 total = 0;
+    };
+
+    bool savePendingUpload(const PendingUpload& upload);
+    bool updatePendingUpload(const QString& upload_id, quint64 offset,
+                             const QString& status);
+    bool removePendingUpload(const QString& upload_id);
+    QVector<PendingUpload> pendingUploads() const;
+
+    bool saveFileTask(const FileTask& task);
+    bool updateFileTask(quint64 file_id, ChatContext context,
+                        quint64 target_id, const QString& state,
+                        quint64 received, quint64 total);
+    bool removeFileTask(quint64 file_id, ChatContext context,
+                        quint64 target_id);
+    QVector<FileTask> pendingFileTasks() const;
     // 标记某条消息已撤回：清空正文并置 recalled；没有匹配行时返回 false。
     // 撤回按会话定位（user_id + context + target_id + message_id）：
     // 房间与私聊的 message_id 各自独立编号，只按 message_id 匹配会误伤

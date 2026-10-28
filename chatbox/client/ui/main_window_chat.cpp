@@ -1084,6 +1084,7 @@ void MainWindow::renderCurrentConversation(ScrollMode mode) {
     }
     programmatic_scroll_ = false;
     updateChatEmptyState();
+    requestMissingThumbnails();
 }
 
 void MainWindow::addIncomingMessage(const chatbox::client::ChatMessage& message) {

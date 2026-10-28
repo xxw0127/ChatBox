@@ -5,6 +5,9 @@
 
 class QKeyEvent;
 class QMimeData;
+class QDragEnterEvent;
+class QDropEvent;
+class QImage;
 
 // Multi-line composer: Enter submits, Shift+Enter inserts a newline, and the
 // control grows from 40 to 120px before scrolling internally. Rich paste is
@@ -17,10 +20,14 @@ public:
 
 signals:
     void submitRequested();
+    void filesDropped(const QStringList& paths);
+    void imagePasted(const QImage& image);
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;
     void insertFromMimeData(const QMimeData* source) override;
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
 private:
     void adjustHeight();

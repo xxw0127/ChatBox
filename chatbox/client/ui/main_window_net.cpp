@@ -1,6 +1,9 @@
 #include "ui/main_window_support.h"
 
+#include "common/file_protocol.h"
 #include "common/group_protocol.h"
+#include "core/file_transfer_manager.h"
+#include "core/file_types.h"
 #include "core/group_types.h"
 #include "ui/group_create_dialog.h"
 #include "ui/group_join_dialog.h"
@@ -645,6 +648,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 avatar_timeout_timer_->stop();
             }
             setOnline(true);
+            startFileTransfer();
             resetContext();
             requestGroupList();
             requestGroupRequests(0);
@@ -737,6 +741,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 avatar_timeout_timer_->stop();
             }
             setOnline(true);
+            startFileTransfer();
             if (previous_context == ContextType::Room && previous_room > 0) {
                 selectRoom(previous_room, previous_name);
             } else if (previous_context == ContextType::Private && previous_peer != 0) {
@@ -1058,6 +1063,14 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             message.reply_content = reply_content;
             message.outgoing = sender_id == user_id_;
             message.status = chatbox::client::MessageStatus::kSent;
+            if (reader.remaining() > 0) {
+                chatbox::FileMeta wire_meta;
+                if (chatbox::readFileMeta(reader, wire_meta) &&
+                    wire_meta.file_id != 0) {
+                    message.type = chatbox::client::MessageType::kFile;
+                    message.file = chatbox::client::fileMetaFromWire(wire_meta);
+                }
+            }
             // 任何房间的推送都先落本地库：当前会话之外的房间
             // 之后切过去时也能立刻看到这一段。
             if (history_store_.isOpen()) {
@@ -1134,6 +1147,14 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             message.reply_content = reply_content;
             message.outgoing = from_id == user_id_;
             message.status = chatbox::client::MessageStatus::kSent;
+            if (reader.remaining() > 0) {
+                chatbox::FileMeta wire_meta;
+                if (chatbox::readFileMeta(reader, wire_meta) &&
+                    wire_meta.file_id != 0) {
+                    message.type = chatbox::client::MessageType::kFile;
+                    message.file = chatbox::client::fileMetaFromWire(wire_meta);
+                }
+            }
             // 后台私聊同样落本地库并记一条会话摘要：
             // 之后切到该好友时能立刻看到这一段。
             // 标题优先用已知的备注，没有备注时用昵称。
@@ -1282,6 +1303,22 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 message.status = chatbox::client::MessageStatus::kSent;
                 page.push_back(message);
                 peer_names_.insert(sender_id, nickname);
+            }
+            if (reader.remaining() > 0) {
+                std::vector<uint16_t> meta_indices;
+                std::vector<chatbox::FileMeta> metas;
+                if (chatbox::decodeFileMetaTable(reader, meta_indices, metas)) {
+                    for (std::size_t i = 0;
+                         i < meta_indices.size() && i < metas.size(); ++i) {
+                        const std::size_t index = meta_indices[i];
+                        if (index < page.size() && metas[i].file_id != 0) {
+                            page[index].type =
+                                chatbox::client::MessageType::kFile;
+                            page[index].file =
+                                chatbox::client::fileMetaFromWire(metas[i]);
+                        }
+                    }
+                }
             }
 
             const bool is_jump = history_request_is_jump_;
@@ -1810,6 +1847,25 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             handleError(code, message, frame.header.seq);
             break;
         }
+        case chatbox::kCmdFileDeleted: {
+            uint64_t file_id = 0;
+            uint64_t message_id = 0;
+            if (!reader.getU64(file_id) || !reader.getU64(message_id)) {
+                return;
+            }
+            history_store_.markFileDeletedAny(message_id);
+            if (message_store_.markFileDeleted(message_id)) {
+                renderCurrentConversation(ScrollMode::kPreserve);
+            }
+            if (file_manager_dialog_ != nullptr && file_transfer_ != nullptr) {
+                file_transfer_->listFiles(
+                    context_type_ == ContextType::Room ? 1 : 2,
+                    context_type_ == ContextType::Room
+                        ? static_cast<quint64>(current_room_id_)
+                        : current_peer_id_);
+            }
+            break;
+        }
         default:
             break;
     }
@@ -2000,6 +2056,9 @@ void MainWindow::handleError(quint16 code, const QString& message, quint32 seq) 
 }
 
 void MainWindow::clearSession() {
+    if (file_transfer_ != nullptr) {
+        file_transfer_->stop();
+    }
     logged_in_ = false;
     connected_ = false;
     offline_mode_ = false;

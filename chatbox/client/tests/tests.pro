@@ -10,9 +10,15 @@ RESOURCES += ../resources/resources.qrc
 SOURCES += \
     test_client_core.cpp \
     ../../common/group_protocol.cpp \
+    ../../common/file_protocol.cpp \
     ../../common/protocol.cpp \
     ../core/group_types.cpp \
     ../core/group_store.cpp \
+    ../core/file_types.cpp \
+    ../core/file_transfer_client.cpp \
+    ../core/file_transfer_manager.cpp \
+    ../core/file_thumbnail_cache.cpp \
+    ../core/protocol_qt.cpp \
     ../core/app_settings.cpp \
     ../core/autostart.cpp \
     ../core/client_policy.cpp \
@@ -65,6 +71,10 @@ HEADERS += \
     ../core/update_installer.h \
     ../core/avatar_utils.h \
     ../core/avatar_cache.h \
+    ../core/file_transfer_client.h \
+    ../core/file_transfer_manager.h \
+    ../core/file_thumbnail_cache.h \
+    ../core/file_types.h \
     ../core/history_store.h \
     ../core/user_profile.h \
     ../ui/chat_view.h \

@@ -22,8 +22,13 @@ SOURCES += \
     main.cpp \
     ../common/protocol.cpp \
     ../common/group_protocol.cpp \
+    ../common/file_protocol.cpp \
     core/group_types.cpp \
     core/group_store.cpp \
+    core/file_types.cpp \
+    core/file_transfer_client.cpp \
+    core/file_transfer_manager.cpp \
+    core/file_thumbnail_cache.cpp \
     core/app_settings.cpp \
     core/autostart.cpp \
     core/client_policy.cpp \
@@ -60,6 +65,9 @@ SOURCES += \
     ui/main_window_chat.cpp \
     ui/main_window_contacts.cpp \
     ui/main_window_groups.cpp \
+    ui/main_window_files.cpp \
+    ui/file_manager_dialog.cpp \
+    ui/image_preview_dialog.cpp \
     ui/main_window_net.cpp \
     ui/group_create_dialog.cpp \
     ui/group_join_dialog.cpp \
@@ -77,6 +85,10 @@ SOURCES += \
 HEADERS += \
     core/group_types.h \
     core/group_store.h \
+    core/file_types.h \
+    core/file_transfer_client.h \
+    core/file_transfer_manager.h \
+    core/file_thumbnail_cache.h \
     core/app_settings.h \
     core/autostart.h \
     core/client_policy.h \
@@ -119,6 +131,8 @@ HEADERS += \
     ui/group_join_dialog.h \
     ui/group_settings_dialog.h \
     ui/group_notify_dialog.h \
+    ui/file_manager_dialog.h \
+    ui/image_preview_dialog.h \
     ui/message_search_dialog.h \
     ui/settings_dialog.h \
     ui/update_dialog.h \

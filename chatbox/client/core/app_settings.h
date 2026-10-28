@@ -2,6 +2,7 @@
 #define CHATBOX_CLIENT_CORE_APP_SETTINGS_H
 
 #include <QSettings>
+#include <QString>
 
 namespace chatbox {
 namespace client {
@@ -22,6 +23,15 @@ bool migrateServerEndpoint(QSettings& settings);
 // True when the history directory is the install directory or below it. Such
 // a location would be deleted by the updater's mirror replacement.
 bool isHistoryDirectoryInsideInstall(const QString& directory);
+
+// Default and persisted location for received files:
+// QStandardPaths::DownloadLocation + "/ChatBox".
+QString defaultFileSaveDirectory();
+QString fileSaveDirectory();
+bool validateFileSaveDirectory(const QString& directory, QString* error);
+bool setFileSaveDirectory(const QString& directory, QString* error);
+// Returns a non-existing path inside directory; collisions get " (1)" etc.
+QString uniqueFilePath(const QString& directory, const QString& name);
 
 }  // namespace client
 }  // namespace chatbox

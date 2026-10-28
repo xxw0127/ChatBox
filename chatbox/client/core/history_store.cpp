@@ -97,6 +97,7 @@ const char* const kCreateFilesTable =
     sha256              TEXT NOT NULL DEFAULT '',
     thumb_path          TEXT NOT NULL DEFAULT '',
     local_path          TEXT NOT NULL DEFAULT '',
+    save_path           TEXT NOT NULL DEFAULT '',
     transfer_state      TEXT NOT NULL DEFAULT '',
     transfer_progress   INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, file_id, context, target_id)
@@ -204,7 +205,8 @@ QString escapeLikeKeyword(const QString& keyword) {
 const char* const kSelectColumns =
     "context, target_id, message_id, sender_id, sender_name, content,"
     " created_at_utc, reply_to_id, reply_sender_name, reply_content,"
-    " recalled, outgoing";
+    " recalled, outgoing, msg_type, file_id, file_name, file_size, mime,"
+    " thumb_path, local_path, transfer_state, transfer_progress";
 
 // 把一行数据库记录还原成 ChatMessage（列顺序见 kSelectColumns）。
 ChatMessage messageFromRow(const QSqlQuery& query) {
@@ -222,6 +224,16 @@ ChatMessage messageFromRow(const QSqlQuery& query) {
     message.recalled = query.value(10).toInt() != 0;
     message.outgoing = query.value(11).toInt() != 0;
     message.status = MessageStatus::kSent;
+    message.type = query.value(12).toInt() != 0 ? MessageType::kFile
+                                                : MessageType::kText;
+    message.file.file_id = query.value(13).toULongLong();
+    message.file.name = query.value(14).toString();
+    message.file.size = query.value(15).toULongLong();
+    message.file.mime = query.value(16).toString();
+    message.file.thumb_available = !query.value(17).toString().isEmpty();
+    message.local_path = query.value(18).toString();
+    message.transfer_state = query.value(19).toString();
+    message.transfer_progress = query.value(20).toULongLong();
     return message;
 }
 
@@ -317,6 +329,10 @@ bool applySchema(QSqlDatabase& db, QString* error) {
     }
     if (!runStatement(db, QStringLiteral("文件表"),
                       QString::fromUtf8(kCreateFilesTable), error)) {
+        return false;
+    }
+    if (!ensureColumn(db, QStringLiteral("files"), QStringLiteral("save_path"),
+                      QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)) {
         return false;
     }
     if (!runStatement(db, QStringLiteral("群缓存表"),
@@ -558,8 +574,10 @@ bool HistoryStore::saveMessage(const ChatMessage& message) {
     if (!query.prepare(QStringLiteral(
             "INSERT INTO messages (user_id, context, target_id, message_id,"
             " sender_id, sender_name, content, created_at_utc, reply_to_id,"
-            " reply_sender_name, reply_content, recalled, outgoing)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " reply_sender_name, reply_content, recalled, outgoing,"
+            " msg_type, file_id, file_name, file_size, mime, thumb_path,"
+            " local_path, transfer_state, transfer_progress)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             " ON CONFLICT(user_id, context, target_id, message_id) DO UPDATE SET"
             " sender_id = excluded.sender_id,"
             " sender_name = excluded.sender_name,"
@@ -569,7 +587,16 @@ bool HistoryStore::saveMessage(const ChatMessage& message) {
             " reply_sender_name = excluded.reply_sender_name,"
             " reply_content = excluded.reply_content,"
             " recalled = excluded.recalled,"
-            " outgoing = excluded.outgoing"))) {
+            " outgoing = excluded.outgoing,"
+            " msg_type = excluded.msg_type,"
+            " file_id = excluded.file_id,"
+            " file_name = excluded.file_name,"
+            " file_size = excluded.file_size,"
+            " mime = excluded.mime,"
+            " thumb_path = excluded.thumb_path,"
+            " local_path = excluded.local_path,"
+            " transfer_state = excluded.transfer_state,"
+            " transfer_progress = excluded.transfer_progress"))) {
         // 写库失败只记日志，不打断界面；日志里不出现任何消息正文。
         qWarning() << QStringLiteral("本地历史库写入语句准备失败：%1")
                           .arg(query.lastError().text());
@@ -588,6 +615,17 @@ bool HistoryStore::saveMessage(const ChatMessage& message) {
     query.addBindValue(textOrEmpty(message.reply_content));
     query.addBindValue(message.recalled ? 1 : 0);
     query.addBindValue(message.outgoing ? 1 : 0);
+    query.addBindValue(message.type == MessageType::kFile ? 1 : 0);
+    query.addBindValue(QVariant::fromValue<qulonglong>(message.file.file_id));
+    query.addBindValue(textOrEmpty(message.file.name));
+    query.addBindValue(QVariant::fromValue<qulonglong>(message.file.size));
+    query.addBindValue(textOrEmpty(message.file.mime));
+    query.addBindValue(message.file.thumb_available ? QStringLiteral("thumb")
+                                                     : QStringLiteral(""));
+    query.addBindValue(textOrEmpty(message.local_path));
+    query.addBindValue(textOrEmpty(message.transfer_state));
+    query.addBindValue(QVariant::fromValue<qulonglong>(
+        message.transfer_progress));
     const bool ok = query.exec();
     if (!ok) {
         qWarning() << QStringLiteral("本地历史库写入失败：%1")
@@ -1159,6 +1197,263 @@ QVector<ChatMessage> HistoryStore::search(ChatContext context, quint64 target_id
     }
     while (query.next()) {
         rows.append(messageFromRow(query));
+    }
+    return rows;
+}
+
+bool HistoryStore::markFileDeletedAny(quint64 message_id) {
+    if (!isOpen() || message_id == 0) {
+        return false;
+    }
+    QSqlDatabase db = QSqlDatabase::database(connection_name_, false);
+    if (!db.isOpen()) {
+        return false;
+    }
+    QSqlQuery query(db);
+    if (!query.prepare(QStringLiteral(
+            "UPDATE messages SET content = ?, msg_type = 0, file_id = 0,"
+            " file_name = '', file_size = 0, mime = '', thumb_path = '',"
+            " transfer_state = '', transfer_progress = 0"
+            " WHERE user_id = ? AND message_id = ?"))) {
+        return false;
+    }
+    query.addBindValue(QStringLiteral("\u6587\u4ef6\u5df2\u5220\u9664"));
+    query.addBindValue(QVariant::fromValue<qulonglong>(user_id_));
+    query.addBindValue(QVariant::fromValue<qulonglong>(message_id));
+    return query.exec();
+}
+
+bool HistoryStore::savePendingUpload(const PendingUpload& upload) {
+    if (!isOpen() || upload.upload_id.isEmpty()) {
+        return false;
+    }
+    QSqlDatabase db = QSqlDatabase::database(connection_name_, false);
+    if (!db.isOpen()) {
+        return false;
+    }
+    QSqlQuery query(db);
+    if (!query.prepare(QStringLiteral(
+            "INSERT OR REPLACE INTO pending_uploads"
+            " (upload_id, user_id, context, target_id, source_path, name, size,"
+            "  mime, sha256, offset, status, updated_at_utc)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"))) {
+        return false;
+    }
+    query.addBindValue(upload.upload_id);
+    query.addBindValue(QVariant::fromValue<qulonglong>(user_id_));
+    query.addBindValue(static_cast<int>(upload.context));
+    query.addBindValue(QVariant::fromValue<qulonglong>(upload.target_id));
+    query.addBindValue(textOrEmpty(upload.source_path));
+    query.addBindValue(textOrEmpty(upload.name));
+    query.addBindValue(QVariant::fromValue<qulonglong>(upload.size));
+    query.addBindValue(textOrEmpty(upload.mime));
+    query.addBindValue(textOrEmpty(upload.sha256));
+    query.addBindValue(QVariant::fromValue<qulonglong>(upload.offset));
+    query.addBindValue(textOrEmpty(upload.status));
+    query.addBindValue(formatUtcColumn(QDateTime::currentDateTimeUtc()));
+    return query.exec();
+}
+
+bool HistoryStore::updatePendingUpload(const QString& upload_id,
+                                       quint64 offset,
+                                       const QString& status) {
+    if (!isOpen() || upload_id.isEmpty()) {
+        return false;
+    }
+    QSqlDatabase db = QSqlDatabase::database(connection_name_, false);
+    if (!db.isOpen()) {
+        return false;
+    }
+    QSqlQuery query(db);
+    if (!query.prepare(QStringLiteral(
+            "UPDATE pending_uploads SET offset = ?, status = ?,"
+            " updated_at_utc = ? WHERE upload_id = ? AND user_id = ?"))) {
+        return false;
+    }
+    query.addBindValue(QVariant::fromValue<qulonglong>(offset));
+    query.addBindValue(textOrEmpty(status));
+    query.addBindValue(formatUtcColumn(QDateTime::currentDateTimeUtc()));
+    query.addBindValue(upload_id);
+    query.addBindValue(QVariant::fromValue<qulonglong>(user_id_));
+    return query.exec();
+}
+
+bool HistoryStore::removePendingUpload(const QString& upload_id) {
+    if (!isOpen() || upload_id.isEmpty()) {
+        return false;
+    }
+    QSqlDatabase db = QSqlDatabase::database(connection_name_, false);
+    if (!db.isOpen()) {
+        return false;
+    }
+    QSqlQuery query(db);
+    if (!query.prepare(QStringLiteral(
+            "DELETE FROM pending_uploads WHERE upload_id = ? AND user_id = ?"))) {
+        return false;
+    }
+    query.addBindValue(upload_id);
+    query.addBindValue(QVariant::fromValue<qulonglong>(user_id_));
+    return query.exec();
+}
+
+QVector<HistoryStore::PendingUpload> HistoryStore::pendingUploads() const {
+    QVector<PendingUpload> rows;
+    if (!isOpen()) {
+        return rows;
+    }
+    QSqlDatabase db = QSqlDatabase::database(connection_name_, false);
+    if (!db.isOpen()) {
+        return rows;
+    }
+    QSqlQuery query(db);
+    if (!query.prepare(QStringLiteral(
+            "SELECT upload_id, context, target_id, source_path, name, size,"
+            " mime, sha256, offset, status FROM pending_uploads"
+            " WHERE user_id = ? ORDER BY updated_at_utc ASC"))) {
+        return rows;
+    }
+    query.addBindValue(QVariant::fromValue<qulonglong>(user_id_));
+    if (!query.exec()) {
+        return rows;
+    }
+    while (query.next()) {
+        PendingUpload upload;
+        upload.upload_id = query.value(0).toString();
+        upload.context = static_cast<ChatContext>(query.value(1).toInt());
+        upload.target_id = query.value(2).toULongLong();
+        upload.source_path = query.value(3).toString();
+        upload.name = query.value(4).toString();
+        upload.size = query.value(5).toULongLong();
+        upload.mime = query.value(6).toString();
+        upload.sha256 = query.value(7).toString();
+        upload.offset = query.value(8).toULongLong();
+        upload.status = query.value(9).toString();
+        rows.append(upload);
+    }
+    return rows;
+}
+
+bool HistoryStore::saveFileTask(const FileTask& task) {
+    if (!isOpen() || task.file_id == 0) {
+        return false;
+    }
+    QSqlDatabase db = QSqlDatabase::database(connection_name_, false);
+    if (!db.isOpen()) {
+        return false;
+    }
+    QSqlQuery query(db);
+    if (!query.prepare(QStringLiteral(
+            "INSERT INTO files"
+            " (file_id, user_id, message_id, context, target_id, name, size,"
+            "  mime, sha256, thumb_path, local_path, save_path, transfer_state,"
+            "  transfer_progress)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, ?, ?)"
+            " ON CONFLICT(user_id, file_id, context, target_id) DO UPDATE SET"
+            " message_id = excluded.message_id, name = excluded.name,"
+            " size = excluded.size, mime = excluded.mime,"
+            " save_path = excluded.save_path,"
+            " transfer_state = excluded.transfer_state,"
+            " transfer_progress = excluded.transfer_progress"))) {
+        return false;
+    }
+    query.addBindValue(QVariant::fromValue<qulonglong>(task.file_id));
+    query.addBindValue(QVariant::fromValue<qulonglong>(user_id_));
+    query.addBindValue(QVariant::fromValue<qulonglong>(task.message_id));
+    query.addBindValue(static_cast<int>(task.context));
+    query.addBindValue(QVariant::fromValue<qulonglong>(task.target_id));
+    query.addBindValue(textOrEmpty(task.name));
+    query.addBindValue(QVariant::fromValue<qulonglong>(task.total));
+    query.addBindValue(textOrEmpty(task.mime));
+    query.addBindValue(textOrEmpty(task.save_path));
+    query.addBindValue(textOrEmpty(task.save_path));
+    query.addBindValue(textOrEmpty(task.state));
+    query.addBindValue(QVariant::fromValue<qulonglong>(task.received));
+    return query.exec();
+}
+
+bool HistoryStore::updateFileTask(quint64 file_id, ChatContext context,
+                                  quint64 target_id, const QString& state,
+                                  quint64 received, quint64 total) {
+    if (!isOpen() || file_id == 0) {
+        return false;
+    }
+    QSqlDatabase db = QSqlDatabase::database(connection_name_, false);
+    if (!db.isOpen()) {
+        return false;
+    }
+    QSqlQuery query(db);
+    if (!query.prepare(QStringLiteral(
+            "UPDATE files SET transfer_state = ?, transfer_progress = ?,"
+            " size = ? WHERE user_id = ? AND file_id = ? AND context = ?"
+            " AND target_id = ?"))) {
+        return false;
+    }
+    query.addBindValue(textOrEmpty(state));
+    query.addBindValue(QVariant::fromValue<qulonglong>(received));
+    query.addBindValue(QVariant::fromValue<qulonglong>(total));
+    query.addBindValue(QVariant::fromValue<qulonglong>(user_id_));
+    query.addBindValue(QVariant::fromValue<qulonglong>(file_id));
+    query.addBindValue(static_cast<int>(context));
+    query.addBindValue(QVariant::fromValue<qulonglong>(target_id));
+    return query.exec();
+}
+
+bool HistoryStore::removeFileTask(quint64 file_id, ChatContext context,
+                                  quint64 target_id) {
+    if (!isOpen() || file_id == 0) {
+        return false;
+    }
+    QSqlDatabase db = QSqlDatabase::database(connection_name_, false);
+    if (!db.isOpen()) {
+        return false;
+    }
+    QSqlQuery query(db);
+    if (!query.prepare(QStringLiteral(
+            "DELETE FROM files WHERE user_id = ? AND file_id = ? AND context = ?"
+            " AND target_id = ?"))) {
+        return false;
+    }
+    query.addBindValue(QVariant::fromValue<qulonglong>(user_id_));
+    query.addBindValue(QVariant::fromValue<qulonglong>(file_id));
+    query.addBindValue(static_cast<int>(context));
+    query.addBindValue(QVariant::fromValue<qulonglong>(target_id));
+    return query.exec();
+}
+
+QVector<HistoryStore::FileTask> HistoryStore::pendingFileTasks() const {
+    QVector<FileTask> rows;
+    if (!isOpen()) {
+        return rows;
+    }
+    QSqlDatabase db = QSqlDatabase::database(connection_name_, false);
+    if (!db.isOpen()) {
+        return rows;
+    }
+    QSqlQuery query(db);
+    if (!query.prepare(QStringLiteral(
+            "SELECT file_id, context, target_id, message_id, name, save_path,"
+            " mime, transfer_state, transfer_progress, size FROM files"
+            " WHERE user_id = ? AND transfer_state IN ('queued','downloading',"
+            " 'paused') ORDER BY file_id ASC"))) {
+        return rows;
+    }
+    query.addBindValue(QVariant::fromValue<qulonglong>(user_id_));
+    if (!query.exec()) {
+        return rows;
+    }
+    while (query.next()) {
+        FileTask task;
+        task.file_id = query.value(0).toULongLong();
+        task.context = static_cast<ChatContext>(query.value(1).toInt());
+        task.target_id = query.value(2).toULongLong();
+        task.message_id = query.value(3).toULongLong();
+        task.name = query.value(4).toString();
+        task.save_path = query.value(5).toString();
+        task.mime = query.value(6).toString();
+        task.state = query.value(7).toString();
+        task.received = query.value(8).toULongLong();
+        task.total = query.value(9).toULongLong();
+        rows.append(task);
     }
     return rows;
 }

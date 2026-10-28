@@ -46,6 +46,7 @@ class QSystemTrayIcon;
 class QTextBrowser;
 class QTimer;
 class QToolButton;
+class QImage;
 class FriendRequestDialog;
 class MessageSearchDialog;
 class SettingsDialog;
@@ -55,11 +56,13 @@ class GroupCreateDialog;
 class GroupJoinDialog;
 class GroupSettingsDialog;
 class GroupNotifyDialog;
+class FileManagerDialog;
 class QTabWidget;
 
 namespace chatbox {
 namespace client {
 class UpdateService;
+class FileTransferManager;
 }  // namespace client
 }  // namespace chatbox
 
@@ -199,6 +202,21 @@ private:
     void openGroupInviteDialog(quint64 room_id);
     void leaveGroup(quint64 room_id);
     void openGroupNotifications();
+    void startFileTransfer();
+    void chooseAndUploadFile();
+    void uploadLocalFile(const QString& path);
+    void handleDroppedFiles(const QStringList& paths);
+    void uploadPastedImage(const QImage& image);
+    void onFileUploadFinished(const QString& task_id, quint64 message_id,
+                              quint64 file_id, const QString& created_at);
+    void onFileUploadFailed(const QString& task_id, const QString& message);
+    void downloadFileTo(quint64 file_id, const QString& path,
+                        const QString& name, const QString& mime,
+                        quint64 message_id);
+    void openFileMessage(quint64 message_id);
+    void openFileManager();
+    void requestMissingThumbnails();
+    QString uniqueDownloadPath(const QString& name) const;
     void markGroupRead(quint64 room_id, quint64 message_id);
     void updateGroupNoticeBadge();
     void selectPrivate(quint64 peer_id, const QString& nickname);
@@ -279,6 +297,7 @@ private:
     GroupJoinDialog* group_join_dialog_ = nullptr;
     GroupSettingsDialog* group_settings_dialog_ = nullptr;
     GroupNotifyDialog* group_notify_dialog_ = nullptr;
+    FileManagerDialog* file_manager_dialog_ = nullptr;
     FriendListWidget* conversation_list_ = nullptr;
     QStackedWidget* conversation_stack_ = nullptr;
     EmptyState* friends_empty_state_ = nullptr;
@@ -307,6 +326,10 @@ private:
     MessageInput* input_edit_ = nullptr;
     QLabel* message_byte_counter_ = nullptr;
     QPushButton* mention_button_ = nullptr;
+    QToolButton* attach_button_ = nullptr;
+    int last_upload_percent_ = -1;
+    int last_download_percent_ = -1;
+    QSet<quint64> thumbnail_requests_;
     QPushButton* send_button_ = nullptr;
     QWidget* right_panel_ = nullptr;
     QStackedWidget* right_mode_stack_ = nullptr;
@@ -379,6 +402,14 @@ private:
     chatbox::client::MessageStore message_store_;
     chatbox::client::HistoryStore history_store_;
     chatbox::client::GroupStore group_store_;
+    chatbox::client::FileTransferManager* file_transfer_ = nullptr;
+    QString pending_upload_task_id_;
+    QString pending_upload_name_;
+    QString pending_download_mime_;
+    qint64 pending_upload_size_ = 0;
+    QString pending_upload_mime_;
+    quint64 pending_upload_kind_ = 1;
+    quint64 pending_upload_target_ = 0;
     QHash<quint32, quint16> pending_group_commands_;
     QSet<quint64> joined_groups_;
     chatbox::client::GroupInfo last_group_search_;
