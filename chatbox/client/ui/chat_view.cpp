@@ -20,6 +20,52 @@
 
 namespace theme = chatbox::client::theme;  // Coinbase palette tokens
 
+namespace {
+
+// The renderer wraps each message in a top-level row table. The row may hold
+// an avatar cell next to a content cell; the content cell holds the 1px
+// surface band (bubble_wrapper) and, inside it, the coloured bubble table.
+void findBubbleTables(QTextTable* outer, QTextTable** wrapper, QTextTable** bubble) {
+    if (wrapper != nullptr) {
+        *wrapper = nullptr;
+    }
+    if (bubble != nullptr) {
+        *bubble = nullptr;
+    }
+    if (outer == nullptr) {
+        return;
+    }
+    for (int row = 0; row < outer->rows(); ++row) {
+        for (int col = 0; col < outer->columns(); ++col) {
+            const QTextTableCell cell = outer->cellAt(row, col);
+            for (QTextFrame::iterator it = cell.begin(); !it.atEnd(); ++it) {
+                QTextTable* inner = qobject_cast<QTextTable*>(it.currentFrame());
+                if (inner == nullptr) {
+                    continue;
+                }
+                if (wrapper != nullptr) {
+                    *wrapper = inner;
+                }
+                if (bubble != nullptr && inner->rows() > 0 && inner->columns() > 0) {
+                    const QTextTableCell bubble_cell = inner->cellAt(0, 0);
+                    for (QTextFrame::iterator jt = bubble_cell.begin(); !jt.atEnd();
+                         ++jt) {
+                        QTextTable* candidate =
+                            qobject_cast<QTextTable*>(jt.currentFrame());
+                        if (candidate != nullptr) {
+                            *bubble = candidate;
+                            break;
+                        }
+                    }
+                }
+                return;
+            }
+        }
+    }
+}
+
+}  // namespace
+
 // A transparent overlay above the viewport. It paints after the rich-text
 // document has rendered, so it can erase the square table corners without
 // fighting the QTextBrowser paint order.
@@ -103,6 +149,7 @@ void ChatView::appendFragment(const QString& html,
         range.last = table->lastPosition();
         range.key = key;
         range.frame = table;
+        findBubbleTables(table, &range.bubble_wrapper, &range.bubble);
         range.bubble_color = key.bubble_color;
         message_ranges_.append(range);
     }
@@ -169,12 +216,14 @@ QRect ChatView::messageAnchorRect(quint64 message_id) const {
 }
 
 QRect ChatView::outerBubbleRect(const MessageRange& range) const {
-    if (range.frame == nullptr || document() == nullptr ||
+    QTextTable* target =
+        range.bubble_wrapper != nullptr ? range.bubble_wrapper : range.frame;
+    if (target == nullptr || document() == nullptr ||
         document()->documentLayout() == nullptr) {
         return QRect();
     }
     return document()->documentLayout()
-        ->frameBoundingRect(range.frame)
+        ->frameBoundingRect(target)
         .toRect()
         .translated(-horizontalScrollBar()->value(), -verticalScrollBar()->value());
 }
@@ -249,22 +298,11 @@ QRect ChatView::messageBubbleRect(quint64 message_id) const {
         return QRect();
     }
     for (const MessageRange& range : message_ranges_) {
-        if (range.key.message_id != message_id || range.frame == nullptr) {
+        if (range.key.message_id != message_id) {
             continue;
         }
-        // The renderer wraps every message in an outer full-width table whose
-        // single cell holds the actual bubble table.
-        QTextTable* bubble = nullptr;
-        if (range.frame->rows() > 0 && range.frame->columns() > 0) {
-            const QTextTableCell cell = range.frame->cellAt(0, 0);
-            for (QTextFrame::iterator it = cell.begin(); !it.atEnd(); ++it) {
-                QTextTable* inner = qobject_cast<QTextTable*>(it.currentFrame());
-                if (inner != nullptr) {
-                    bubble = inner;
-                    break;
-                }
-            }
-        }
+        QTextTable* bubble =
+            range.bubble != nullptr ? range.bubble : range.bubble_wrapper;
         if (bubble == nullptr || document() == nullptr ||
             document()->documentLayout() == nullptr) {
             return QRect();
@@ -344,6 +382,7 @@ void ChatView::buildMessageRanges(
         range.last = frames.at(i)->lastPosition();
         range.key = message_keys.at(i);
         range.frame = frames.at(i);
+        findBubbleTables(range.frame, &range.bubble_wrapper, &range.bubble);
         range.bubble_color = message_keys.at(i).bubble_color;
         message_ranges_.append(range);
     }

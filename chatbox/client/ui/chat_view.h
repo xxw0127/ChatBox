@@ -70,7 +70,9 @@ private:
         int first = 0;
         int last = 0;
         chatbox::client::MessageKey key;
-        QTextTable* frame = nullptr;
+        QTextTable* frame = nullptr;          // top-level row table
+        QTextTable* bubble_wrapper = nullptr; // 1px surface band around the bubble
+        QTextTable* bubble = nullptr;         // coloured bubble table
         QString bubble_color;
     };
 

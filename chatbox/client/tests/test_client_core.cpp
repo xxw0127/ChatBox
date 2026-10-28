@@ -26,6 +26,7 @@
 #include <QPlainTextEdit>
 #include <QProcess>
 #include <QPixmap>
+#include <QPainter>
 #include <QPushButton>
 #include <QProgressBar>
 #include <QRegularExpression>
@@ -251,6 +252,10 @@ private slots:
     void rendererQuoteBlockWithoutInlineActions();
     void rendererCapsWideBubbleWidth();
     void rendererQuoteBubbleStaysNarrow();
+    void rendererShowsAvatarAndPublicId();
+    void rendererOwnMessageHidesNameAndId();
+    void rendererKeepsAvatarOnEveryMessage();
+    void bubbleTextIsVerticallyCentered();
     void messageBubblesHaveRoundedCorners();
     void messageBubblesDrawRightEdge();
     void messageActionsAvailability();
@@ -705,7 +710,7 @@ void TestClientCore::rendererBubbleSpecUsesBorderAndExternalTimestamp() {
     QVERIFY(!html.contains(QStringLiteral("bgcolor=\"%1\"")
                                .arg(QString::fromLatin1(
                                    chatbox::client::theme::kBubbleBorder))));
-    QVERIFY(html.contains(QStringLiteral("line-height: 150%")));
+    QVERIFY(html.contains(QStringLiteral("line-height: 110%")));
     const QString local_time = chatbox::client::formatLocalTime(created);
     const int timestamp = html.indexOf(local_time);
     const int bubble_close = html.indexOf(QStringLiteral("</table></td></tr></table>"));
@@ -913,6 +918,131 @@ void TestClientCore::rendererQuoteBubbleStaysNarrow() {
                             .arg(limit)));
 }
 
+void TestClientCore::rendererShowsAvatarAndPublicId() {
+    const QDateTime created = chatbox::client::parseServerUtc("2026-10-18 12:00:00");
+    chatbox::client::ChatMessage message;
+    message.message_id = 1;
+    message.sender_id = 10001;
+    message.sender_name = QString::fromUtf8("李硬");
+    message.content = "hi";
+    message.created_at_utc = created;
+    message.status = chatbox::client::MessageStatus::kSent;
+
+    chatbox::client::AvatarSrcMap avatars;
+    avatars.insert(10001, QStringLiteral("chatbox-avatar://10001?v=3"));
+    const QString html =
+        chatbox::client::renderConversationHtml({message}, 99999, nullptr, avatars);
+
+    QVERIFY(html.contains(QStringLiteral("chatbox-avatar://10001?v=3")));
+    QVERIFY(html.contains(QStringLiteral("U00010001")));
+    QVERIFY(html.contains(QStringLiteral("width=\"36\"")));
+    QVERIFY(html.contains(QString::fromUtf8("李硬")));
+}
+
+void TestClientCore::rendererOwnMessageHidesNameAndId() {
+    const QDateTime created = chatbox::client::parseServerUtc("2026-10-18 12:00:00");
+    chatbox::client::ChatMessage own;
+    own.message_id = 2;
+    own.sender_id = 7;
+    own.sender_name = QStringLiteral("ZeldaUnique");
+    own.content = "mine";
+    own.created_at_utc = created;
+    own.outgoing = true;
+    own.status = chatbox::client::MessageStatus::kSent;
+
+    chatbox::client::AvatarSrcMap avatars;
+    avatars.insert(7, QStringLiteral("chatbox-avatar://7?v=0"));
+    const QString html =
+        chatbox::client::renderConversationHtml({own}, 7, nullptr, avatars);
+
+    QVERIFY(html.contains(QStringLiteral("chatbox-avatar://7?v=0")));
+    QVERIFY(!html.contains(QStringLiteral("ZeldaUnique")));
+    QVERIFY(!html.contains(QStringLiteral("U00000007")));
+}
+
+void TestClientCore::rendererKeepsAvatarOnEveryMessage() {
+    const QDateTime created = chatbox::client::parseServerUtc("2026-10-18 12:00:00");
+    chatbox::client::ChatMessage first;
+    first.message_id = 1;
+    first.sender_id = 11;
+    first.sender_name = QStringLiteral("OnlyOnceName");
+    first.content = "first";
+    first.created_at_utc = created;
+    chatbox::client::ChatMessage second = first;
+    second.message_id = 2;
+    second.content = "second";
+    second.created_at_utc = created.addSecs(30);
+
+    chatbox::client::AvatarSrcMap avatars;
+    avatars.insert(11, QStringLiteral("chatbox-avatar://11?v=2"));
+    const QString html =
+        chatbox::client::renderConversationHtml({first, second}, 99, nullptr, avatars);
+
+    QCOMPARE(html.count(QStringLiteral("chatbox-avatar://11?v=2")), 2);
+    QCOMPARE(html.count(QStringLiteral("OnlyOnceName")), 1);
+}
+
+void TestClientCore::bubbleTextIsVerticallyCentered() {
+    const QDateTime created = chatbox::client::parseServerUtc("2026-10-18 12:00:00");
+    chatbox::client::ChatMessage own;
+    own.message_id = 3;
+    own.sender_id = 3;
+    own.content = QString::fromUtf8("没办法");
+    own.created_at_utc = created;
+    own.outgoing = true;
+    own.status = chatbox::client::MessageStatus::kSent;
+
+    chatbox::client::AvatarSrcMap avatars;
+    avatars.insert(3, QStringLiteral("chatbox-avatar://3?v=0"));
+    const QString html =
+        chatbox::client::renderConversationHtml({own}, 3, nullptr, avatars);
+
+    QTextDocument doc;
+    QImage avatar(36, 36, QImage::Format_ARGB32);
+    avatar.fill(Qt::transparent);
+    doc.addResource(QTextDocument::ImageResource,
+                    QUrl(QStringLiteral("chatbox-avatar://3?v=0")), avatar);
+    doc.setHtml(html);
+    doc.setTextWidth(400);
+
+    QImage image(420, 320, QImage::Format_ARGB32);
+    image.fill(QColor(chatbox::client::theme::kCanvas));
+    QPainter painter(&image);
+    doc.drawContents(&painter, QRectF(0, 0, 420, 320));
+    painter.end();
+
+    const QColor bubble(chatbox::client::theme::kBubbleOwn);
+    int bubble_top = -1;
+    int bubble_bottom = -1;
+    int text_top = -1;
+    int text_bottom = -1;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            const QColor pixel = image.pixelColor(x, y);
+            if (pixel == bubble) {
+                if (bubble_top < 0) {
+                    bubble_top = y;
+                }
+                bubble_bottom = y;
+            }
+            if (pixel.red() < 80 && pixel.green() < 80 && pixel.blue() < 80) {
+                if (text_top < 0) {
+                    text_top = y;
+                }
+                text_bottom = y;
+            }
+        }
+    }
+    QVERIFY2(bubble_top >= 0 && text_top > bubble_top,
+             "bubble and text pixels must be visible");
+    const int top_gap = text_top - bubble_top;
+    const int bottom_gap = bubble_bottom - text_bottom;
+    QVERIFY2(qAbs(top_gap - bottom_gap) <= 1,
+             qPrintable(QStringLiteral("top gap %1, bottom gap %2")
+                            .arg(top_gap)
+                            .arg(bottom_gap)));
+}
+
 void TestClientCore::messageBubblesHaveRoundedCorners() {
     const QDateTime created = chatbox::client::parseServerUtc("2026-10-18 12:00:00");
     chatbox::client::ChatMessage message;
@@ -1010,8 +1140,8 @@ void TestClientCore::messageBubblesDrawRightEdge() {
     const QColor edge = image.pixelColor(image.width() - 1, bubble.center().y());
     qApp->setStyleSheet(previous_style);
     QVERIFY2(found, "outgoing bubbles must paint the right border");
-    QVERIFY2(edge == QColor(chatbox::client::theme::kSurfaceSoft),
-             "the clipped table sliver at the viewport edge must be canvas");
+    QVERIFY2(edge != border,
+             "the bubble border must not be clipped at the viewport edge");
 }
 
 void TestClientCore::messageActionsAvailability() {
