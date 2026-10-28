@@ -295,17 +295,18 @@ void MainWindow::jumpToMessage(quint64 message_id) {
         jump_timeout_timer_->start();
     }
     if (!requestHistory(jump_kind_, target_id, message_id + 1)) {
-        pending_jump_id_ = 0;
-        if (jump_timeout_timer_ != nullptr) {
-            jump_timeout_timer_->stop();
-        }
-        setStatus("网络未连接，无法跳转", true);
         exitJumpMode(false);
+        setStatus("网络未连接，无法跳转", true);
     }
 }
 
 void MainWindow::exitJumpMode(bool reload_latest) {
     const bool was_jumping = jump_mode_ || pending_jump_id_ != 0;
+    if (pending_jump_id_ != 0) {
+        // The in-flight page request will not be treated as an older page
+        // after the jump state is cleared.
+        loading_older_history_ = false;
+    }
     jump_mode_ = false;
     pending_jump_id_ = 0;
     if (jump_timeout_timer_ != nullptr) {

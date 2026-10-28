@@ -1963,9 +1963,9 @@ void TestClientCore::jumpTimeoutResetsState() {
              "leaving jump mode must disarm the timeout");
 
     const QString app = readClientSource(QStringLiteral("ui/main_window.cpp"));
-    QVERIFY2(app.contains(QStringLiteral("pending_jump_id_ = 0;")) &&
-                 app.contains(QStringLiteral("跳转超时")),
-             "the timeout must clear the pending jump and report it");
+    QVERIFY2(app.contains(QStringLiteral("跳转超时")) &&
+                 app.contains(QStringLiteral("exitJumpMode(false)")),
+             "the timeout must clear the jump state through exitJumpMode");
 }
 
 void TestClientCore::switchConversationClearsSearchState() {

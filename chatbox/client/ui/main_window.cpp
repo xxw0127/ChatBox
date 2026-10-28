@@ -103,7 +103,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (pending_jump_id_ == 0) {
             return;
         }
-        pending_jump_id_ = 0;
         setStatus("跳转超时，请重试", true);
         exitJumpMode(false);
     });
