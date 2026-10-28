@@ -250,9 +250,9 @@ cd D:\OpenCode_WorkSpace\chatbox\client\tests
 - 缺少 `Qt5Sql.dll` / `sqldrivers\qsqlite.dll` 时本地历史整体降级为「不可用」（设置页显示「本地历史不可用（缺少 SQLite 驱动）」），聊天功能不受影响。
 - 日志：`%APPDATA%\ChatBox\ChatBox\logs\client.log`，超过 5 MB 轮转为 `.1`。
 - Outbox 只保存在进程内：应用退出后，未发送/失败消息会丢失；跨进程持久化尚未实现。
-- 当前仍没有聊天图片/文件传输（头像除外）、群管理。
+- 当前仍没有聊天图片/文件传输（头像除外）和视频预览；文件入口暂为占位，群基础功能已可用。
 - @提及目前按昵称匹配并触发客户端提醒，不保存服务端 mention 表。
-- 消息搜索返回结果列表，暂不支持双击定位到历史位置。
+- 消息搜索支持双击定位到历史位置；群聊和私聊都可在右侧栏内搜索。
 - ???????`screenshots/README.md`?
   - ???`screenshots/ui-login-default.png`
   - ???`screenshots/ui-main-room.png`
