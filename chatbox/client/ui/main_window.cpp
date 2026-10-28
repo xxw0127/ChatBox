@@ -104,6 +104,16 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             message_search_dialog_->setStatus("搜索超时，请重试", true);
         }
     });
+    jump_timeout_timer_ = new QTimer(this);
+    jump_timeout_timer_->setSingleShot(true);
+    jump_timeout_timer_->setInterval(8000);
+    connect(jump_timeout_timer_, &QTimer::timeout, this, [this] {
+        if (pending_jump_id_ == 0) {
+            return;
+        }
+        setStatus("跳转超时，请重试", true);
+        exitJumpMode(false);
+    });
     profile_timeout_timer_ = new QTimer(this);
     profile_timeout_timer_->setSingleShot(true);
     profile_timeout_timer_->setInterval(8000);
@@ -146,12 +156,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                     openFileMessage(message_id);
                 }
             });
-    connect(chat_view_, &ChatView::hoveredMessage, this,
-            [this](quint64 message_id, const QRect& meta_rect) {
-                showMessageActions(message_id, meta_rect);
-            });
-    connect(chat_view_, &ChatView::hoverCleared, this,
-            &MainWindow::hideMessageActionsUnlessHovered);
     connect(chat_view_, &ChatView::messageMenuRequested, this,
             &MainWindow::showMessageMenu);
     connect(chat_view_->verticalScrollBar(), &QScrollBar::valueChanged, this,
@@ -159,10 +163,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 if (programmatic_scroll_) {
                     return;
                 }
-                if (chat_view_ != nullptr) {
-                    chat_view_->clearHoverState();
-                }
-                hideMessageActionBar();
                 maybeLoadOlder();
                 if (context_type_ == ContextType::Room &&
                     !message_store_.messages().isEmpty() &&
@@ -176,27 +176,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                     }
                 }
             });
-    if (message_action_bar_ != nullptr) {
-        connect(message_action_bar_, &MessageActionBar::replyRequested, this, [this] {
-            const chatbox::client::ChatMessage* message =
-                message_store_.findMessage(action_bar_message_id_);
-            if (message != nullptr) {
-                setReplyTo(*message);
-            }
-            hideMessageActionBar();
-        });
-        connect(message_action_bar_, &MessageActionBar::recallRequested, this, [this] {
-            const quint64 message_id = action_bar_message_id_;
-            hideMessageActionBar();
-            sendRecall(message_id);
-        });
-        connect(message_action_bar_, &MessageActionBar::hoverLeft, this, [this] {
-            hideMessageActionBar();
-            if (chat_view_ != nullptr) {
-                chat_view_->clearHoverState();
-            }
-        });
-    }
     loadSession();
     if (!logged_in_) {
         setStatus("请输入服务器和账号");
@@ -504,12 +483,6 @@ QWidget* MainWindow::buildChatPage() {
     chat_stack_->setCurrentWidget(chat_empty_state_);
     center->addWidget(chat_stack_, 1);
 
-    // Floating per-message actions; lives in the viewport so it can be
-    // positioned in view coordinates and disappears as soon as the pointer
-    // leaves the message or the view scrolls.
-    message_action_bar_ = new MessageActionBar(chat_view_->viewport());
-    message_action_bar_->hide();
-
     auto* composer = new QWidget(center_panel);
     composer->setObjectName("Composer");
     auto* composer_layout = new QVBoxLayout(composer);
@@ -768,6 +741,9 @@ QWidget* MainWindow::buildChatPage() {
             &MainWindow::handleDroppedFiles);
     connect(input_edit_, &MessageInput::imagePasted, this,
             &MainWindow::uploadPastedImage);
+    connect(input_edit_, &MessageInput::textChanged, this,
+            &MainWindow::updateMentionPopup);
+    input_edit_->installEventFilter(this);
     connect(mention_button_, &QPushButton::clicked, this, &MainWindow::insertMention);
     connect(reply_cancel_button_, &QPushButton::clicked, this, &MainWindow::clearReply);
 
@@ -802,6 +778,21 @@ QWidget* MainWindow::buildChatPage() {
                 });
         tray_->show();
     }
+
+    mention_popup_ = new MentionPopup(page);
+    mention_popup_->hide();
+    connect(mention_popup_, &MentionPopup::chosen, this,
+            &MainWindow::insertMentionChoice);
+
+    jump_latest_button_ =
+        new QPushButton(QString::fromUtf8("回到最新 \u2193"), chat_view_->viewport());
+    jump_latest_button_->setObjectName(QStringLiteral("JumpLatestButton"));
+    jump_latest_button_->setCursor(Qt::PointingHandCursor);
+    jump_latest_button_->setAccessibleName(QString::fromUtf8("回到最新消息"));
+    jump_latest_button_->hide();
+    connect(jump_latest_button_, &QPushButton::clicked, this,
+            [this] { exitJumpMode(true); });
+    chat_view_->installEventFilter(this);
 
     return page;
 }
@@ -1062,6 +1053,45 @@ void MainWindow::setStatus(const QString& text, bool error) {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == chat_view_ && event->type() == QEvent::Resize) {
+        positionJumpLatestButton();
+    }
+    if (watched == input_edit_ && mention_popup_ != nullptr) {
+        if (event->type() == QEvent::KeyPress && mention_popup_->isVisible()) {
+            auto* key = static_cast<QKeyEvent*>(event);
+            switch (key->key()) {
+                case Qt::Key_Up:
+                    if (mention_popup_->hasSelection()) {
+                        mention_popup_->moveSelection(-1);
+                        return true;
+                    }
+                    break;
+                case Qt::Key_Down:
+                    if (mention_popup_->hasSelection()) {
+                        mention_popup_->moveSelection(1);
+                        return true;
+                    }
+                    break;
+                case Qt::Key_Return:
+                case Qt::Key_Enter:
+                case Qt::Key_Tab:
+                    if (mention_popup_->hasSelection()) {
+                        mention_popup_->activateSelected();
+                        return true;
+                    }
+                    // No match: dismiss the empty picker and let Enter send.
+                    closeMentionPopup();
+                    break;
+                case Qt::Key_Escape:
+                    closeMentionPopup();
+                    return true;
+                default:
+                    break;
+            }
+        } else if (event->type() == QEvent::FocusOut) {
+            closeMentionPopup();
+        }
+    }
     if (watched == context_avatar_ && event->type() == QEvent::MouseButtonRelease) {
         auto* mouse = static_cast<QMouseEvent*>(event);
         if (mouse->button() == Qt::LeftButton &&

@@ -43,7 +43,9 @@ SOURCES += \
     core/message_time.cpp \
     core/message_store.cpp \
     core/outbox.cpp \
+    core/presence_book.cpp \
     core/message_renderer.cpp \
+    core/mention_query.cpp \
     core/contact_store.cpp \
     core/update_manifest.cpp \
     core/update_service.cpp \
@@ -55,7 +57,6 @@ SOURCES += \
     ui/account_switcher_dialog.cpp \
     ui/empty_state.cpp \
     ui/message_input.cpp \
-    ui/message_action_bar.cpp \
     ui/login_page.cpp \
     ui/more_dots.cpp \
     ui/friend_request_dialog.cpp \
@@ -75,6 +76,8 @@ SOURCES += \
     ui/group_notify_dialog.cpp \
     ui/main_window_profile.cpp \
     ui/main_window_tray.cpp \
+    ui/mention_popup.cpp \
+    ui/mention_item_delegate.cpp \
     ui/message_search_dialog.cpp \
     ui/settings_dialog.cpp \
     ui/update_dialog.cpp \
@@ -103,7 +106,9 @@ HEADERS += \
     core/message_time.h \
     core/message_store.h \
     core/outbox.h \
+    core/presence_book.h \
     core/message_renderer.h \
+    core/mention_query.h \
     core/ui_theme.h \
     core/contact_store.h \
     core/update_manifest.h \
@@ -119,7 +124,6 @@ HEADERS += \
     ui/dialog_buttons.h \
     ui/empty_state.h \
     ui/message_input.h \
-    ui/message_action_bar.h \
     ui/login_page.h \
     ui/more_dots.h \
     ui/friend_request_dialog.h \
@@ -133,6 +137,8 @@ HEADERS += \
     ui/group_notify_dialog.h \
     ui/file_manager_dialog.h \
     ui/image_preview_dialog.h \
+    ui/mention_popup.h \
+    ui/mention_item_delegate.h \
     ui/message_search_dialog.h \
     ui/settings_dialog.h \
     ui/update_dialog.h \

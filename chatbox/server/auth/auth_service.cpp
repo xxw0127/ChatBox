@@ -215,7 +215,7 @@ AuthResult AuthService::handleLogin(const Frame& request, const SessionBinding& 
     result.nickname = user.nickname;
     result.token_hash = token_hash;
     SessionBinding old_binding;
-    if (sessions_.bind(user.id, binding, old_binding)) {
+    if (sessions_.bind(user.id, binding, old_binding, &result.presence_seq)) {
         result.has_old_binding = true;
         result.old_binding = old_binding;
     }
@@ -236,11 +236,11 @@ AuthResult AuthService::handleLogout(const Frame& request, uint64_t current_user
         logMessage(LogLevel::kError, "auth", "revoke session failed: " + error);
         return AuthResult{makeError(request.header.seq, 2001, "internal error")};
     }
-    sessions_.unbind(current_user_id, binding.connection_id);
-
     AuthResult result;
     result.response = makeSuccess(kCmdLogout, request.header.seq);
     result.clear_session = true;
+    sessions_.unbind(current_user_id, binding.connection_id,
+                     &result.presence_seq);
     return result;
 }
 
@@ -316,7 +316,7 @@ AuthResult AuthService::handleResume(const Frame& request, const SessionBinding&
     result.nickname = user.nickname;
     result.token_hash = token_hash;
     SessionBinding old_binding;
-    if (sessions_.bind(user.id, binding, old_binding)) {
+    if (sessions_.bind(user.id, binding, old_binding, &result.presence_seq)) {
         result.has_old_binding = true;
         result.old_binding = old_binding;
     }

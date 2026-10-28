@@ -491,6 +491,14 @@ void MainWindow::onProfileAvatarReceived(quint64 user_id, quint32 version,
         profile_dialog_profile_.avatar_version = version;
         profile_dialog_->setAvatar(image);
     }
+    for (const chatbox::client::ChatMessage& message : message_store_.messages()) {
+        if (message.sender_id == user_id) {
+            // The transcript embeds avatars as QTextDocument resources; rebuild
+            // the current page so a late image replaces the fallback initials.
+            renderCurrentConversation(ScrollMode::kPreserve);
+            break;
+        }
+    }
     if (newer_version != 0 &&
         avatar_cache_.needsFetch(user_id, newer_version)) {
         // A stale response arrived after a push announced a newer version.

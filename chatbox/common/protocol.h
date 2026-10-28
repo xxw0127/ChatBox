@@ -84,6 +84,9 @@ enum Command : uint16_t {
     kCmdFileThumb = 0x00CC,
     kCmdFileList = 0x00CD,
     kCmdFileDeleted = 0x00CE,
+    // Realtime friend/room presence. Kept below the group range
+    kCmdPresencePush = 0x00A4,
+
     kCmdError = 0x00FF,
 };
 

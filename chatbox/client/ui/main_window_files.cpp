@@ -1,7 +1,6 @@
 #include "ui/main_window_support.h"
 
 #include <QCoreApplication>
-#include <QDebug>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>

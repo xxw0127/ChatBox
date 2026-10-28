@@ -41,6 +41,11 @@ bool AvatarCache::contains(quint64 user_id) const {
     return entries_.contains(user_id);
 }
 
+quint32 AvatarCache::version(quint64 user_id) const {
+    const auto it = entries_.constFind(user_id);
+    return it == entries_.constEnd() ? 0 : it->version;
+}
+
 void AvatarCache::remove(quint64 user_id) {
     entries_.remove(user_id);
 }

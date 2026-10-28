@@ -365,6 +365,7 @@ void MainWindow::onConnected() {
 }
 
 void MainWindow::onDisconnected(const QString& reason) {
+    presence_book_.clear();
     connected_ = false;
     qWarning("disconnected: %s", qPrintable(reason));
     resuming_ = false;
@@ -509,6 +510,10 @@ void MainWindow::sendResume() {
 
 void MainWindow::setOnline(bool online, const QString& text) {
     online_ = online;
+    if (!online) {
+        closeMentionPopup();
+        exitJumpMode(false);
+    }
     if (banner_row_ != nullptr) {
         if (online) {
             banner_row_->hide();
@@ -1080,7 +1085,8 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             if (sender_id == user_id_) {
                 break;
             }
-            if (!nickname_.isEmpty() && content.contains("@" + nickname_)) {
+            if (!nickname_.isEmpty() &&
+                (content.contains("@" + nickname_) || content.contains("@所有人"))) {
                 showMentionNotification(nickname, content);
             }
             peer_names_.insert(sender_id, nickname);
@@ -1181,7 +1187,9 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                                     : item->data(Qt::UserRole + 3).toBool();
             if (context_type_ == ContextType::Private && from_id == current_peer_id_) {
                 addIncomingMessage(message);
-                sendMarkRead(from_id, message_id);
+                if (!jump_mode_) {
+                    sendMarkRead(from_id, message_id);
+                }
                 updateConversationItem(from_id, 0, nickname, content, created_at, online);
                 refreshUnreadTitle();
             } else {
@@ -1236,7 +1244,8 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 }
                 Q_UNUSED(last_message_id);
                 updateFriendView(peer_id, static_cast<int>(unread), nickname,
-                                 last_content, last_time, online != 0);
+                                 last_content, last_time,
+                                 presence_book_.online(peer_id, online != 0));
             }
             refreshFriendListView();
             if (context_type_ == ContextType::Private) {
@@ -1322,29 +1331,27 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 }
             }
 
-            const bool is_jump = history_request_is_jump_;
-            const bool was_older_page =
-                history_request_before_ != 0 && !is_jump;
-            history_request_is_jump_ = false;
-            if (is_jump) {
-                bool target_present = false;
-                for (const chatbox::client::ChatMessage& message : page) {
-                    if (message.message_id == pending_jump_message_id_) {
-                        target_present = true;
-                        break;
-                    }
+            if (pending_jump_id_ != 0) {
+                const quint64 jump_id = pending_jump_id_;
+                pending_jump_id_ = 0;
+                if (jump_timeout_timer_ != nullptr) {
+                    jump_timeout_timer_->stop();
                 }
-                if (!target_present) {
-                    pending_jump_message_id_ = 0;
-                    loading_older_history_ = false;
-                    history_request_seq_ = 0;
-                    history_request_kind_ = 0;
-                    history_request_target_ = 0;
-                    history_request_before_ = 0;
-                    setStatus("消息不在当前可见范围内", true);
-                    break;
+                loading_older_history_ = false;
+                message_store_.replaceHistory(page);
+                has_more_ = has_more != 0;
+                next_before_id_ = next_before;
+                renderCurrentConversation(ScrollMode::kBottom);
+                if (message_store_.findMessage(jump_id) == nullptr) {
+                    setStatus(QStringLiteral("\u6d88\u606f\u4e0d\u5b58\u5728"), true);
+                    exitJumpMode(false);
+                } else {
+                    chat_view_->scrollToMessage(jump_id, true);
                 }
+                break;
             }
+
+            const bool was_older_page = loading_older_history_;
             if (was_older_page) {
                 message_store_.prependHistory(page);
                 renderCurrentConversation(ScrollMode::kPreserveAnchor);
@@ -1359,17 +1366,8 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             history_request_before_ = 0;
             has_more_ = has_more != 0;
             next_before_id_ = next_before;
-            if (kind == 1 && !was_older_page && !is_jump && !page.isEmpty()) {
+            if (kind == 1 && !was_older_page && !page.isEmpty()) {
                 markGroupRead(target, page.back().message_id);
-            }
-            if (pending_jump_message_id_ != 0) {
-                const quint64 target_message = pending_jump_message_id_;
-                pending_jump_message_id_ = 0;
-                if (message_store_.findMessage(target_message) != nullptr) {
-                    jumpToMessage(target_message);
-                } else {
-                    setStatus("消息不在当前可见范围内", true);
-                }
             }
             if (kind == 2 && !was_older_page) {
                 requestConversations();
@@ -1554,7 +1552,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 view.nickname = nickname;
                 view.remark = remark;
                 view.avatar_version = avatar_version;
-                view.online = online != 0;
+                view.online = presence_book_.online(friend_id, online != 0);
                 friend_views_.insert(friend_id, view);
             }
             refreshFriendListView();
@@ -1711,7 +1709,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                     QByteArray(avatar_bytes.data(),
                                static_cast<int>(avatar_bytes.size())));
             }
-            profile.online = online != 0;
+            profile.online = presence_book_.online(target_id, online != 0);
             profile.relationship = relationship;
             profile.remark = remark;
 
@@ -1837,6 +1835,23 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             requestFriendList();
             break;
         }
+        case chatbox::kCmdPresencePush: {
+            uint16_t count = 0;
+            if (!reader.getU16(count)) {
+                return;
+            }
+            for (uint16_t i = 0; i < count; ++i) {
+                uint64_t user_id = 0;
+                uint8_t online = 0;
+                uint64_t seq = 0;
+                if (!reader.getU64(user_id) || !reader.getU8(online) ||
+                    !reader.getU64(seq)) {
+                    return;
+                }
+                applyPresenceUpdate(user_id, online != 0, seq);
+            }
+            break;
+        }
         case chatbox::kCmdError: {
             uint16_t code = 0;
             QString message;
@@ -1875,6 +1890,27 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
         }
         default:
             break;
+    }
+}
+
+void MainWindow::applyPresenceUpdate(quint64 user_id, bool online, quint64 seq) {
+    if (user_id == 0 || user_id == user_id_) {
+        return;
+    }
+    if (!presence_book_.apply(user_id, online, seq)) {
+        return;
+    }
+    const auto view = friend_views_.find(user_id);
+    if (view != friend_views_.end()) {
+        if (view->online == online) {
+            return;
+        }
+        view->online = online;
+        refreshFriendListView();
+    }
+    if (profile_dialog_ != nullptr && profile_dialog_user_id_ == user_id) {
+        profile_dialog_profile_.online = online;
+        profile_dialog_->setProfile(profile_dialog_profile_, false);
     }
 }
 
@@ -2066,6 +2102,7 @@ void MainWindow::clearSession() {
     if (file_transfer_ != nullptr) {
         file_transfer_->stop();
     }
+    presence_book_.clear();
     logged_in_ = false;
     connected_ = false;
     offline_mode_ = false;

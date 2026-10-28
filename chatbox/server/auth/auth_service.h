@@ -23,6 +23,9 @@ struct AuthResult {
     std::string token_hash;
     bool has_old_binding = false;
     SessionBinding old_binding;
+    // Non-zero when this auth command changed the user's online state; the
+    // caller broadcasts it with this sequence number.
+    uint64_t presence_seq = 0;
 
     AuthResult() = default;
     explicit AuthResult(Frame frame) : response(std::move(frame)) {}
