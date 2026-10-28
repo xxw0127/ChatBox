@@ -401,6 +401,19 @@ GroupResult GroupService::handleJoinRespond(const Frame& request,
     if (role != GroupRole::kOwner && role != GroupRole::kAdmin) {
         return errorResult(request, kGroupPermission, "admin permission required");
     }
+    bool already_member = false;
+    if (!database_.isRoomMember(room_id, applicant_id, already_member, error)) {
+        return errorResult(request, kGroupConflict, error);
+    }
+    if (already_member && accept) {
+        // The applicant may have accepted an invite while this request was
+        // pending. Never re-add them (that would rewind join_message_id);
+        // close the stale request instead.
+        std::string cleanup_error;
+        database_.respondJoinRequest(request_id, caller.user_id, false,
+                                     cleanup_error);
+        return errorResult(request, kGroupConflict, "already a member");
+    }
     if (!group.is_default && group.member_count >= 500) {
         return errorResult(request, kGroupConflict, "group is full");
     }
@@ -500,8 +513,16 @@ GroupResult GroupService::handleInviteRespond(const Frame& request,
     if (!database_.isRoomMember(room_id, caller.user_id, member, error)) {
         return errorResult(request, kGroupConflict, error);
     }
-    if (member) {
+    if (member && accept) {
+        std::string cleanup_error;
+        database_.respondInvite(invite_id, caller.user_id, false, cleanup_error);
         return errorResult(request, kGroupConflict, "already a member");
+    }
+    if (member && !accept) {
+        if (!database_.respondInvite(invite_id, caller.user_id, false, error)) {
+            return errorResult(request, kGroupConflict, error);
+        }
+        return responseResult(request);
     }
     GroupInfo group;
     bool group_found = false;

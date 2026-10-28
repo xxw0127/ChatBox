@@ -472,11 +472,14 @@ void MainWindow::requestHistory(int kind, quint64 target, quint64 before_id) {
     writer.putU64(before_id);
     writer.putU16(50);
     frame.body = writer.data();
-    loading_older_history_ = before_id != 0;
+    const bool is_jump = jump_history_pending_;
+    jump_history_pending_ = false;
+    loading_older_history_ = before_id != 0 && !is_jump;
     history_request_seq_ = frame.header.seq;
     history_request_kind_ = kind;
     history_request_target_ = target;
     history_request_before_ = before_id;
+    history_request_is_jump_ = is_jump;
     sendFrame(frame);
 }
 
@@ -712,7 +715,16 @@ void MainWindow::selectRoom(int room_id, const QString& name) {
     loading_older_history_ = false;
     pending_jump_message_id_ = 0;
     history_request_seq_ = 0;
+    history_request_is_jump_ = false;
+    jump_history_pending_ = false;
     panel_search_seq_ = 0;
+    message_search_seq_ = 0;
+    if (message_search_timeout_timer_ != nullptr) {
+        message_search_timeout_timer_->stop();
+    }
+    if (message_search_dialog_ != nullptr) {
+        message_search_dialog_->clearResults();
+    }
     next_before_id_ = 0;
     loadInitialHistory(chatbox::client::ChatContext::kRoom,
                        static_cast<quint64>(room_id));
@@ -794,7 +806,16 @@ void MainWindow::selectPrivate(quint64 peer_id, const QString& nickname) {
     loading_older_history_ = false;
     pending_jump_message_id_ = 0;
     history_request_seq_ = 0;
+    history_request_is_jump_ = false;
+    jump_history_pending_ = false;
     panel_search_seq_ = 0;
+    message_search_seq_ = 0;
+    if (message_search_timeout_timer_ != nullptr) {
+        message_search_timeout_timer_->stop();
+    }
+    if (message_search_dialog_ != nullptr) {
+        message_search_dialog_->clearResults();
+    }
     next_before_id_ = 0;
     loadInitialHistory(chatbox::client::ChatContext::kPrivate, peer_id);
     restorePendingForCurrentContext();
@@ -885,6 +906,7 @@ void MainWindow::jumpToMessage(quint64 message_id) {
         return;
     }
     pending_jump_message_id_ = message_id;
+    jump_history_pending_ = true;
     const quint64 before_id = message_id + 1;
     if (context_type_ == ContextType::Room) {
         requestHistory(1, static_cast<quint64>(current_room_id_), before_id);
@@ -948,7 +970,16 @@ void MainWindow::resetContext() {
     loading_older_history_ = false;
     pending_jump_message_id_ = 0;
     history_request_seq_ = 0;
+    history_request_is_jump_ = false;
+    jump_history_pending_ = false;
     panel_search_seq_ = 0;
+    message_search_seq_ = 0;
+    if (message_search_timeout_timer_ != nullptr) {
+        message_search_timeout_timer_->stop();
+    }
+    if (message_search_dialog_ != nullptr) {
+        message_search_dialog_->clearResults();
+    }
     next_before_id_ = 0;
     if (input_edit_ != nullptr) {
         input_edit_->clear();
@@ -983,6 +1014,7 @@ void MainWindow::renderCurrentConversation(ScrollMode mode) {
     QScrollBar* bar = chat_view_->verticalScrollBar();
     const int previous = bar->value();
     const int previous_max = bar->maximum();
+    programmatic_scroll_ = true;
     hideMessageActionBar();
     QVector<chatbox::client::MessageKey> rendered_messages;
     chat_view_->setConversationHtml(
@@ -1003,6 +1035,7 @@ void MainWindow::renderCurrentConversation(ScrollMode mode) {
             bar->setValue(std::max(0, previous + (bar->maximum() - previous_max)));
             break;
     }
+    programmatic_scroll_ = false;
     updateChatEmptyState();
 }
 

@@ -247,6 +247,7 @@ private:
     void rememberCurrentAccount();
     // 成员面板只在房间里出现，私聊与未选会话时整列收起。
     void updateRightPanelVisibility();
+    void updatePrivateProfileCard();
     void toggleRightPanel();
     // 右侧栏默认关闭，开关状态记在 QSettings 里。
     bool member_panel_visible_ = false;
@@ -321,6 +322,7 @@ private:
     QLineEdit* right_private_search_ = nullptr;
     QPushButton* right_group_file_button_ = nullptr;
     QPushButton* right_private_file_button_ = nullptr;
+    QPushButton* right_profile_button_ = nullptr;
     QPushButton* right_invite_button_ = nullptr;
     QPushButton* right_leave_button_ = nullptr;
     QToolButton* right_settings_button_ = nullptr;
@@ -392,11 +394,14 @@ private:
     quint64 next_before_id_ = 0;
     bool has_more_ = false;
     bool loading_older_history_ = false;
+    bool programmatic_scroll_ = false;
     quint64 pending_jump_message_id_ = 0;
     quint32 history_request_seq_ = 0;
     int history_request_kind_ = 0;
     quint64 history_request_target_ = 0;
     quint64 history_request_before_ = 0;
+    bool history_request_is_jump_ = false;
+    bool jump_history_pending_ = false;
     bool connected_ = false;
     bool online_ = false;
     // 离线模式：只读地显示本地记录，不发任何聊天/好友/资料请求。

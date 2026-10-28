@@ -100,6 +100,10 @@ JOIN rooms r ON r.id = rm.room_id
 SET rm.role = 2
 WHERE rm.room_id = 1 AND rm.user_id = r.owner_id;
 
+-- Existing users already saw the default hall's history. Keep it visible
+-- (join cursor 0) but do not surface the entire backlog as unread.
+SET @default_last_message :=
+    (SELECT COALESCE(MAX(id), 0) FROM messages WHERE room_id = 1);
 INSERT IGNORE INTO room_read_state
     (room_id, user_id, last_read_message_id)
-SELECT 1, id, 0 FROM users;
+SELECT 1, id, @default_last_message FROM users;

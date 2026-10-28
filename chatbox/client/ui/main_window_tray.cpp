@@ -2,8 +2,13 @@
 
 void MainWindow::refreshUnreadTitle() {
     int total = 0;
-    for (int i = 0; i < conversation_list_->count(); ++i) {
-        total += conversation_list_->item(i)->data(Qt::UserRole + 2).toInt();
+    if (conversation_list_ != nullptr) {
+        for (int i = 0; i < conversation_list_->count(); ++i) {
+            total += conversation_list_->item(i)->data(Qt::UserRole + 2).toInt();
+        }
+    }
+    for (const chatbox::client::GroupInfo& group : group_store_.active()) {
+        total += std::max(0, group.unread);
     }
     setWindowTitle(total > 0 ? QString("ChatBox (%1)").arg(total)
                              : QString("ChatBox"));

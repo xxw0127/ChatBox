@@ -2884,6 +2884,10 @@ void TestClientCore::groupStoreFiltersAndSorts() {
     members[1].user_id = 5;
     store.setMembers(1, members);
     QCOMPARE(store.members(1).size(), 2);
+    store.setMembers(3, members);
+    store.replaceAll(active);
+    QCOMPARE(store.members(1).size(), 2);
+    QCOMPARE(store.members(3).size(), 0);
     store.setUnread(1, 0);
     QCOMPARE(store.find(1)->unread, 0);
 }
@@ -2951,6 +2955,7 @@ void TestClientCore::rightSidebarHasRequiredPanels() {
     QVERIFY(source.contains(QStringLiteral("RightFileButton")));
     QVERIFY(source.contains(QStringLiteral("RightInviteButton")));
     QVERIFY(source.contains(QStringLiteral("RightLeaveButton")));
+    QVERIFY(source.contains(QStringLiteral("RightProfileButton")));
     QVERIFY(!source.contains(QStringLiteral("more_menu_")));
     const QString profile =
         readClientSource(QStringLiteral("ui/main_window_profile.cpp"));

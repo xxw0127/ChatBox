@@ -2,6 +2,7 @@
 
 #include "common/group_protocol.h"
 #include "core/group_types.h"
+#include "ui/group_create_dialog.h"
 #include "ui/group_join_dialog.h"
 #include "ui/group_notify_dialog.h"
 #include "ui/group_settings_dialog.h"
@@ -54,6 +55,23 @@ void MainWindow::handleGroupList(const QByteArray& body) {
         groups.push_back(chatbox::client::groupInfoFromWire(wire));
     }
     group_store_.replaceAll(groups);
+    if (history_store_.isOpen()) {
+        // Groups that were left or removed disappear from the server list but
+        // their local messages are retained. Keep a read-only tombstone so the
+        // user can still reach that history.
+        for (const chatbox::client::ConversationRow& row :
+             history_store_.conversations()) {
+            if (row.context != chatbox::client::ChatContext::kRoom ||
+                group_store_.find(row.target_id) != nullptr) {
+                continue;
+            }
+            chatbox::client::GroupInfo tombstone;
+            tombstone.room_id = row.target_id;
+            tombstone.name = row.title;
+            tombstone.status = 2;
+            group_store_.upsert(tombstone);
+        }
+    }
     QSet<quint64> active_ids;
     for (const chatbox::client::GroupInfo& group : group_store_.active()) {
         active_ids.insert(group.room_id);
@@ -131,6 +149,8 @@ void MainWindow::handleGroupMemberList(const QByteArray& body) {
         item->setSizeHint(QSize(0, 48));
         item->setData(Qt::UserRole, QVariant::fromValue<qulonglong>(member.user_id));
         item->setData(Qt::UserRole + 1, member.nickname);
+        item->setData(Qt::UserRole + 2, member.role);
+        item->setData(Qt::UserRole + 3, member.online);
         item->setData(Qt::AccessibleTextRole,
                       member.nickname + (member.online ? "，在线" : "，离线"));
         if (member.user_id == user_id_) {
@@ -743,9 +763,13 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 setStatus("群搜索响应格式错误", true);
                 break;
             }
-            last_group_search_found_ = wire.room_id != 0;
+            last_group_search_found_ =
+                wire.room_id != 0 && wire.status == chatbox::GroupStatus::kActive;
             last_group_search_ = chatbox::client::groupInfoFromWire(wire);
             last_group_search_membership_ = membership;
+            if (wire.room_id != 0 && !last_group_search_found_) {
+                setStatus("该群已解散", true);
+            }
             if (group_join_dialog_ != nullptr) {
                 group_join_dialog_->setSearchResult(
                     last_group_search_found_, last_group_search_.name,
@@ -805,6 +829,17 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             if (frame.header.cmd == chatbox::kCmdGroupMarkRead &&
                 context_type_ == ContextType::Room) {
                 group_store_.setUnread(static_cast<quint64>(current_room_id_), 0);
+            }
+            if (frame.header.cmd == chatbox::kCmdGroupJoinRespond ||
+                frame.header.cmd == chatbox::kCmdGroupInviteRespond) {
+                requestGroupRequests(0);
+                if (context_type_ == ContextType::Room && current_room_id_ != 0) {
+                    const chatbox::client::GroupInfo* group = group_store_.find(
+                        static_cast<quint64>(current_room_id_));
+                    if (group != nullptr && group->role >= 1) {
+                        requestGroupRequests(current_room_id_);
+                    }
+                }
             }
             break;
         case chatbox::kCmdRoomList: {
@@ -924,6 +959,8 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 item->setSizeHint(QSize(0, 48));
                 item->setData(Qt::UserRole, QVariant::fromValue<qulonglong>(member_id));
                 item->setData(Qt::UserRole + 1, nickname);
+                item->setData(Qt::UserRole + 2, 0);
+                item->setData(Qt::UserRole + 3, true);
                 item->setData(Qt::AccessibleTextRole, nickname + "，在线");
                 if (member_id == user_id_) {
                     // requestPeerAvatar() skips self; ask the same way so the
@@ -1220,7 +1257,9 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 peer_names_.insert(sender_id, nickname);
             }
 
-            const bool was_older_page = history_request_before_ != 0;
+            const bool was_older_page =
+                history_request_before_ != 0 && !history_request_is_jump_;
+            history_request_is_jump_ = false;
             if (was_older_page) {
                 message_store_.prependHistory(page);
                 renderCurrentConversation(ScrollMode::kPreserveAnchor);
@@ -1978,7 +2017,17 @@ void MainWindow::clearSession() {
     joined_groups_.clear();
     group_requests_.clear();
     group_invites_.clear();
+    panel_search_seq_ = 0;
+    history_request_seq_ = 0;
+    history_request_is_jump_ = false;
+    jump_history_pending_ = false;
     right_panel_profile_ = chatbox::client::UserProfile();
+    if (group_create_dialog_ != nullptr) {
+        group_create_dialog_->hide();
+    }
+    if (group_join_dialog_ != nullptr) {
+        group_join_dialog_->hide();
+    }
     if (group_list_ != nullptr) {
         group_list_->clear();
     }

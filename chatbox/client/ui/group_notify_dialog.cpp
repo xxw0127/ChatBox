@@ -34,22 +34,21 @@ GroupNotifyDialog::GroupNotifyDialog(QWidget* parent) : QDialog(parent) {
 
     connect(list_, &QListWidget::itemSelectionChanged, this,
             &GroupNotifyDialog::updateActionState);
-    connect(accept_button_, &QPushButton::clicked, this, [this] {
-        if (list_->currentItem() == nullptr) {
+    auto act_on_current = [this](bool accept) {
+        QListWidgetItem* item = list_->currentItem();
+        if (item == nullptr) {
             return;
         }
-        emit actionRequested(list_->currentItem()->data(Qt::UserRole).toInt(),
-                             list_->currentItem()->data(Qt::UserRole + 1).toULongLong(),
-                             true);
-    });
-    connect(reject_button_, &QPushButton::clicked, this, [this] {
-        if (list_->currentItem() == nullptr) {
-            return;
-        }
-        emit actionRequested(list_->currentItem()->data(Qt::UserRole).toInt(),
-                             list_->currentItem()->data(Qt::UserRole + 1).toULongLong(),
-                             false);
-    });
+        const int type = item->data(Qt::UserRole).toInt();
+        const quint64 id = item->data(Qt::UserRole + 1).toULongLong();
+        delete list_->takeItem(list_->row(item));
+        updateActionState();
+        emit actionRequested(type, id, accept);
+    };
+    connect(accept_button_, &QPushButton::clicked, this,
+            [act_on_current] { act_on_current(true); });
+    connect(reject_button_, &QPushButton::clicked, this,
+            [act_on_current] { act_on_current(false); });
     updateActionState();
 }
 

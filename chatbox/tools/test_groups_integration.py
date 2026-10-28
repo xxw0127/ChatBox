@@ -11,6 +11,7 @@ VERSION = 1
 
 CMD_REGISTER = 0x0001
 CMD_LOGIN = 0x0002
+CMD_ROOM_LIST = 0x0010
 CMD_JOIN_ROOM = 0x0011
 CMD_CHAT_SEND = 0x0020
 CMD_CHAT_PUSH = 0x0022
@@ -240,6 +241,21 @@ def send_room_message(client, room_id, content):
     return Reader(response).u64()
 
 
+def room_list(client):
+    _, body = client.call(CMD_ROOM_LIST)
+    reader = Reader(body)
+    count = reader.u16()
+    rooms = []
+    for _ in range(count):
+        rooms.append({
+            "room_id": reader.u32(),
+            "name": reader.string(),
+            "max_members": reader.u32(),
+            "online": reader.u32(),
+        })
+    return rooms
+
+
 def room_history_count(client, room_id):
     body = struct.pack(">BQQH", 1, room_id, 0, 50)
     _, response = client.call(CMD_HISTORY, body)
@@ -249,6 +265,11 @@ def room_history_count(client, room_id):
     count = reader.u16()
     assert kind == 1 and target == room_id, (kind, target)
     return count
+
+
+def mark_read(client, room_id, message_id):
+    client.call(CMD_GROUP_MARK_READ,
+                struct.pack(">IQ", room_id, message_id))
 
 
 def expect_error(fn, label):
@@ -287,6 +308,9 @@ def main():
     assert default[0]["role"] == 2, default
     assert c.group_list()[0]["is_default"] == 1
 
+    legacy_rooms = room_list(c)
+    assert len(legacy_rooms) == 1 and legacy_rooms[0]["room_id"] == 1, legacy_rooms
+
     expect_error(lambda: a.call(CMD_GROUP_DISBAND, struct.pack(">I", 1)), "disband default")
     expect_error(lambda: c.call(CMD_GROUP_LEAVE, struct.pack(">I", 1)), "leave default")
 
@@ -323,6 +347,10 @@ def main():
     assert all(g["room_id"] != group["room_id"] for g in a.group_list())
     expect_error(lambda: send_room_message(a, group["room_id"], "removed"),
                  "removed member send")
+    expect_error(lambda: room_history_count(a, group["room_id"]),
+                 "removed member history")
+    expect_error(lambda: members(a, group["room_id"]),
+                 "removed member list")
 
     b.call(CMD_GROUP_DISBAND, struct.pack(">I", group["room_id"]))
     dissolved = [g for g in b.group_list() if g["room_id"] == group["room_id"]]
@@ -331,6 +359,8 @@ def main():
                  "dissolved send")
     expect_error(lambda: room_history_count(b, group["room_id"]),
                  "dissolved history")
+    expect_error(lambda: members(b, group["room_id"]),
+                 "dissolved member list")
 
     group2 = create_group(a, "第二个群")
     _, body = a.call(CMD_GROUP_INVITE,
@@ -353,6 +383,46 @@ def main():
     c.call(CMD_GROUP_INVITE_RESPOND, struct.pack(">QB", c_invite_id, 1))
     assert room_history_count(c, group2["room_id"]) == 0
     assert room_history_count(b, group2["room_id"]) == 1
+
+    mark_read(b, group2["room_id"], 1 << 40)
+    send_room_message(b, group2["room_id"], "B自己的消息")
+    b_view = [g for g in b.group_list() if g["room_id"] == group2["room_id"]][0]
+    a_view = [g for g in a.group_list() if g["room_id"] == group2["room_id"]][0]
+    assert b_view["unread"] == 0, b_view
+    assert a_view["unread"] >= 1, a_view
+
+    # A pending join request must not survive membership granted by invite,
+    # and removal must revoke history/member-list access. Rejoining starts a
+    # fresh history cursor.
+    group3 = create_group(a, "第三个群")
+    _, body = c.call(CMD_GROUP_JOIN_REQUEST,
+                     enc_str(group3["group_no"]) + enc_str("申请"))
+    stale_request = Reader(body).u64()
+    _, body = a.call(CMD_GROUP_INVITE,
+                     struct.pack(">IQ", group3["room_id"], c_id))
+    c_invite2 = Reader(body).u64()
+    c.call(CMD_GROUP_INVITE_RESPOND, struct.pack(">QB", c_invite2, 1))
+    expect_error(lambda: a.call(CMD_GROUP_JOIN_RESPOND,
+                                struct.pack(">QB", stale_request, 1)),
+                 "stale join approval")
+    assert any(m["user_id"] == c_id for m in members(a, group3["room_id"])[1])
+    a.call(CMD_GROUP_MEMBER_UPDATE,
+           struct.pack(">IQB", group3["room_id"], c_id, 1))
+    expect_error(lambda: room_history_count(c, group3["room_id"]),
+                 "removed member history")
+    expect_error(lambda: members(c, group3["room_id"]),
+                 "removed member list")
+    send_room_message(a, group3["room_id"], "移除后的消息")
+    _, body = a.call(CMD_GROUP_INVITE,
+                     struct.pack(">IQ", group3["room_id"], c_id))
+    c_invite3 = Reader(body).u64()
+    c.call(CMD_GROUP_INVITE_RESPOND, struct.pack(">QB", c_invite3, 1))
+    assert room_history_count(c, group3["room_id"]) == 0
+
+    utf8_name = "群" * 32
+    utf8_group = create_group(a, utf8_name)
+    assert utf8_group["name"] == utf8_name, utf8_group
+    a.call(CMD_GROUP_DISBAND, struct.pack(">I", utf8_group["room_id"]))
 
     a.call(CMD_GROUP_MEMBER_UPDATE,
            struct.pack(">IQB", group2["room_id"], b_id, 4))

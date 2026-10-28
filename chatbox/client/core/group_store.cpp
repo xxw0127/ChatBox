@@ -15,6 +15,13 @@ void GroupStore::replaceAll(const QVector<GroupInfo>& groups) {
     for (const GroupInfo& group : groups) {
         groups_.insert(group.room_id, group);
     }
+    for (auto it = members_.begin(); it != members_.end();) {
+        if (!groups_.contains(it.key())) {
+            it = members_.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void GroupStore::upsert(const GroupInfo& group) {

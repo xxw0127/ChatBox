@@ -157,9 +157,18 @@ void MainWindow::updateRoomMemberNickname(quint64 user_id,
     for (int i = 0; i < member_list_->count(); ++i) {
         QListWidgetItem* item = member_list_->item(i);
         if (item->data(Qt::UserRole).toULongLong() == user_id) {
-            item->setText(nickname);
+            const int role = item->data(Qt::UserRole + 2).toInt();
+            const bool online = item->data(Qt::UserRole + 3).toBool();
+            QString text = nickname;
+            if (role == 2) {
+                text += " · 群主";
+            } else if (role == 1) {
+                text += " · 管理员";
+            }
+            item->setText(text);
             item->setData(Qt::UserRole + 1, nickname);
-            item->setData(Qt::AccessibleTextRole, nickname + "，在线");
+            item->setData(Qt::AccessibleTextRole,
+                          nickname + (online ? "，在线" : "，离线"));
             item->setIcon(memberAvatarIcon(user_id, nickname, 28));
             break;
         }
@@ -698,8 +707,8 @@ bool MainWindow::enterOfflineMode(bool with_token) {
     if (context_type_ == ContextType::None) {
         populateOfflineSidebar();
         bool selected = false;
-        if (room_list_ != nullptr && room_list_->count() > 0) {
-            QListWidgetItem* first = room_list_->item(0);
+        if (group_list_ != nullptr && group_list_->count() > 0) {
+            QListWidgetItem* first = group_list_->item(0);
             selectRoom(first->data(Qt::UserRole).toInt(),
                        first->data(Qt::UserRole + 1).toString());
             selected = true;
@@ -749,9 +758,11 @@ void MainWindow::populateOfflineSidebar() {
         return;
     }
     room_list_->clear();
+    group_store_.clear();
     friend_views_.clear();
     friend_ids_.clear();
     if (!history_store_.isOpen()) {
+        refreshGroupListView();
         return;
     }
     const QVector<chatbox::client::ConversationRow> rows =
@@ -765,6 +776,13 @@ void MainWindow::populateOfflineSidebar() {
             item->setData(Qt::UserRole, static_cast<uint>(row.target_id));
             item->setData(Qt::UserRole + 1, row.title);
             item->setData(Qt::AccessibleTextRole, row.title + "，离线记录");
+            chatbox::client::GroupInfo group;
+            group.room_id = row.target_id;
+            group.name = row.title;
+            group.is_default = row.target_id == 1;
+            group.status = 0;
+            group.role = 0;
+            group_store_.upsert(group);
             continue;
         }
         chatbox::client::FriendView view;
@@ -780,6 +798,7 @@ void MainWindow::populateOfflineSidebar() {
         friend_views_.insert(row.target_id, view);
         peer_names_.insert(row.target_id, row.title);
     }
+    refreshGroupListView();
     refreshFriendListView();
 }
 
@@ -792,8 +811,8 @@ void MainWindow::refreshOfflineAfterClear() {
     resetContext();
     populateOfflineSidebar();
     bool selected = false;
-    if (room_list_ != nullptr && room_list_->count() > 0) {
-        QListWidgetItem* first = room_list_->item(0);
+    if (group_list_ != nullptr && group_list_->count() > 0) {
+        QListWidgetItem* first = group_list_->item(0);
         selectRoom(first->data(Qt::UserRole).toInt(),
                    first->data(Qt::UserRole + 1).toString());
         selected = true;

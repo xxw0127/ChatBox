@@ -14,6 +14,7 @@
 #include "server/business/worker_pool.h"
 #include "server/config.h"
 #include "server/db/mysql_connection.h"
+#include "server/group/group_rules.h"
 #include "server/net/acceptor.h"
 #include "server/net/connection_limiter.h"
 #include "server/net/io_thread.h"
@@ -145,6 +146,26 @@ int main(int argc, char** argv) {
         }
         if (!loader.listRooms(room_rows, error)) {
             chatbox::logMessage(LogLevel::kError, "main", "load rooms failed: " + error);
+            mysql_thread_end();
+            mysql_library_end();
+            return 1;
+        }
+        chatbox::GroupInfo default_group;
+        bool default_found = false;
+        if (!loader.findGroupById(chatbox::defaultGroupId(), default_group,
+                                  default_found, error)) {
+            chatbox::logMessage(LogLevel::kError, "main",
+                                "load default group failed: " + error);
+            mysql_thread_end();
+            mysql_library_end();
+            return 1;
+        }
+        if (!default_found ||
+            default_group.status != chatbox::GroupStatus::kActive ||
+            !default_group.is_default) {
+            chatbox::logMessage(
+                LogLevel::kError, "main",
+                "default group room 1 must exist, be active, and is_default=1");
             mysql_thread_end();
             mysql_library_end();
             return 1;

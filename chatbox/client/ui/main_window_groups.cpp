@@ -44,6 +44,13 @@ void MainWindow::onGroupClicked(QListWidgetItem* item) {
     const quint64 room_id =
         item->data(Qt::UserRole).toULongLong();
     const int status = item->data(Qt::UserRole + 2).toInt();
+    if (offline_mode_) {
+        if (room_id != 0) {
+            selectRoom(static_cast<int>(room_id),
+                       item->data(Qt::UserRole + 1).toString());
+        }
+        return;
+    }
     if (status != 0) {
         if (room_id != 0) {
             selectDissolvedGroup(room_id, item->data(Qt::UserRole + 1).toString());
@@ -64,7 +71,11 @@ void MainWindow::selectDissolvedGroup(quint64 room_id, const QString& name) {
     current_room_id_ = static_cast<int>(room_id);
     current_peer_id_ = 0;
     current_peer_name_ = name;
-    context_label_->setText(QString("%1（已解散）").arg(name));
+    const chatbox::client::GroupInfo* group = group_store_.find(room_id);
+    const QString tombstone = (group != nullptr && group->status == 2)
+                                  ? QStringLiteral("已退出")
+                                  : QStringLiteral("已解散");
+    context_label_->setText(QString("%1（%2）").arg(name, tombstone));
     chat_view_->clear();
     chat_view_->clearHoverState();
     hideMessageActionBar();
@@ -76,17 +87,19 @@ void MainWindow::selectDissolvedGroup(quint64 room_id, const QString& name) {
     loading_older_history_ = false;
     pending_jump_message_id_ = 0;
     history_request_seq_ = 0;
+    history_request_is_jump_ = false;
+    jump_history_pending_ = false;
     next_before_id_ = 0;
     loadInitialHistory(chatbox::client::ChatContext::kRoom, room_id);
     renderCurrentConversation(ScrollMode::kBottom);
     if (member_count_label_ != nullptr) {
-        member_count_label_->setText(QString("%1 · 已解散").arg(name));
+        member_count_label_->setText(QString("%1 · %2").arg(name, tombstone));
     }
     if (member_list_ != nullptr) {
         member_list_->clear();
     }
     updateRightPanelVisibility();
-    setStatus("群已解散 · 仅显示本地记录");
+    setStatus(QString("群%1 · 仅显示本地记录").arg(tombstone));
 }
 
 void MainWindow::selectGroup(quint64 room_id, const QString& name) {
@@ -135,19 +148,23 @@ void MainWindow::refreshGroupListView() {
 
     const QVector<chatbox::client::GroupInfo> dissolved = group_store_.dissolved();
     if (!dissolved.isEmpty()) {
-        auto* header = new QListWidgetItem("已解散", group_list_);
+        auto* header = new QListWidgetItem("已退出 / 已解散", group_list_);
         header->setFlags(Qt::NoItemFlags);
-        header->setData(Qt::AccessibleTextRole, "已解散的群");
+        header->setData(Qt::AccessibleTextRole, "已退出或已解散的群");
         for (const chatbox::client::GroupInfo& group : dissolved) {
+            const QString tombstone = group.status == 2 ? QStringLiteral("已退出")
+                                                        : QStringLiteral("已解散");
             auto* item = new QListWidgetItem(
-                QString("%1（已解散）").arg(group.name), group_list_);
+                QString("%1（%2）").arg(group.name, tombstone), group_list_);
             item->setData(Qt::UserRole, QVariant::fromValue<qulonglong>(group.room_id));
             item->setData(Qt::UserRole + 1, group.name);
             item->setData(Qt::UserRole + 2, group.status);
-            item->setData(Qt::AccessibleTextRole, group.name + "，已解散");
+            item->setData(Qt::AccessibleTextRole,
+                          QString("%1，%2").arg(group.name, tombstone));
         }
     }
     updateGroupNoticeBadge();
+    refreshUnreadTitle();
 }
 
 void MainWindow::openCreateGroupDialog() {

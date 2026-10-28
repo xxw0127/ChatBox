@@ -114,7 +114,8 @@ bool MysqlConnection::listGroupsForUser(uint64_t user_id,
         "SELECT r.id, r.name, r.group_no, r.owner_id, r.is_default, r.status, "
         "rm.role, "
         "(SELECT COUNT(*) FROM room_members x WHERE x.room_id = r.id), "
-        "(SELECT COUNT(*) FROM messages m WHERE m.room_id = r.id AND m.id > "
+        "(SELECT COUNT(*) FROM messages m WHERE m.room_id = r.id "
+        " AND m.sender_id <> rm.user_id AND m.id > "
         " GREATEST(rm.join_message_id, COALESCE(rr.last_read_message_id, 0))) "
         "FROM room_members rm "
         "JOIN rooms r ON r.id = rm.room_id "
@@ -145,7 +146,7 @@ bool MysqlConnection::listGroupsForUser(uint64_t user_id,
     int member_count = 0;
     int unread = 0;
     uint64_t owner_id = 0;
-    char name_buffer[33] = {0};
+    char name_buffer[129] = {0};
     char group_no_buffer[13] = {0};
     unsigned long name_length = 0;
     unsigned long group_no_length = 0;
@@ -188,7 +189,7 @@ bool MysqlConnection::listGroupsForUser(uint64_t user_id,
         }
         GroupInfo group;
         group.room_id = static_cast<uint64_t>(id);
-        group.name = stringResult(name_buffer, name_length, name_null, 32);
+        group.name = stringResult(name_buffer, name_length, name_null, 128);
         group.group_no =
             stringResult(group_no_buffer, group_no_length, group_no_null, 12);
         group.owner_id = owner_null ? 0 : owner_id;
@@ -233,7 +234,7 @@ bool MysqlConnection::findGroupByNumber(const std::string& group_no,
     }
     int id = 0, max_members = 0, is_default = 0, status = 0, member_count = 0;
     uint64_t owner_id = 0;
-    char name_buffer[33] = {0};
+    char name_buffer[129] = {0};
     char group_buffer[13] = {0};
     unsigned long name_length = 0, group_no_length = 0;
     bool id_null = false, name_null = false, group_null = false;
@@ -272,7 +273,7 @@ bool MysqlConnection::findGroupByNumber(const std::string& group_no,
         return false;
     }
     group.room_id = static_cast<uint64_t>(id);
-    group.name = stringResult(name_buffer, name_length, name_null, 32);
+    group.name = stringResult(name_buffer, name_length, name_null, 128);
     group.group_no = stringResult(group_buffer, group_no_length, group_null, 12);
     group.owner_id = owner_null ? 0 : owner_id;
     group.member_count = count_null ? 0 : static_cast<uint32_t>(member_count);
@@ -311,7 +312,7 @@ bool MysqlConnection::findGroupById(uint64_t room_id, GroupInfo& group,
     }
     int id = 0, max_members = 0, is_default = 0, status = 0, member_count = 0;
     uint64_t owner_id = 0;
-    char name_buffer[33] = {0};
+    char name_buffer[129] = {0};
     char group_buffer[13] = {0};
     unsigned long name_length = 0, group_no_length = 0;
     bool name_null = false, group_null = false, owner_null = false;
@@ -350,7 +351,7 @@ bool MysqlConnection::findGroupById(uint64_t room_id, GroupInfo& group,
         return false;
     }
     group.room_id = static_cast<uint64_t>(id);
-    group.name = stringResult(name_buffer, name_length, name_null, 32);
+    group.name = stringResult(name_buffer, name_length, name_null, 128);
     group.group_no = stringResult(group_buffer, group_no_length, group_null, 12);
     group.owner_id = owner_null ? 0 : owner_id;
     group.member_count = count_null ? 0 : static_cast<uint32_t>(member_count);
@@ -578,9 +579,7 @@ bool MysqlConnection::addRoomMember(uint64_t room_id, uint64_t user_id,
         mysql_,
         "INSERT INTO room_members "
         "(room_id, user_id, role, joined_at, join_message_id) "
-        "VALUES (?, ?, ?, NOW(3), ?) "
-        "ON DUPLICATE KEY UPDATE role = VALUES(role), "
-        "joined_at = VALUES(joined_at), join_message_id = VALUES(join_message_id)",
+        "VALUES (?, ?, ?, NOW(3), ?)",
         error);
     if (insert.get() == nullptr) {
         return false;
@@ -626,21 +625,62 @@ bool MysqlConnection::removeRoomMember(uint64_t room_id, uint64_t user_id,
     if (!ensureConnected(error)) {
         return false;
     }
+    if (!beginTransaction(mysql_, error)) {
+        return false;
+    }
+    auto fail = [this]() {
+        rollback(mysql_);
+        return false;
+    };
     Stmt stmt(mysql_, "DELETE FROM room_members WHERE room_id = ? AND user_id = ?",
               error);
     if (stmt.get() == nullptr) {
-        return false;
+        return fail();
     }
     uint64_t room_value = room_id;
     uint64_t user_value = user_id;
     MYSQL_BIND params[2] = {};
     bindU64(params[0], room_value);
     bindU64(params[1], user_value);
-    if (mysql_stmt_bind_param(stmt.get(), params) != 0) {
-        error = mysql_stmt_error(stmt.get());
+    if (mysql_stmt_bind_param(stmt.get(), params) != 0 ||
+        !execute(stmt.get(), error)) {
+        return fail();
+    }
+    if (!cancelPendingMembershipRequests(room_id, user_id, error)) {
+        return fail();
+    }
+    return commit(mysql_, error);
+}
+
+bool MysqlConnection::cancelPendingMembershipRequests(uint64_t room_id,
+                                                      uint64_t user_id,
+                                                      std::string& error) {
+    if (!ensureConnected(error)) {
         return false;
     }
-    return execute(stmt.get(), error);
+    const char* statements[] = {
+        "DELETE FROM room_join_requests "
+        "WHERE room_id = ? AND user_id = ? AND status = 0",
+        "DELETE FROM room_invites "
+        "WHERE room_id = ? AND invitee_id = ? AND status = 0",
+    };
+    for (const char* sql : statements) {
+        Stmt stmt(mysql_, sql, error);
+        if (stmt.get() == nullptr) {
+            return false;
+        }
+        uint64_t room_value = room_id;
+        uint64_t user_value = user_id;
+        MYSQL_BIND params[2] = {};
+        bindU64(params[0], room_value);
+        bindU64(params[1], user_value);
+        if (mysql_stmt_bind_param(stmt.get(), params) != 0 ||
+            !execute(stmt.get(), error)) {
+            return false;
+        }
+    }
+    error.clear();
+    return true;
 }
 
 bool MysqlConnection::listRoomMembers(uint64_t room_id,
@@ -670,7 +710,7 @@ bool MysqlConnection::listRoomMembers(uint64_t room_id,
     }
     uint64_t user_id = 0;
     int role = 0;
-    char nickname[33] = {0};
+    char nickname[129] = {0};
     unsigned long nickname_length = 0;
     bool user_null = false, role_null = false, nickname_null = false;
     MYSQL_BIND out[3] = {};
@@ -702,7 +742,7 @@ bool MysqlConnection::listRoomMembers(uint64_t room_id,
         GroupMemberInfo member;
         member.user_id = user_null ? 0 : user_id;
         member.nickname =
-            stringResult(nickname, nickname_length, nickname_null, 32);
+            stringResult(nickname, nickname_length, nickname_null, 128);
         member.role = role_null ? GroupRole::kMember
                                 : static_cast<GroupRole>(role);
         members.push_back(std::move(member));
@@ -999,7 +1039,7 @@ bool MysqlConnection::listJoinRequests(uint64_t room_id,
         "SELECT jr.id, jr.user_id, u.nickname, jr.message, jr.status, "
         "DATE_FORMAT(jr.created_at, '%Y-%m-%d %H:%i:%s') "
         "FROM room_join_requests jr JOIN users u ON u.id = jr.user_id "
-        "WHERE jr.room_id = ? AND jr.status = 0 ORDER BY jr.id ASC",
+        "WHERE jr.room_id = ? AND jr.status = 0 ORDER BY jr.id ASC LIMIT 50",
         error);
     if (stmt.get() == nullptr) {
         return false;
@@ -1016,8 +1056,8 @@ bool MysqlConnection::listJoinRequests(uint64_t room_id,
     }
     uint64_t request_id = 0, user_id = 0;
     int status = 0;
-    char nickname[33] = {0};
-    char message[201] = {0};
+    char nickname[129] = {0};
+    char message[801] = {0};
     char created[32] = {0};
     unsigned long nickname_length = 0, message_length = 0, created_length = 0;
     bool request_null = false, user_null = false, nickname_null = false;
@@ -1069,8 +1109,8 @@ bool MysqlConnection::listJoinRequests(uint64_t room_id,
         request.request_id = request_id;
         request.room_id = room_id;
         request.user_id = user_id;
-        request.nickname = stringResult(nickname, nickname_length, nickname_null, 32);
-        request.message = stringResult(message, message_length, message_null, 200);
+        request.nickname = stringResult(nickname, nickname_length, nickname_null, 128);
+        request.message = stringResult(message, message_length, message_null, 800);
         request.status = status_null ? 0 : status;
         request.created_at =
             stringResult(created, created_length, created_null, 31);
@@ -1162,8 +1202,11 @@ bool MysqlConnection::respondJoinRequest(uint64_t request_id,
             return fail();
         }
     }
-    if (accept && !addRoomMember(room_id, user_id, GroupRole::kMember, error)) {
-        return fail();
+    if (accept) {
+        if (!addRoomMember(room_id, user_id, GroupRole::kMember, error) ||
+            !cancelPendingMembershipRequests(room_id, user_id, error)) {
+            return fail();
+        }
     }
     return commit(mysql_, error);
 }
@@ -1385,8 +1428,11 @@ bool MysqlConnection::respondInvite(uint64_t invite_id, uint64_t invitee_id,
             return fail();
         }
     }
-    if (accept && !addRoomMember(room_id, invitee_id, GroupRole::kMember, error)) {
-        return fail();
+    if (accept) {
+        if (!addRoomMember(room_id, invitee_id, GroupRole::kMember, error) ||
+            !cancelPendingMembershipRequests(room_id, invitee_id, error)) {
+            return fail();
+        }
     }
     return commit(mysql_, error);
 }
@@ -1405,7 +1451,7 @@ bool MysqlConnection::listInvitesForUser(
         "FROM room_invites i "
         "JOIN users u ON u.id = i.inviter_id "
         "JOIN rooms r ON r.id = i.room_id "
-        "WHERE i.invitee_id = ? AND i.status = 0 ORDER BY i.id ASC",
+        "WHERE i.invitee_id = ? AND i.status = 0 ORDER BY i.id ASC LIMIT 50",
         error);
     if (stmt.get() == nullptr) {
         return false;
@@ -1422,7 +1468,7 @@ bool MysqlConnection::listInvitesForUser(
     }
     uint64_t invite_id = 0, room_id = 0, inviter_id = 0;
     int status = 0;
-    char nickname[33] = {0}, room_name[33] = {0}, created[32] = {0};
+    char nickname[129] = {0}, room_name[129] = {0}, created[32] = {0};
     unsigned long nickname_length = 0, room_length = 0, created_length = 0;
     bool nickname_null = false, room_null = false, created_null = false;
     bool invite_null = false, room_id_null = false, inviter_null = false;
@@ -1463,8 +1509,8 @@ bool MysqlConnection::listInvitesForUser(
         invite.request_id = invite_id;
         invite.room_id = room_id;
         invite.user_id = inviter_id;
-        invite.nickname = stringResult(nickname, nickname_length, nickname_null, 32);
-        invite.room_name = stringResult(room_name, room_length, room_null, 32);
+        invite.nickname = stringResult(nickname, nickname_length, nickname_null, 128);
+        invite.room_name = stringResult(room_name, room_length, room_null, 128);
         invite.status = status_null ? 0 : status;
         invite.created_at = stringResult(created, created_length, created_null, 31);
         invites.push_back(std::move(invite));
@@ -1513,7 +1559,7 @@ bool MysqlConnection::unreadCount(uint64_t room_id, uint64_t user_id,
         "JOIN room_members rm ON rm.room_id = m.room_id AND rm.user_id = ? "
         "LEFT JOIN room_read_state rr ON rr.room_id = rm.room_id "
         " AND rr.user_id = rm.user_id "
-        "WHERE m.room_id = ? AND m.id > "
+        "WHERE m.room_id = ? AND m.sender_id <> rm.user_id AND m.id > "
         " GREATEST(rm.join_message_id, COALESCE(rr.last_read_message_id, 0))",
         error);
     if (stmt.get() == nullptr) {

@@ -142,6 +142,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             &MainWindow::showMessageMenu);
     connect(chat_view_->verticalScrollBar(), &QScrollBar::valueChanged, this,
             [this](int) {
+                if (programmatic_scroll_) {
+                    return;
+                }
                 if (chat_view_ != nullptr) {
                     chat_view_->clearHoverState();
                 }
@@ -621,6 +624,9 @@ QWidget* MainWindow::buildChatPage() {
     right_profile_signature_->setAlignment(Qt::AlignCenter);
     profile_card_layout->addWidget(right_profile_signature_);
     private_layout->addWidget(profile_card);
+    right_profile_button_ = new QPushButton("查看资料", right_private_page_);
+    right_profile_button_->setObjectName("RightProfileButton");
+    private_layout->addWidget(right_profile_button_);
     right_private_file_button_ =
         new QPushButton("文件功能将在下一阶段开放", right_private_page_);
     right_private_file_button_->setObjectName("RightFileButton");
@@ -684,6 +690,11 @@ QWidget* MainWindow::buildChatPage() {
             [this] { startPanelSearch(right_private_search_->text()); });
     connect(right_settings_button_, &QToolButton::clicked, this,
             &MainWindow::openGroupSettings);
+    connect(right_profile_button_, &QPushButton::clicked, this, [this] {
+        if (current_peer_id_ != 0) {
+            openProfile(current_peer_id_, current_peer_name_);
+        }
+    });
     connect(right_invite_button_, &QPushButton::clicked, this, [this] {
         openGroupInviteDialog(static_cast<quint64>(current_room_id_));
     });

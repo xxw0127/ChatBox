@@ -25,7 +25,10 @@ void MainWindow::updateRightPanelVisibility() {
         if (group != nullptr) {
             member_count_label_->setText(
                 group->status != 0
-                    ? QString("%1 · 已解散").arg(group->name)
+                    ? QString("%1 · %2")
+                          .arg(group->name,
+                               group->status == 2 ? QStringLiteral("已退出")
+                                                  : QStringLiteral("已解散"))
                     : QString("%1 · %2 人").arg(group->name).arg(group->member_count));
             const bool active = group->status == 0;
             right_settings_button_->setVisible(
@@ -56,16 +59,22 @@ void MainWindow::updateRightPanelVisibility() {
         right_mode_stack_->setCurrentWidget(right_private_page_);
         member_count_label_->setText(current_peer_name_);
         right_settings_button_->hide();
-        const QString display_name =
-            chatbox::client::profileDisplayName(right_panel_profile_).trimmed();
-        right_profile_name_->setText(display_name.isEmpty()
-                                          ? current_peer_name_
-                                          : display_name);
-        right_profile_id_->setText(chatbox::client::publicUserId(current_peer_id_));
-        right_profile_signature_->setText(right_panel_profile_.signature);
-        right_profile_avatar_->setPixmap(
-            memberAvatarIcon(current_peer_id_, current_peer_name_, 56).pixmap(56, 56));
+        updatePrivateProfileCard();
     }
+}
+
+void MainWindow::updatePrivateProfileCard() {
+    if (right_profile_name_ == nullptr) {
+        return;
+    }
+    const QString display_name =
+        chatbox::client::profileDisplayName(right_panel_profile_).trimmed();
+    right_profile_name_->setText(display_name.isEmpty() ? current_peer_name_
+                                                        : display_name);
+    right_profile_id_->setText(chatbox::client::publicUserId(current_peer_id_));
+    right_profile_signature_->setText(right_panel_profile_.signature);
+    right_profile_avatar_->setPixmap(
+        memberAvatarIcon(current_peer_id_, current_peer_name_, 56).pixmap(56, 56));
 }
 
 void MainWindow::toggleRightPanel() {
@@ -489,7 +498,7 @@ void MainWindow::onProfileAvatarReceived(quint64 user_id, quint32 version,
         requestAvatar(user_id, newer_version);
     }
     if (context_type_ == ContextType::Private && user_id == current_peer_id_) {
-        updateRightPanelVisibility();
+        updatePrivateProfileCard();
     }
 }
 
@@ -501,7 +510,7 @@ void MainWindow::onProfileDataReceived(
     if (context_type_ == ContextType::Private &&
         profile.user_id == current_peer_id_) {
         right_panel_profile_ = profile;
-        updateRightPanelVisibility();
+        updatePrivateProfileCard();
     }
 
     quint32 known_version = 0;

@@ -197,6 +197,8 @@ public:
     bool addRoomMember(uint64_t room_id, uint64_t user_id, GroupRole role,
                        std::string& error);
     bool removeRoomMember(uint64_t room_id, uint64_t user_id, std::string& error);
+    bool cancelPendingMembershipRequests(uint64_t room_id, uint64_t user_id,
+                                         std::string& error);
     bool listRoomMembers(uint64_t room_id, std::vector<GroupMemberInfo>& members,
                          std::string& error);
     bool getRoomMemberRole(uint64_t room_id, uint64_t user_id, GroupRole& role,

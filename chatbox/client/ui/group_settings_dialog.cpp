@@ -100,9 +100,21 @@ GroupSettingsDialog::GroupSettingsDialog(
         emit memberActionRequested(group_.room_id, selectedUserId(), 3);
     });
     connect(remove_button_, &QPushButton::clicked, this, [this] {
+        if (QMessageBox::question(
+                this, QStringLiteral("移出成员"),
+                QStringLiteral("确定把该成员移出群聊？"),
+                QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) {
+            return;
+        }
         emit memberActionRequested(group_.room_id, selectedUserId(), 1);
     });
     connect(transfer_button_, &QPushButton::clicked, this, [this] {
+        if (QMessageBox::question(
+                this, QStringLiteral("转让群主"),
+                QStringLiteral("转让后你将成为普通成员，确定继续？"),
+                QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) {
+            return;
+        }
         emit memberActionRequested(group_.room_id, selectedUserId(), 4);
     });
     connect(disband_button_, &QPushButton::clicked, this,
@@ -152,8 +164,11 @@ void GroupSettingsDialog::updateActionState() {
                                   target_role == 0 && !is_self);
     unset_admin_button_->setEnabled(group_.role == 2 && target_role == 1 &&
                                     !is_self);
-    remove_button_->setEnabled(can_manage && !group_.is_default &&
-                               target_id != 0 && target_role < 2 && !is_self);
+    const bool can_remove =
+        (group_.role == 2 && target_role < 2) ||
+        (group_.role == 1 && target_role == 0);
+    remove_button_->setEnabled(can_manage && can_remove && !group_.is_default &&
+                               target_id != 0 && !is_self);
     transfer_button_->setEnabled(group_.role == 2 && target_id != 0 &&
                                  target_role < 2 && !is_self);
 }
