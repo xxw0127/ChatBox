@@ -275,6 +275,12 @@ QListWidget#MentionList {
     outline: none;
 }
 
+QLabel#MentionEmpty {
+    color: #8A9AAB;
+    font-size: 12px;
+    background: transparent;
+}
+
 QStackedWidget {
     background: #0E1621;
 }

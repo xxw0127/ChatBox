@@ -282,6 +282,7 @@ private slots:
     void mentionPopupFiltersByNameAndId();
     void mentionPopupKeyboardSelectionEmitsChosen();
     void mentionPopupAllEntryStaysFirst();
+    void mentionPopupShowsEmptyState();
     void mentionButtonOpensMentionPopup();
     void typingAtOpensMentionPopup();
     void privateChatClosesMentionPopup();
@@ -293,6 +294,9 @@ private slots:
     void jumpLatestRestoresBottom();
     void switchConversationExitsJumpMode();
     void jumpRequestUsesTargetPlusOne();
+    void jumpTimeoutResetsState();
+    void switchConversationClearsSearchState();
+    void insertMentionChoiceRecomputesToken();
     void presenceBookAppliesNewerSequence();
     void presenceBookIgnoresStaleSequence();
     void presenceBookClearsOnDisconnect();
@@ -490,13 +494,30 @@ void TestClientCore::mentionPopupFiltersByNameAndId() {
 
     MentionPopup popup;
     popup.setCandidates({all, li, he}, QString::fromUtf8("\u4f55"));
-    QCOMPARE(popup.visibleCount(), 2);  // 所有人 + 何填
-    QCOMPARE(popup.selectedCandidate().name, all.name);
+    QCOMPARE(popup.visibleCount(), 1);  // only 何填 matches
+    QCOMPARE(popup.selectedCandidate().name, he.name);
 
     popup.setCandidates({all, li, he}, QStringLiteral("00000007"));
-    QCOMPARE(popup.visibleCount(), 2);  // 所有人 + 李硬
-    popup.moveSelection(1);
+    QCOMPARE(popup.visibleCount(), 1);  // only 李硬 matches
     QCOMPARE(popup.selectedCandidate().name, li.name);
+
+    popup.setCandidates({all, li, he}, QString::fromUtf8("\u6240"));
+    QCOMPARE(popup.visibleCount(), 1);
+    QCOMPARE(popup.selectedCandidate().user_id, quint64(0));
+}
+
+void TestClientCore::mentionPopupShowsEmptyState() {
+    MentionCandidate li;
+    li.user_id = 7;
+    li.name = QString::fromUtf8("\u674e\u786c");
+    MentionPopup popup;
+    popup.setCandidates({li}, QStringLiteral("zzz"));
+    QCOMPARE(popup.visibleCount(), 0);
+    QVERIFY(!popup.hasSelection());
+    auto* empty = popup.findChild<QLabel*>(QStringLiteral("MentionEmpty"));
+    QVERIFY(empty != nullptr);
+    QVERIFY2(empty->text().contains(QString::fromUtf8("\u6ca1\u6709\u5339\u914d")),
+             "an empty filter must explain why there are no rows");
 }
 
 void TestClientCore::mentionPopupKeyboardSelectionEmitsChosen() {
@@ -1926,6 +1947,53 @@ void TestClientCore::jumpRequestUsesTargetPlusOne() {
     QVERIFY2(function.contains(QStringLiteral("message_id + 1")),
              "the jump page must be fetched with before_id = target + 1 so the "
              "target is its newest record");
+}
+
+void TestClientCore::jumpTimeoutResetsState() {
+    const QString chat = readClientSource(QStringLiteral("ui/main_window_chat.cpp"));
+    const QString jump = sourceSection(
+        chat, QStringLiteral("void MainWindow::jumpToMessage("),
+        QStringLiteral("void MainWindow::exitJumpMode("));
+    QVERIFY2(jump.contains(QStringLiteral("jump_timeout_timer_->start()")),
+             "a jump request must arm its timeout");
+    const QString exit = sourceSection(
+        chat, QStringLiteral("void MainWindow::exitJumpMode("),
+        QStringLiteral("void MainWindow::positionJumpLatestButton("));
+    QVERIFY2(exit.contains(QStringLiteral("jump_timeout_timer_->stop()")),
+             "leaving jump mode must disarm the timeout");
+
+    const QString app = readClientSource(QStringLiteral("ui/main_window.cpp"));
+    QVERIFY2(app.contains(QStringLiteral("pending_jump_id_ = 0;")) &&
+                 app.contains(QStringLiteral("跳转超时")),
+             "the timeout must clear the pending jump and report it");
+}
+
+void TestClientCore::switchConversationClearsSearchState() {
+    const QString chat = readClientSource(QStringLiteral("ui/main_window_chat.cpp"));
+    for (const QString& marker :
+         {QStringLiteral("void MainWindow::selectRoom("),
+          QStringLiteral("void MainWindow::selectPrivate(")}) {
+        const QString function = sourceSection(chat, marker,
+                                                QStringLiteral("void MainWindow::"));
+        QVERIFY2(function.contains(QStringLiteral("closeMessageSearch()")),
+                 qPrintable(marker));
+    }
+    const QString close = sourceSection(
+        chat, QStringLiteral("void MainWindow::closeMessageSearch("),
+        QStringLiteral("void MainWindow::requestMessageSearch("));
+    QVERIFY2(close.contains(QStringLiteral("message_search_seq_ = 0")),
+             "a stale search response must be ignored");
+    QVERIFY2(close.contains(QStringLiteral("message_search_timeout_timer_->stop()")),
+             "the search timeout must be cancelled");
+}
+
+void TestClientCore::insertMentionChoiceRecomputesToken() {
+    const QString chat = readClientSource(QStringLiteral("ui/main_window_chat.cpp"));
+    const QString function = sourceSection(
+        chat, QStringLiteral("void MainWindow::insertMentionChoice("),
+        QStringLiteral("void MainWindow::setReplyTo("));
+    QVERIFY2(function.contains(QStringLiteral("mentionTokenAt(")),
+             "insertion must revalidate the token at the current caret");
 }
 
 void TestClientCore::presenceBookAppliesNewerSequence() {

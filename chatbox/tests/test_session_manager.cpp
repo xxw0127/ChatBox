@@ -49,6 +49,26 @@ int testPresenceSequenceAndTakeover() {
     uint64_t seq7 = 0;
     CHECK_EQ(sessions.unbindByConnection(3, &seq7), static_cast<uint64_t>(9));
     CHECK_TRUE(seq7 > seq6);
+
+    // Defensive: two users bound to one connection (a client that logged in
+    // twice) are both drained, so neither can remain online forever.
+    chatbox::SessionBinding fourth;
+    fourth.connection_id = 4;
+    fourth.io_thread_id = 3;
+    uint64_t seq8 = 0;
+    uint64_t seq9 = 0;
+    CHECK_TRUE(!sessions.bind(11, fourth, old_binding, &seq8));
+    CHECK_TRUE(!sessions.bind(12, fourth, old_binding, &seq9));
+    uint64_t drain1 = 0;
+    uint64_t drain2 = 0;
+    uint64_t drain3 = 0;
+    const uint64_t first_user = sessions.unbindByConnection(4, &drain1);
+    const uint64_t second_user = sessions.unbindByConnection(4, &drain2);
+    CHECK_TRUE((first_user == 11 && second_user == 12) ||
+               (first_user == 12 && second_user == 11));
+    CHECK_TRUE(drain1 != 0 && drain2 != 0);
+    CHECK_EQ(sessions.unbindByConnection(4, &drain3), static_cast<uint64_t>(0));
+    CHECK_EQ(drain3, static_cast<uint64_t>(0));
     return 0;
 }
 

@@ -96,6 +96,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             message_search_dialog_->setStatus("搜索超时，请重试", true);
         }
     });
+    jump_timeout_timer_ = new QTimer(this);
+    jump_timeout_timer_->setSingleShot(true);
+    jump_timeout_timer_->setInterval(8000);
+    connect(jump_timeout_timer_, &QTimer::timeout, this, [this] {
+        if (pending_jump_id_ == 0) {
+            return;
+        }
+        pending_jump_id_ = 0;
+        setStatus("跳转超时，请重试", true);
+        exitJumpMode(false);
+    });
     profile_timeout_timer_ = new QTimer(this);
     profile_timeout_timer_->setSingleShot(true);
     profile_timeout_timer_->setInterval(8000);
@@ -826,16 +837,27 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
             auto* key = static_cast<QKeyEvent*>(event);
             switch (key->key()) {
                 case Qt::Key_Up:
-                    mention_popup_->moveSelection(-1);
-                    return true;
+                    if (mention_popup_->hasSelection()) {
+                        mention_popup_->moveSelection(-1);
+                        return true;
+                    }
+                    break;
                 case Qt::Key_Down:
-                    mention_popup_->moveSelection(1);
-                    return true;
+                    if (mention_popup_->hasSelection()) {
+                        mention_popup_->moveSelection(1);
+                        return true;
+                    }
+                    break;
                 case Qt::Key_Return:
                 case Qt::Key_Enter:
                 case Qt::Key_Tab:
-                    mention_popup_->activateSelected();
-                    return true;
+                    if (mention_popup_->hasSelection()) {
+                        mention_popup_->activateSelected();
+                        return true;
+                    }
+                    // No match: dismiss the empty picker and let Enter send.
+                    closeMentionPopup();
+                    break;
                 case Qt::Key_Escape:
                     closeMentionPopup();
                     return true;

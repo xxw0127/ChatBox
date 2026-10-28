@@ -1,6 +1,7 @@
 #include "ui/mention_popup.h"
 
 #include <QGraphicsDropShadowEffect>
+#include <QLabel>
 #include <QListWidget>
 #include <QVBoxLayout>
 
@@ -49,6 +50,12 @@ MentionPopup::MentionPopup(QWidget* parent) : QFrame(parent) {
     list_->setItemDelegate(new MentionItemDelegate(list_));
     layout->addWidget(list_);
 
+    empty_label_ = new QLabel(QString::fromUtf8("\u6ca1\u6709\u5339\u914d\u7684\u6210\u5458"), this);
+    empty_label_->setObjectName(QStringLiteral("MentionEmpty"));
+    empty_label_->setAlignment(Qt::AlignCenter);
+    empty_label_->hide();
+    layout->addWidget(empty_label_);
+
     connect(list_, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
         if (item == nullptr) {
             return;
@@ -79,7 +86,7 @@ void MentionPopup::setCandidates(const QVector<MentionCandidate>& candidates,
 void MentionPopup::applyFilter(const QString& query) {
     list_->clear();
     for (const MentionCandidate& candidate : candidates_) {
-        if (candidate.user_id != 0 && !query.isEmpty() &&
+        if (!query.isEmpty() &&
             !candidate.name.contains(query, Qt::CaseInsensitive) &&
             !candidate.public_id.contains(query, Qt::CaseInsensitive)) {
             continue;
@@ -94,8 +101,19 @@ void MentionPopup::applyFilter(const QString& query) {
         item->setSizeHint(QSize(0, 46));
     }
     if (list_->count() > 0) {
-        list_->setCurrentRow(0);
+        // With a query, the first member is the useful default; "所有人"
+        // stays reachable with Up. An empty query highlights 所有人, matching
+        // the reference panel.
+        list_->setCurrentRow(query.isEmpty() ? 0 : qMin(1, list_->count() - 1));
     }
+    if (list_->count() == 0) {
+        list_->hide();
+        empty_label_->show();
+        setFixedHeight(44);
+        return;
+    }
+    empty_label_->hide();
+    list_->show();
     setFixedHeight(qMin(6, list_->count()) * 46 + 12);
 }
 

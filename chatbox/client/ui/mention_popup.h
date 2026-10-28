@@ -8,6 +8,7 @@
 #include <QtGlobal>
 
 class QListWidget;
+class QLabel;
 
 struct MentionCandidate {
     quint64 user_id = 0;  // 0 means "所有人"
@@ -43,6 +44,7 @@ private:
     void chooseRow(int row);
 
     QListWidget* list_ = nullptr;
+    QLabel* empty_label_ = nullptr;
     QVector<MentionCandidate> candidates_;
 };
 

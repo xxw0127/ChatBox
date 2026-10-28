@@ -901,6 +901,9 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             if (pending_jump_id_ != 0) {
                 const quint64 jump_id = pending_jump_id_;
                 pending_jump_id_ = 0;
+                if (jump_timeout_timer_ != nullptr) {
+                    jump_timeout_timer_->stop();
+                }
                 loading_older_history_ = false;
                 message_store_.replaceHistory(page);
                 has_more_ = has_more != 0;

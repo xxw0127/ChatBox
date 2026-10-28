@@ -141,6 +141,7 @@ private:
     void requestUserSearch(const QString& keyword);
     void openUserSearch();
     void openMessageSearch();
+    void closeMessageSearch();
     void requestMessageSearch(const QString& keyword);
     void refreshContacts();
     void requestProfile(quint64 user_id);
@@ -181,7 +182,7 @@ private:
     void positionJumpLatestButton();
     void copyMessageText(const chatbox::client::ChatMessage& message);
     void requestMembers(int room_id);
-    void requestHistory(int kind, quint64 target, quint64 before_id);
+    bool requestHistory(int kind, quint64 target, quint64 before_id);
     void selectRoom(int room_id, const QString& name);
     void selectPrivate(quint64 peer_id, const QString& nickname);
     // 房间列表与会话列表是两个独立控件，各自记着自己的选中项。切场景时
@@ -289,7 +290,6 @@ private:
     QLabel* message_byte_counter_ = nullptr;
     QPushButton* mention_button_ = nullptr;
     MentionPopup* mention_popup_ = nullptr;
-    int mention_token_start_ = -1;
     QPushButton* send_button_ = nullptr;
     QWidget* right_panel_ = nullptr;
     QLabel* member_count_label_ = nullptr;
@@ -315,6 +315,7 @@ private:
     QTimer* reconnect_timer_ = nullptr;
     QTimer* search_timeout_timer_ = nullptr;
     QTimer* message_search_timeout_timer_ = nullptr;
+    QTimer* jump_timeout_timer_ = nullptr;
     QTimer* profile_timeout_timer_ = nullptr;
     QTimer* avatar_timeout_timer_ = nullptr;
     quint32 user_search_seq_ = 0;

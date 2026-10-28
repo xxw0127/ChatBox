@@ -8,13 +8,16 @@ void MainWindow::insertMention() {
         setStatus("当前离线，无法提及成员", true);
         return;
     }
+    if (context_type_ == ContextType::None) {
+        setStatus("请先选择一个会话", true);
+        return;
+    }
     if (context_type_ != ContextType::Room) {
         setStatus("私聊无需 @ 提及", true);
         return;
     }
     const chatbox::client::MentionToken token = chatbox::client::mentionTokenAt(
         input_edit_->toPlainText(), input_edit_->textCursor().position());
-    mention_token_start_ = token.active ? token.start : -1;
     openMentionPopup(token.active ? token.query : QString());
 }
 
@@ -87,7 +90,6 @@ void MainWindow::updateMentionPopup() {
         closeMentionPopup();
         return;
     }
-    mention_token_start_ = token.start;
     openMentionPopup(token.query);
 }
 
@@ -95,7 +97,6 @@ void MainWindow::closeMentionPopup() {
     if (mention_popup_ != nullptr && mention_popup_->isVisible()) {
         mention_popup_->hide();
     }
-    mention_token_start_ = -1;
 }
 
 void MainWindow::insertMentionChoice(quint64 user_id, const QString& name) {
@@ -105,8 +106,12 @@ void MainWindow::insertMentionChoice(quint64 user_id, const QString& name) {
     }
     QTextCursor cursor = input_edit_->textCursor();
     const int caret = cursor.position();
-    if (mention_token_start_ >= 0 && mention_token_start_ < caret) {
-        cursor.setPosition(mention_token_start_);
+    // Recompute at insertion time: the caret may have moved since the popup
+    // opened, and a stale start would delete text between token and caret.
+    const chatbox::client::MentionToken token = chatbox::client::mentionTokenAt(
+        input_edit_->toPlainText(), caret);
+    if (token.active && token.start < caret) {
+        cursor.setPosition(token.start);
         cursor.setPosition(caret, QTextCursor::KeepAnchor);
     }
     cursor.insertText("@" + name + " ");
@@ -286,13 +291,26 @@ void MainWindow::jumpToMessage(quint64 message_id) {
     }
 
     pending_jump_id_ = message_id;
-    requestHistory(jump_kind_, target_id, message_id + 1);
+    if (jump_timeout_timer_ != nullptr) {
+        jump_timeout_timer_->start();
+    }
+    if (!requestHistory(jump_kind_, target_id, message_id + 1)) {
+        pending_jump_id_ = 0;
+        if (jump_timeout_timer_ != nullptr) {
+            jump_timeout_timer_->stop();
+        }
+        setStatus("网络未连接，无法跳转", true);
+        exitJumpMode(false);
+    }
 }
 
 void MainWindow::exitJumpMode(bool reload_latest) {
     const bool was_jumping = jump_mode_ || pending_jump_id_ != 0;
     jump_mode_ = false;
     pending_jump_id_ = 0;
+    if (jump_timeout_timer_ != nullptr) {
+        jump_timeout_timer_->stop();
+    }
     if (jump_latest_button_ != nullptr) {
         jump_latest_button_->hide();
     }
@@ -369,6 +387,17 @@ void MainWindow::openMessageSearch() {
     message_search_dialog_->show();
     message_search_dialog_->raise();
     message_search_dialog_->activateWindow();
+}
+
+void MainWindow::closeMessageSearch() {
+    if (message_search_dialog_ != nullptr) {
+        message_search_dialog_->close();
+        message_search_dialog_->clearResults();
+    }
+    message_search_seq_ = 0;
+    if (message_search_timeout_timer_ != nullptr) {
+        message_search_timeout_timer_->stop();
+    }
 }
 
 void MainWindow::requestMessageSearch(const QString& keyword) {
@@ -457,9 +486,9 @@ void MainWindow::requestMembers(int room_id) {
     sendFrame(frame);
 }
 
-void MainWindow::requestHistory(int kind, quint64 target, quint64 before_id) {
+bool MainWindow::requestHistory(int kind, quint64 target, quint64 before_id) {
     if (offline_mode_) {
-        return;
+        return false;
     }
     chatbox::Frame frame;
     frame.header.cmd = chatbox::kCmdHistory;
@@ -472,7 +501,7 @@ void MainWindow::requestHistory(int kind, quint64 target, quint64 before_id) {
     frame.body = writer.data();
     loading_older_history_ = before_id != 0;
     load_more_action_->setEnabled(false);
-    sendFrame(frame);
+    return sendFrame(frame);
 }
 
 void MainWindow::onSendClicked() {
@@ -690,9 +719,7 @@ void MainWindow::selectRoom(int room_id, const QString& name) {
     chat_view_->clear();
     closeMentionPopup();
     exitJumpMode(false);
-    if (message_search_dialog_ != nullptr) {
-        message_search_dialog_->close();
-    }
+    closeMessageSearch();
     if (input_edit_ != nullptr) {
         input_edit_->clear();
     }
@@ -763,9 +790,7 @@ void MainWindow::selectPrivate(quint64 peer_id, const QString& nickname) {
     chat_view_->clear();
     closeMentionPopup();
     exitJumpMode(false);
-    if (message_search_dialog_ != nullptr) {
-        message_search_dialog_->close();
-    }
+    closeMessageSearch();
     if (input_edit_ != nullptr) {
         input_edit_->clear();
     }
@@ -921,6 +946,7 @@ void MainWindow::resetContext() {
         chat_view_->clear();
         closeMentionPopup();
         exitJumpMode(false);
+        closeMessageSearch();
     }
     if (member_list_ != nullptr) {
         member_list_->clear();

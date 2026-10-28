@@ -507,16 +507,21 @@ int main(int argc, char** argv) {
                 broadcastChangedRoomMembers(room_manager, io_thread_refs,
                                             changed_rooms);
                 uint64_t presence_seq = 0;
-                const uint64_t user_id =
-                    sessions.unbindByConnection(connection_id, &presence_seq);
-                connection_limiter.release(connection_id);
-                if (user_id != 0 && presence_seq != 0) {
+                uint64_t user_id = 0;
+                // A healthy connection owns one binding. Drain every match so
+                // a client that logged in twice cannot leave a ghost online.
+                while ((user_id = sessions.unbindByConnection(
+                            connection_id, &presence_seq)) != 0) {
+                    if (presence_seq == 0) {
+                        break;
+                    }
                     chatbox::PresenceEntry entry;
                     entry.user_id = user_id;
                     entry.online = false;
                     entry.seq = presence_seq;
                     broadcastPresence(sessions, io_thread_refs, entry, connection_id);
                 }
+                connection_limiter.release(connection_id);
             },
             config.proxy_protocol,
             [&connection_limiter](uint64_t connection_id, const std::string& ip,
