@@ -36,6 +36,8 @@ public:
     explicit RoomManager(std::vector<RoomInfo> rooms);
 
     std::vector<RoomView> list() const;
+    bool addRoom(const RoomInfo& room, std::string& error);
+    void removeRoom(int room_id);
     bool join(int room_id, const RoomMember& member, std::string& error);
     bool leave(int room_id, uint64_t user_id);
     bool isMember(int room_id, uint64_t user_id) const;

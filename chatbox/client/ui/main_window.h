@@ -8,12 +8,14 @@
 #include <QSet>
 #include <QString>
 #include <QStringList>
+#include <QVector>
 
 #include "common/protocol.h"
 #include "core/avatar_cache.h"
 #include "core/chat_message.h"
 #include "core/contact_store.h"
 #include "core/friend_view.h"
+#include "core/group_store.h"
 #include "core/history_store.h"
 #include "core/message_store.h"
 #include "core/outbox.h"
@@ -49,6 +51,11 @@ class MessageSearchDialog;
 class SettingsDialog;
 class UpdateDialog;
 class UserSearchDialog;
+class GroupCreateDialog;
+class GroupJoinDialog;
+class GroupSettingsDialog;
+class GroupNotifyDialog;
+class QTabWidget;
 
 namespace chatbox {
 namespace client {
@@ -77,6 +84,7 @@ private slots:
     void onFrameReceived(const QByteArray& data);
     void onSendClicked();
     void onRoomClicked(QListWidgetItem* item);
+    void onGroupClicked(QListWidgetItem* item);
     void onConversationClicked(QListWidgetItem* item);
     void selectAdjacentConversation(int delta);
     void onFriendAvatarClicked(QListWidgetItem* item);
@@ -104,7 +112,7 @@ private slots:
 private:
     enum class PendingAuth { None, Login, Register };
     enum class ContextType { None, Room, Private };
-    enum class ScrollMode { kBottom, kTop, kPreserve };
+    enum class ScrollMode { kBottom, kTop, kPreserve, kPreserveAnchor };
 
     void buildUi();
     // Single entry point for colours baked into QPixmap/QIcon. Called on every
@@ -121,6 +129,14 @@ private:
     void sendRegister();
     void sendResume();
     void requestRoomList();
+    void requestGroupList();
+    void requestGroupMembers(quint64 room_id);
+    void requestGroupRequests(quint64 room_id);
+    bool sendGroupCommand(quint16 command, const std::string& body);
+    void handleGroupList(const QByteArray& body);
+    void handleGroupMemberList(const QByteArray& body);
+    void handleGroupRequestList(const QByteArray& body);
+    void handleGroupPush(const QByteArray& body);
     void requestConversations();
     void requestFriendList();
     void requestFriendRequests();
@@ -132,6 +148,8 @@ private:
     void requestUserSearch(const QString& keyword);
     void openUserSearch();
     void openMessageSearch();
+    void openMessageSearchWith(const QString& keyword);
+    void startPanelSearch(const QString& keyword);
     void requestMessageSearch(const QString& keyword);
     void refreshContacts();
     void requestProfile(quint64 user_id);
@@ -169,7 +187,20 @@ private:
     void copyMessageText(const chatbox::client::ChatMessage& message);
     void requestMembers(int room_id);
     void requestHistory(int kind, quint64 target, quint64 before_id);
+    void maybeLoadOlder();
+    void jumpToMessage(quint64 message_id);
     void selectRoom(int room_id, const QString& name);
+    void selectGroup(quint64 room_id, const QString& name);
+    void selectDissolvedGroup(quint64 room_id, const QString& name);
+    void refreshGroupListView();
+    void openCreateGroupDialog();
+    void openJoinGroupDialog();
+    void openGroupSettings();
+    void openGroupInviteDialog(quint64 room_id);
+    void leaveGroup(quint64 room_id);
+    void openGroupNotifications();
+    void markGroupRead(quint64 room_id, quint64 message_id);
+    void updateGroupNoticeBadge();
     void selectPrivate(quint64 peer_id, const QString& nickname);
     // 房间列表与会话列表是两个独立控件，各自记着自己的选中项。切场景时
     // 必须清掉另一个，否则两行会同时是蓝色选中态。
@@ -216,7 +247,9 @@ private:
     void rememberCurrentAccount();
     // 成员面板只在房间里出现，私聊与未选会话时整列收起。
     void updateRightPanelVisibility();
-    // 成员面板默认关闭，开关状态记在 QSettings 里。
+    void updatePrivateProfileCard();
+    void toggleRightPanel();
+    // 右侧栏默认关闭，开关状态记在 QSettings 里。
     bool member_panel_visible_ = false;
     void sendMarkRead(quint64 peer_id, quint64 message_id);
     QListWidgetItem* findConversationItem(quint64 peer_id) const;
@@ -236,6 +269,16 @@ private:
     LoginPage* login_page_ = nullptr;
     QWidget* chat_page_ = nullptr;
     QListWidget* room_list_ = nullptr;
+    QTabWidget* sidebar_tabs_ = nullptr;
+    QListWidget* group_list_ = nullptr;
+    QToolButton* group_notice_button_ = nullptr;
+    QLabel* group_notice_badge_ = nullptr;
+    QPushButton* create_group_button_ = nullptr;
+    QPushButton* join_group_button_ = nullptr;
+    GroupCreateDialog* group_create_dialog_ = nullptr;
+    GroupJoinDialog* group_join_dialog_ = nullptr;
+    GroupSettingsDialog* group_settings_dialog_ = nullptr;
+    GroupNotifyDialog* group_notify_dialog_ = nullptr;
     FriendListWidget* conversation_list_ = nullptr;
     QStackedWidget* conversation_stack_ = nullptr;
     EmptyState* friends_empty_state_ = nullptr;
@@ -244,9 +287,6 @@ private:
     QLabel* context_label_ = nullptr;
     QLabel* context_avatar_ = nullptr;
     QToolButton* more_button_ = nullptr;
-    QMenu* more_menu_ = nullptr;
-    QAction* load_more_action_ = nullptr;
-    QAction* show_members_action_ = nullptr;
     QLabel* connection_banner_ = nullptr;
     QWidget* banner_row_ = nullptr;
     QPushButton* reconnect_button_ = nullptr;
@@ -269,7 +309,28 @@ private:
     QPushButton* mention_button_ = nullptr;
     QPushButton* send_button_ = nullptr;
     QWidget* right_panel_ = nullptr;
+    QStackedWidget* right_mode_stack_ = nullptr;
+    QWidget* right_group_page_ = nullptr;
+    QWidget* right_private_page_ = nullptr;
+    QWidget* right_search_page_ = nullptr;
+    QLineEdit* right_search_input_ = nullptr;
+    QListWidget* right_search_results_ = nullptr;
+    QLabel* right_search_status_ = nullptr;
+    quint32 panel_search_seq_ = 0;
     QLabel* member_count_label_ = nullptr;
+    QLineEdit* right_group_search_ = nullptr;
+    QLineEdit* right_private_search_ = nullptr;
+    QPushButton* right_group_file_button_ = nullptr;
+    QPushButton* right_private_file_button_ = nullptr;
+    QPushButton* right_profile_button_ = nullptr;
+    QPushButton* right_invite_button_ = nullptr;
+    QPushButton* right_leave_button_ = nullptr;
+    QToolButton* right_settings_button_ = nullptr;
+    QLabel* right_profile_avatar_ = nullptr;
+    QLabel* right_profile_name_ = nullptr;
+    QLabel* right_profile_id_ = nullptr;
+    QLabel* right_profile_signature_ = nullptr;
+    chatbox::client::UserProfile right_panel_profile_;
     QLabel* friend_requests_badge_ = nullptr;
     QLabel* status_label_ = nullptr;
     QSystemTrayIcon* tray_ = nullptr;
@@ -317,11 +378,32 @@ private:
     QString current_peer_name_;
     chatbox::client::MessageStore message_store_;
     chatbox::client::HistoryStore history_store_;
+    chatbox::client::GroupStore group_store_;
+    QHash<quint32, quint16> pending_group_commands_;
+    QSet<quint64> joined_groups_;
+    chatbox::client::GroupInfo last_group_search_;
+    chatbox::client::GroupRequestInfo last_group_request_;
+    int last_group_search_membership_ = 0;
+    bool last_group_search_found_ = false;
+    quint64 last_group_request_id_ = 0;
+    quint64 last_group_invite_id_ = 0;
+    QHash<quint64, QVector<chatbox::client::GroupRequestInfo>>
+        group_requests_by_room_;
+    QVector<chatbox::client::GroupRequestInfo> group_invites_;
+    QVector<chatbox::client::GroupRequestInfo> pendingGroupRequests() const;
     chatbox::client::Outbox outbox_;
     QHash<quint32, QString> pending_sequences_;
     quint64 next_before_id_ = 0;
     bool has_more_ = false;
     bool loading_older_history_ = false;
+    bool programmatic_scroll_ = false;
+    quint64 pending_jump_message_id_ = 0;
+    quint32 history_request_seq_ = 0;
+    int history_request_kind_ = 0;
+    quint64 history_request_target_ = 0;
+    quint64 history_request_before_ = 0;
+    bool history_request_is_jump_ = false;
+    bool jump_history_pending_ = false;
     bool connected_ = false;
     bool online_ = false;
     // 离线模式：只读地显示本地记录，不发任何聊天/好友/资料请求。

@@ -9,16 +9,84 @@
 #include "ui/account_switcher_dialog.h"
 
 void MainWindow::updateRightPanelVisibility() {
-    if (right_panel_ == nullptr) {
+    if (right_panel_ == nullptr || right_mode_stack_ == nullptr) {
         return;
     }
-    // Member list is a room concept and it is off by default; private chats and
-    // the empty state never show it regardless of the switch.
-    const bool is_room = context_type_ == ContextType::Room;
-    right_panel_->setVisible(is_room && member_panel_visible_);
-    if (show_members_action_ != nullptr) {
-        show_members_action_->setEnabled(is_room);
+    const bool has_context = context_type_ == ContextType::Room ||
+                             context_type_ == ContextType::Private;
+    right_panel_->setVisible(has_context && member_panel_visible_);
+    if (!has_context || !member_panel_visible_) {
+        return;
     }
+    if (context_type_ == ContextType::Room) {
+        right_mode_stack_->setCurrentWidget(right_group_page_);
+        const chatbox::client::GroupInfo* group =
+            group_store_.find(static_cast<quint64>(current_room_id_));
+        if (group != nullptr) {
+            member_count_label_->setText(
+                group->status != 0
+                    ? QString("%1 · %2")
+                          .arg(group->name,
+                               group->status == 2 ? QStringLiteral("已退出")
+                                                  : QStringLiteral("已解散"))
+                    : QString("%1 · %2 人").arg(group->name).arg(group->member_count));
+            const bool active = group->status == 0;
+            right_settings_button_->setVisible(
+                active && (group->role == 1 || group->role == 2));
+            if (right_invite_button_ != nullptr) {
+                right_invite_button_->setVisible(active);
+                right_invite_button_->setEnabled(active && online_ &&
+                                                 !offline_mode_);
+            }
+            if (right_leave_button_ != nullptr) {
+                const bool can_leave =
+                    active && !group->is_default && group->role != 2;
+                right_leave_button_->setVisible(can_leave);
+                right_leave_button_->setEnabled(can_leave && online_ &&
+                                                !offline_mode_);
+            }
+        } else {
+            member_count_label_->setText(current_peer_name_);
+            right_settings_button_->hide();
+            if (right_invite_button_ != nullptr) {
+                right_invite_button_->hide();
+            }
+            if (right_leave_button_ != nullptr) {
+                right_leave_button_->hide();
+            }
+        }
+    } else {
+        right_mode_stack_->setCurrentWidget(right_private_page_);
+        member_count_label_->setText(current_peer_name_);
+        right_settings_button_->hide();
+        updatePrivateProfileCard();
+    }
+}
+
+void MainWindow::updatePrivateProfileCard() {
+    if (right_profile_name_ == nullptr) {
+        return;
+    }
+    const QString display_name =
+        chatbox::client::profileDisplayName(right_panel_profile_).trimmed();
+    right_profile_name_->setText(display_name.isEmpty() ? current_peer_name_
+                                                        : display_name);
+    right_profile_id_->setText(chatbox::client::publicUserId(current_peer_id_));
+    right_profile_signature_->setText(right_panel_profile_.signature);
+    right_profile_avatar_->setPixmap(
+        memberAvatarIcon(current_peer_id_, current_peer_name_, 56).pixmap(56, 56));
+}
+
+void MainWindow::toggleRightPanel() {
+    if (context_type_ == ContextType::None) {
+        setStatus("请先选择一个会话", true);
+        return;
+    }
+    member_panel_visible_ = !member_panel_visible_;
+    QSettings settings;
+    settings.setValue(QStringLiteral("settings/member_panel"), member_panel_visible_);
+    settings.sync();
+    updateRightPanelVisibility();
 }
 
 void MainWindow::rememberCurrentAccount() {
@@ -336,7 +404,12 @@ void MainWindow::refreshMemberListAvatar(quint64 user_id) {
         QListWidgetItem* item = member_list_->item(i);
         if (item != nullptr &&
             item->data(Qt::UserRole).toULongLong() == user_id) {
-            item->setIcon(memberAvatarIcon(user_id, item->text(), 28));
+            item->setIcon(memberAvatarIcon(
+                user_id,
+                item->data(Qt::UserRole + 1).toString().isEmpty()
+                    ? item->text()
+                    : item->data(Qt::UserRole + 1).toString(),
+                28));
             break;
         }
     }
@@ -424,12 +497,20 @@ void MainWindow::onProfileAvatarReceived(quint64 user_id, quint32 version,
         // requestAvatar() is a no-op while that newer request is still pending.
         requestAvatar(user_id, newer_version);
     }
+    if (context_type_ == ContextType::Private && user_id == current_peer_id_) {
+        updatePrivateProfileCard();
+    }
 }
 
 void MainWindow::onProfileDataReceived(
     const chatbox::client::UserProfile& profile) {
     if (profile.user_id == 0) {
         return;
+    }
+    if (context_type_ == ContextType::Private &&
+        profile.user_id == current_peer_id_) {
+        right_panel_profile_ = profile;
+        updatePrivateProfileCard();
     }
 
     quint32 known_version = 0;

@@ -19,6 +19,7 @@
 #include "server/auth/user_lock_table.h"
 #include "server/db/mysql_connection.h"
 #include "server/friend/friend_service.h"
+#include "server/group/group_service.h"
 #include "server/history/history_service.h"
 #include "server/private/private_service.h"
 #include "server/profile/profile_service.h"
@@ -35,6 +36,7 @@ struct WorkerContext {
     HistoryService& history;
     FriendService& friend_chat;
     ProfileService& profile;
+    GroupService& group;
 };
 
 class WorkerPool {

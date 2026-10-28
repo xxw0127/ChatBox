@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "common/group_types.h"
+
 namespace chatbox {
 
 struct DbConfig {
@@ -110,6 +112,11 @@ public:
     bool createUser(const std::string& username, const std::string& nickname,
                     const std::string& password_hash, uint64_t& user_id, bool& duplicate,
                     std::string& error);
+    bool createUserWithDefaultGroup(const std::string& username,
+                                    const std::string& nickname,
+                                    const std::string& password_hash,
+                                    uint64_t& user_id, bool& duplicate,
+                                    std::string& error);
     bool findUserByUsername(const std::string& username, UserRecord& user, bool& found,
                             std::string& error);
     bool findUserById(uint64_t user_id, UserRecord& user, bool& found, std::string& error);
@@ -131,11 +138,12 @@ public:
                               uint64_t reply_to_id, const std::string& reply_sender_name,
                               const std::string& reply_content, const std::string& created_at,
                               uint64_t& message_id, bool& duplicate, std::string& error);
-    bool listRoomHistory(int room_id, uint64_t before_id, int limit, HistoryPage& page,
-                         std::string& error);
+    bool listRoomHistory(int room_id, uint64_t after_id, uint64_t before_id,
+                         int limit, HistoryPage& page, std::string& error);
     bool listPrivateHistory(uint64_t user_id, uint64_t peer_id, uint64_t before_id, int limit,
                             HistoryPage& page, std::string& error);
-    bool searchRoomMessages(int room_id, const std::string& keyword, int limit,
+    bool searchRoomMessages(int room_id, uint64_t after_id,
+                            const std::string& keyword, int limit,
                             std::vector<SearchResultRow>& results, std::string& error);
     bool searchPrivateMessages(uint64_t user_id, uint64_t peer_id,
                                const std::string& keyword, int limit,
@@ -174,6 +182,70 @@ public:
     bool getProfileRelation(uint64_t viewer_id, uint64_t target_id, uint8_t& relation,
                             std::string& remark, std::string& error);
     bool listFriendIds(uint64_t user_id, std::vector<uint64_t>& ids, std::string& error);
+
+    bool listGroupsForUser(uint64_t user_id, std::vector<GroupInfo>& groups,
+                           std::string& error);
+    bool findGroupByNumber(const std::string& group_no, GroupInfo& group,
+                           bool& found, std::string& error);
+    bool findGroupById(uint64_t room_id, GroupInfo& group, bool& found,
+                       std::string& error);
+    bool createGroup(const std::string& name, uint64_t owner_id, GroupInfo& group,
+                     std::string& error);
+    bool updateGroupName(uint64_t room_id, const std::string& name,
+                         std::string& error);
+    bool disbandGroup(uint64_t room_id, std::string& error);
+    bool addRoomMember(uint64_t room_id, uint64_t user_id, GroupRole role,
+                       std::string& error);
+    bool removeRoomMember(uint64_t room_id, uint64_t user_id, std::string& error);
+    bool cancelPendingMembershipRequests(uint64_t room_id, uint64_t user_id,
+                                         std::string& error);
+    bool listRoomMembers(uint64_t room_id, std::vector<GroupMemberInfo>& members,
+                         std::string& error);
+    bool getRoomMemberRole(uint64_t room_id, uint64_t user_id, GroupRole& role,
+                           bool& found, std::string& error);
+    bool setRoomMemberRole(uint64_t room_id, uint64_t user_id, GroupRole role,
+                           std::string& error);
+    bool transferRoomOwner(uint64_t room_id, uint64_t new_owner,
+                           std::string& error);
+    bool listJoinRequests(uint64_t room_id, std::vector<GroupRequestInfo>& requests,
+                          std::string& error);
+    bool createJoinRequest(uint64_t room_id, uint64_t user_id,
+                           const std::string& message, uint64_t& request_id,
+                           std::string& error);
+    bool hasPendingJoinRequest(uint64_t room_id, uint64_t user_id, bool& pending,
+                               std::string& error);
+    bool findJoinRequest(uint64_t request_id, uint64_t& room_id,
+                         uint64_t& user_id, int& status, bool& found,
+                         std::string& error);
+    bool respondJoinRequest(uint64_t request_id, uint64_t reviewer_id, bool accept,
+                            std::string& error);
+    bool createInvite(uint64_t room_id, uint64_t inviter_id, uint64_t invitee_id,
+                      uint64_t& invite_id, std::string& error);
+    bool hasPendingInvite(uint64_t room_id, uint64_t invitee_id, bool& pending,
+                          std::string& error);
+    bool findInvite(uint64_t invite_id, uint64_t& room_id, uint64_t& invitee_id,
+                    int& status, bool& found, std::string& error);
+    bool respondInvite(uint64_t invite_id, uint64_t invitee_id, bool accept,
+                       std::string& error);
+    bool listInvitesForUser(uint64_t user_id,
+                            std::vector<GroupRequestInfo>& invites,
+                            std::string& error);
+    bool markRoomRead(uint64_t room_id, uint64_t user_id, uint64_t message_id,
+                      std::string& error);
+    bool unreadCount(uint64_t room_id, uint64_t user_id, uint32_t& unread,
+                     std::string& error);
+    bool isRoomMember(uint64_t room_id, uint64_t user_id, bool& member,
+                      std::string& error);
+    bool roomJoinMessageId(uint64_t room_id, uint64_t user_id,
+                           uint64_t& message_id, std::string& error);
+    bool maxRoomMessageId(uint64_t room_id, uint64_t& message_id,
+                          std::string& error);
+    bool countOwnedGroupsToday(uint64_t user_id, uint32_t& count,
+                               std::string& error);
+    bool countJoinRequestsToday(uint64_t user_id, uint32_t& count,
+                                std::string& error);
+    bool countInvitesToday(uint64_t user_id, uint32_t& count,
+                           std::string& error);
 
 private:
     bool ensureConnected(std::string& error);

@@ -125,6 +125,7 @@ void WorkerPool::workerLoop(std::size_t index) {
     auto history = std::make_unique<HistoryService>(*database, rooms_);
     auto friend_chat = std::make_unique<FriendService>(*database, sessions_);
     auto profile = std::make_unique<ProfileService>(*database, sessions_);
+    auto group = std::make_unique<GroupService>(*database, rooms_);
     {
         std::lock_guard<std::mutex> lock(startup_mutex_);
         ++ready_count_;
@@ -147,7 +148,7 @@ void WorkerPool::workerLoop(std::size_t index) {
         }
         if (task) {
             WorkerContext context{*database, *auth,        *room, *private_chat,
-                                  *history,   *friend_chat, *profile};
+                                  *history,   *friend_chat, *profile, *group};
             task(context);
         }
     }

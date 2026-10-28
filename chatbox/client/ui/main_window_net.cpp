@@ -1,5 +1,252 @@
 #include "ui/main_window_support.h"
 
+#include "common/group_protocol.h"
+#include "core/group_types.h"
+#include "ui/group_create_dialog.h"
+#include "ui/group_join_dialog.h"
+#include "ui/group_notify_dialog.h"
+#include "ui/group_settings_dialog.h"
+
+bool MainWindow::sendGroupCommand(quint16 command, const std::string& body) {
+    chatbox::Frame frame;
+    frame.header.cmd = command;
+    frame.header.seq = next_seq_++;
+    frame.body = body;
+    pending_group_commands_.insert(frame.header.seq, command);
+    return sendFrame(frame);
+}
+
+void MainWindow::requestGroupList() {
+    if (offline_mode_) {
+        return;
+    }
+    sendGroupCommand(chatbox::kCmdGroupList, {});
+}
+
+void MainWindow::requestGroupMembers(quint64 room_id) {
+    if (offline_mode_ || room_id == 0) {
+        return;
+    }
+    chatbox::ByteWriter writer;
+    writer.putU32(static_cast<uint32_t>(room_id));
+    sendGroupCommand(chatbox::kCmdGroupMemberList, writer.data());
+}
+
+void MainWindow::requestGroupRequests(quint64 room_id) {
+    if (offline_mode_) {
+        return;
+    }
+    chatbox::ByteWriter writer;
+    writer.putU32(static_cast<uint32_t>(room_id));
+    sendGroupCommand(chatbox::kCmdGroupRequestList, writer.data());
+}
+
+void MainWindow::handleGroupList(const QByteArray& body) {
+    std::vector<chatbox::GroupInfo> wire_groups;
+    if (!chatbox::decodeGroupList(
+            std::string(body.constData(), static_cast<std::size_t>(body.size())),
+            wire_groups)) {
+        setStatus("群列表格式错误", true);
+        return;
+    }
+    QVector<chatbox::client::GroupInfo> groups;
+    groups.reserve(static_cast<int>(wire_groups.size()));
+    for (const chatbox::GroupInfo& wire : wire_groups) {
+        groups.push_back(chatbox::client::groupInfoFromWire(wire));
+    }
+    group_store_.replaceAll(groups);
+    if (history_store_.isOpen()) {
+        // Groups that were left or removed disappear from the server list but
+        // their local messages are retained. Keep a read-only tombstone so the
+        // user can still reach that history.
+        for (const chatbox::client::ConversationRow& row :
+             history_store_.conversations()) {
+            if (row.context != chatbox::client::ChatContext::kRoom ||
+                group_store_.find(row.target_id) != nullptr) {
+                continue;
+            }
+            chatbox::client::GroupInfo tombstone;
+            tombstone.room_id = row.target_id;
+            tombstone.name = row.title;
+            tombstone.status = 2;
+            group_store_.upsert(tombstone);
+        }
+    }
+    for (auto it = group_requests_by_room_.begin();
+         it != group_requests_by_room_.end();) {
+        const chatbox::client::GroupInfo* group = group_store_.find(it.key());
+        if (group == nullptr || group->status != 0 || group->role < 1) {
+            it = group_requests_by_room_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    QSet<quint64> active_ids;
+    for (const chatbox::client::GroupInfo& group : group_store_.active()) {
+        if (group.role >= 1 &&
+            !group_requests_by_room_.contains(group.room_id)) {
+            requestGroupRequests(group.room_id);
+        }
+        active_ids.insert(group.room_id);
+        if (joined_groups_.contains(group.room_id)) {
+            continue;
+        }
+        chatbox::ByteWriter writer;
+        writer.putU32(static_cast<uint32_t>(group.room_id));
+        chatbox::Frame join;
+        join.header.cmd = chatbox::kCmdJoinRoom;
+        join.header.seq = next_seq_++;
+        join.body = writer.data();
+        if (sendFrame(join)) {
+            joined_groups_.insert(group.room_id);
+        }
+    }
+    joined_groups_.intersect(active_ids);
+    refreshGroupListView();
+    if (context_type_ == ContextType::Room && current_room_id_ != 0) {
+        const chatbox::client::GroupInfo* current =
+            group_store_.find(static_cast<quint64>(current_room_id_));
+        if (current == nullptr) {
+            // Removed, left, or the group is gone: the server already revoked
+            // access, so drop the stale context instead of letting the user
+            // keep typing into a room that rejects every frame.
+            resetContext();
+        } else if (current->status != 0) {
+            selectDissolvedGroup(current->room_id, current->name);
+        } else if (!offline_mode_ && input_edit_ != nullptr &&
+                   !input_edit_->isEnabled()) {
+            // The user was reading a left/removed tombstone when a new
+            // invitation or approval made this group active again.
+            selectGroup(current->room_id, current->name);
+        }
+    }
+    if (context_type_ == ContextType::None) {
+        const QVector<chatbox::client::GroupInfo> active = group_store_.active();
+        for (const chatbox::client::GroupInfo& group : active) {
+            if (group.is_default) {
+                selectGroup(group.room_id, group.name);
+                break;
+            }
+        }
+    }
+}
+
+void MainWindow::handleGroupMemberList(const QByteArray& body) {
+    uint32_t room_id = 0;
+    std::vector<chatbox::GroupMemberInfo> wire_members;
+    if (!chatbox::decodeGroupMembers(
+            std::string(body.constData(), static_cast<std::size_t>(body.size())),
+            room_id, wire_members)) {
+        setStatus("群成员格式错误", true);
+        return;
+    }
+    QVector<chatbox::client::GroupMemberInfo> members;
+    members.reserve(static_cast<int>(wire_members.size()));
+    for (const chatbox::GroupMemberInfo& wire : wire_members) {
+        members.push_back(chatbox::client::groupMemberFromWire(wire));
+    }
+    group_store_.setMembers(room_id, members);
+    if (group_settings_dialog_ != nullptr &&
+        room_id == static_cast<uint32_t>(current_room_id_)) {
+        group_settings_dialog_->setMembers(members);
+    }
+    if (context_type_ != ContextType::Room ||
+        room_id != static_cast<uint32_t>(current_room_id_)) {
+        return;
+    }
+    member_list_->clear();
+    for (const chatbox::client::GroupMemberInfo& member : members) {
+        QString text = member.nickname;
+        if (member.role == 2) {
+            text += " · 群主";
+        } else if (member.role == 1) {
+            text += " · 管理员";
+        }
+        auto* item = new QListWidgetItem(text, member_list_);
+        item->setIcon(memberAvatarIcon(member.user_id, member.nickname, 28));
+        item->setSizeHint(QSize(0, 48));
+        item->setData(Qt::UserRole, QVariant::fromValue<qulonglong>(member.user_id));
+        item->setData(Qt::UserRole + 1, member.nickname);
+        item->setData(Qt::UserRole + 2, member.role);
+        item->setData(Qt::UserRole + 3, member.online);
+        item->setData(Qt::AccessibleTextRole,
+                      member.nickname + (member.online ? "，在线" : "，离线"));
+        if (member.user_id == user_id_) {
+            if (!avatar_cache_.contains(member.user_id)) {
+                requestAvatar(member.user_id, 0);
+            }
+        } else {
+            requestPeerAvatar(member.user_id);
+        }
+    }
+    const chatbox::client::GroupInfo* group =
+        group_store_.find(static_cast<quint64>(room_id));
+    if (member_count_label_ != nullptr) {
+        member_count_label_->setText(
+            group != nullptr
+                ? QString("%1 · %2 人").arg(group->name).arg(members.size())
+                : QString("成员 (%1)").arg(members.size()));
+    }
+}
+
+void MainWindow::handleGroupRequestList(const QByteArray& body) {
+    uint32_t room_id = 0;
+    std::vector<chatbox::GroupRequestInfo> wire_requests;
+    if (!chatbox::decodeGroupRequests(
+            std::string(body.constData(), static_cast<std::size_t>(body.size())),
+            room_id, wire_requests)) {
+        setStatus("群申请格式错误", true);
+        return;
+    }
+    QVector<chatbox::client::GroupRequestInfo> requests;
+    requests.reserve(static_cast<int>(wire_requests.size()));
+    for (const chatbox::GroupRequestInfo& wire : wire_requests) {
+        requests.push_back(chatbox::client::groupRequestFromWire(wire));
+    }
+    if (room_id == 0) {
+        group_invites_ = requests;
+    } else {
+        group_requests_by_room_.insert(static_cast<quint64>(room_id), requests);
+    }
+    updateGroupNoticeBadge();
+    if (group_notify_dialog_ != nullptr) {
+        const int role = group_store_.find(static_cast<quint64>(current_room_id_))
+                             ? group_store_.find(static_cast<quint64>(current_room_id_))->role
+                             : 0;
+        group_notify_dialog_->setData(pendingGroupRequests(), group_invites_,
+                                      role >= 1);
+    }
+}
+
+void MainWindow::handleGroupPush(const QByteArray& body) {
+    chatbox::ByteReader reader(body.constData(),
+                               static_cast<std::size_t>(body.size()));
+    uint8_t event = 0;
+    uint32_t room_id = 0;
+    uint64_t user_id = 0;
+    uint8_t role = 0;
+    if (!reader.getU8(event) || !reader.getU32(room_id) ||
+        !reader.getU64(user_id) || !reader.getU8(role)) {
+        return;
+    }
+    Q_UNUSED(role);
+    requestGroupList();
+    const bool room_removed =
+        event == 3 || (event == 5 && user_id == user_id_);
+    if (!room_removed && context_type_ == ContextType::Room &&
+        room_id == static_cast<uint32_t>(current_room_id_)) {
+        requestGroupMembers(current_room_id_);
+    }
+    if (event == 7 || event == 8) {
+        requestGroupRequests(0);
+        const chatbox::client::GroupInfo* group =
+            group_store_.find(static_cast<quint64>(room_id));
+        if (group != nullptr && group->role >= 1) {
+            requestGroupRequests(static_cast<quint64>(room_id));
+        }
+    }
+}
+
 void MainWindow::onLoginRequested(const QString& host, quint16 port, const QString& username,
                                   const QString& password, bool tls) {
     logging_out_ = false;
@@ -117,6 +364,12 @@ void MainWindow::onDisconnected(const QString& reason) {
     connected_ = false;
     qWarning("disconnected: %s", qPrintable(reason));
     resuming_ = false;
+    // Presence is connection-scoped: the new connection must JOIN every
+    // active group again, and any in-flight search/history answers are stale.
+    joined_groups_.clear();
+    pending_group_commands_.clear();
+    panel_search_seq_ = 0;
+    history_request_seq_ = 0;
     if (auth_timeout_timer_ != nullptr) {
         auth_timeout_timer_->stop();
     }
@@ -322,6 +575,16 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
     }
     chatbox::ByteReader reader(frame.body.data(), frame.body.size());
 
+    if (frame.header.flags & chatbox::kFlagError) {
+        uint16_t code = 0;
+        QString message;
+        if (reader.getU16(code) && readString(reader, message)) {
+            pending_group_commands_.remove(frame.header.seq);
+            handleError(code, message, frame.header.seq);
+        }
+        return;
+    }
+
     switch (frame.header.cmd) {
         case chatbox::kCmdPing:
             break;
@@ -383,7 +646,8 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             }
             setOnline(true);
             resetContext();
-            requestRoomList();
+            requestGroupList();
+            requestGroupRequests(0);
             requestConversations();
             requestFriendList();
             requestFriendRequests();
@@ -480,7 +744,8 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             } else {
                 resetContext();
             }
-            requestRoomList();
+            requestGroupList();
+            requestGroupRequests(0);
             requestConversations();
             requestFriendList();
             requestFriendRequests();
@@ -490,6 +755,118 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 requestProfile(profile_dialog_user_id_);
             }
             setStatus("会话已恢复");
+            break;
+        }
+        case chatbox::kCmdGroupList:
+            pending_group_commands_.remove(frame.header.seq);
+            handleGroupList(QByteArray(frame.body.data(),
+                                       static_cast<int>(frame.body.size())));
+            break;
+        case chatbox::kCmdGroupCreate: {
+            pending_group_commands_.remove(frame.header.seq);
+            chatbox::GroupInfo wire;
+            if (chatbox::decodeGroupInfo(frame.body, wire)) {
+                const chatbox::client::GroupInfo group =
+                    chatbox::client::groupInfoFromWire(wire);
+                group_store_.upsert(group);
+                refreshGroupListView();
+                selectGroup(group.room_id, group.name);
+                setStatus(QString("群已创建，群号 %1").arg(group.group_no));
+            } else {
+                setStatus("创建群响应格式错误", true);
+            }
+            break;
+        }
+        case chatbox::kCmdGroupSearch: {
+            pending_group_commands_.remove(frame.header.seq);
+            chatbox::GroupInfo wire;
+            uint8_t membership = 0;
+            if (!chatbox::decodeGroupSearch(frame.body, wire, membership)) {
+                setStatus("群搜索响应格式错误", true);
+                break;
+            }
+            last_group_search_found_ =
+                wire.room_id != 0 && wire.status == chatbox::GroupStatus::kActive;
+            last_group_search_ = chatbox::client::groupInfoFromWire(wire);
+            last_group_search_membership_ = membership;
+            if (wire.room_id != 0 && !last_group_search_found_) {
+                setStatus("该群已解散", true);
+            }
+            if (group_join_dialog_ != nullptr) {
+                group_join_dialog_->setSearchResult(
+                    last_group_search_found_, last_group_search_.name,
+                    last_group_search_.member_count, membership);
+            }
+            break;
+        }
+        case chatbox::kCmdGroupJoinRequest: {
+            pending_group_commands_.remove(frame.header.seq);
+            chatbox::ByteReader reader(frame.body.data(), frame.body.size());
+            uint64_t request_id = 0;
+            if (reader.getU64(request_id)) {
+                last_group_request_id_ = request_id;
+                if (group_join_dialog_ != nullptr) {
+                    group_join_dialog_->setSearchResult(
+                        true, last_group_search_.name,
+                        last_group_search_.member_count, 2);
+                }
+            }
+            break;
+        }
+        case chatbox::kCmdGroupInvite: {
+            pending_group_commands_.remove(frame.header.seq);
+            chatbox::ByteReader reader(frame.body.data(), frame.body.size());
+            uint64_t invite_id = 0;
+            if (reader.getU64(invite_id)) {
+                last_group_invite_id_ = invite_id;
+            }
+            break;
+        }
+        case chatbox::kCmdGroupMemberList:
+            pending_group_commands_.remove(frame.header.seq);
+            handleGroupMemberList(QByteArray(frame.body.data(),
+                                             static_cast<int>(frame.body.size())));
+            break;
+        case chatbox::kCmdGroupRequestList:
+            pending_group_commands_.remove(frame.header.seq);
+            handleGroupRequestList(QByteArray(frame.body.data(),
+                                               static_cast<int>(frame.body.size())));
+            break;
+        case chatbox::kCmdGroupPush:
+            handleGroupPush(QByteArray(frame.body.data(),
+                                       static_cast<int>(frame.body.size())));
+            break;
+        case chatbox::kCmdGroupUpdate:
+        case chatbox::kCmdGroupDisband:
+        case chatbox::kCmdGroupJoinRespond:
+        case chatbox::kCmdGroupInviteRespond:
+        case chatbox::kCmdGroupMemberUpdate:
+        case chatbox::kCmdGroupLeave:
+        case chatbox::kCmdGroupMarkRead: {
+            pending_group_commands_.remove(frame.header.seq);
+            requestGroupList();
+            const bool room_removed_by_action =
+                frame.header.cmd == chatbox::kCmdGroupLeave ||
+                frame.header.cmd == chatbox::kCmdGroupDisband;
+            if (!room_removed_by_action &&
+                context_type_ == ContextType::Room && current_room_id_ != 0) {
+                requestGroupMembers(current_room_id_);
+            }
+            if (frame.header.cmd == chatbox::kCmdGroupMarkRead &&
+                context_type_ == ContextType::Room) {
+                group_store_.setUnread(static_cast<quint64>(current_room_id_), 0);
+            }
+            if (frame.header.cmd == chatbox::kCmdGroupJoinRespond ||
+                frame.header.cmd == chatbox::kCmdGroupInviteRespond) {
+                requestGroupRequests(0);
+                if (context_type_ == ContextType::Room && current_room_id_ != 0) {
+                    const chatbox::client::GroupInfo* group = group_store_.find(
+                        static_cast<quint64>(current_room_id_));
+                    if (group != nullptr && group->role >= 1) {
+                        requestGroupRequests(current_room_id_);
+                    }
+                }
+            }
             break;
         }
         case chatbox::kCmdRoomList: {
@@ -550,10 +927,9 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             break;
         }
         case chatbox::kCmdJoinRoom:
-            // Joining a room is a silent success; the header and member list
-            // already reflect it, so do not add transient status-bar noise.
-            requestMembers(current_room_id_);
-            requestRoomList();
+            // Joining a room is a silent success; member data comes from
+            // GROUP_MEMBER_LIST, so background joins must not trigger a
+            // request for the currently selected room.
             break;
         case chatbox::kCmdRoomMembers: {
             uint32_t room_id = 0;
@@ -585,6 +961,13 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 room_id != static_cast<uint32_t>(current_room_id_)) {
                 break;
             }
+            // New clients use GROUP_MEMBER_LIST (durable members). The old
+            // ROOM_MEMBERS payload only contains online presence, so do not
+            // replace the durable list when a group is known.
+            if (group_store_.find(static_cast<quint64>(room_id)) != nullptr) {
+                requestGroupMembers(static_cast<quint64>(room_id));
+                break;
+            }
             if (member_count_label_ != nullptr) {
                 member_count_label_->setText(
                     QString("在线成员 (%1)").arg(count));
@@ -602,6 +985,9 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 item->setIcon(memberAvatarIcon(member_id, nickname, 28));
                 item->setSizeHint(QSize(0, 48));
                 item->setData(Qt::UserRole, QVariant::fromValue<qulonglong>(member_id));
+                item->setData(Qt::UserRole + 1, nickname);
+                item->setData(Qt::UserRole + 2, 0);
+                item->setData(Qt::UserRole + 3, true);
                 item->setData(Qt::AccessibleTextRole, nickname + "，在线");
                 if (member_id == user_id_) {
                     // requestPeerAvatar() skips self; ask the same way so the
@@ -687,6 +1073,10 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             if (context_type_ == ContextType::Room &&
                 room_id == static_cast<uint32_t>(current_room_id_)) {
                 addIncomingMessage(message);
+            } else if (chatbox::client::GroupInfo* group =
+                           group_store_.find(static_cast<quint64>(room_id))) {
+                ++group->unread;
+                refreshGroupListView();
             }
             break;
         }
@@ -836,6 +1226,9 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             break;
         }
         case chatbox::kCmdHistoryResp: {
+            if (frame.header.seq != history_request_seq_) {
+                break;
+            }
             uint8_t kind = 0;
             uint64_t target = 0;
             uint16_t count = 0;
@@ -846,7 +1239,9 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 setStatus("历史消息格式错误", true);
                 return;
             }
-            if (!currentContextMatches(kind, target)) {
+            if (kind != history_request_kind_ ||
+                target != history_request_target_ ||
+                !currentContextMatches(kind, target)) {
                 break;
             }
             QVector<chatbox::client::ChatMessage> page;
@@ -889,18 +1284,55 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 peer_names_.insert(sender_id, nickname);
             }
 
-            const bool was_older_page = loading_older_history_;
+            const bool is_jump = history_request_is_jump_;
+            const bool was_older_page =
+                history_request_before_ != 0 && !is_jump;
+            history_request_is_jump_ = false;
+            if (is_jump) {
+                bool target_present = false;
+                for (const chatbox::client::ChatMessage& message : page) {
+                    if (message.message_id == pending_jump_message_id_) {
+                        target_present = true;
+                        break;
+                    }
+                }
+                if (!target_present) {
+                    pending_jump_message_id_ = 0;
+                    loading_older_history_ = false;
+                    history_request_seq_ = 0;
+                    history_request_kind_ = 0;
+                    history_request_target_ = 0;
+                    history_request_before_ = 0;
+                    setStatus("消息不在当前可见范围内", true);
+                    break;
+                }
+            }
             if (was_older_page) {
                 message_store_.prependHistory(page);
-                renderCurrentConversation(ScrollMode::kTop);
+                renderCurrentConversation(ScrollMode::kPreserveAnchor);
             } else {
                 message_store_.replaceHistory(page);
                 renderCurrentConversation(ScrollMode::kBottom);
             }
             loading_older_history_ = false;
+            history_request_seq_ = 0;
+            history_request_kind_ = 0;
+            history_request_target_ = 0;
+            history_request_before_ = 0;
             has_more_ = has_more != 0;
             next_before_id_ = next_before;
-            load_more_action_->setEnabled(has_more_);
+            if (kind == 1 && !was_older_page && !is_jump && !page.isEmpty()) {
+                markGroupRead(target, page.back().message_id);
+            }
+            if (pending_jump_message_id_ != 0) {
+                const quint64 target_message = pending_jump_message_id_;
+                pending_jump_message_id_ = 0;
+                if (message_store_.findMessage(target_message) != nullptr) {
+                    jumpToMessage(target_message);
+                } else {
+                    setStatus("消息不在当前可见范围内", true);
+                }
+            }
             if (kind == 2 && !was_older_page) {
                 requestConversations();
             }
@@ -988,13 +1420,19 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             break;
         }
         case chatbox::kCmdMessageSearch: {
-            if (frame.header.seq != message_search_seq_) {
+            const bool panel_search =
+                panel_search_seq_ != 0 && frame.header.seq == panel_search_seq_;
+            if (!panel_search && frame.header.seq != message_search_seq_) {
                 break;
             }
             if (message_search_timeout_timer_ != nullptr) {
                 message_search_timeout_timer_->stop();
             }
-            message_search_seq_ = 0;
+            if (panel_search) {
+                panel_search_seq_ = 0;
+            } else {
+                message_search_seq_ = 0;
+            }
             uint16_t count = 0;
             if (!reader.getU16(count)) {
                 setStatus("消息搜索响应格式错误", true);
@@ -1020,11 +1458,30 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 result.sender_id = sender_id;
                 result.nickname = nickname;
                 result.content = content;
-                result.created_at = created_at;
+                result.created_at =
+                    chatbox::client::parseServerUtc(created_at)
+                        .toLocalTime()
+                        .toString("yyyy-MM-dd HH:mm:ss");
                 result.recalled = recalled != 0;
                 results.push_back(result);
             }
-            if (message_search_dialog_ != nullptr) {
+            if (panel_search) {
+                right_search_results_->clear();
+                for (const MessageSearchResult& result : results) {
+                    auto* item = new QListWidgetItem(
+                        QString("%1  %2\n%3")
+                            .arg(result.nickname, result.created_at,
+                                 result.recalled ? QString() : result.content),
+                        right_search_results_);
+                    item->setData(Qt::UserRole,
+                                  QVariant::fromValue<qulonglong>(result.message_id));
+                    item->setToolTip(QStringLiteral("双击跳转到该消息"));
+                }
+                right_search_status_->setText(
+                    results.isEmpty() ? QStringLiteral("没有匹配消息")
+                                      : QString("%1 条结果").arg(results.size()));
+                right_mode_stack_->setCurrentWidget(right_search_page_);
+            } else if (message_search_dialog_ != nullptr) {
                 message_search_dialog_->setResults(results);
                 message_search_dialog_->setBusy(false);
             }
@@ -1349,6 +1806,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 setStatus("错误响应格式错误", true);
                 return;
             }
+            pending_group_commands_.remove(frame.header.seq);
             handleError(code, message, frame.header.seq);
             break;
         }
@@ -1499,6 +1957,28 @@ void MainWindow::handleError(quint16 code, const QString& message, quint32 seq) 
         return;
     }
 
+    if (history_request_seq_ != 0 && seq == history_request_seq_) {
+        history_request_seq_ = 0;
+        history_request_is_jump_ = false;
+        jump_history_pending_ = false;
+        pending_jump_message_id_ = 0;
+        loading_older_history_ = false;
+        setStatus(QString("加载历史失败: %1").arg(text), true);
+        return;
+    }
+
+    if (panel_search_seq_ != 0 && seq == panel_search_seq_) {
+        panel_search_seq_ = 0;
+        if (message_search_timeout_timer_ != nullptr) {
+            message_search_timeout_timer_->stop();
+        }
+        if (right_search_status_ != nullptr) {
+            right_search_status_->setText(QString("搜索失败: %1").arg(text));
+        }
+        setStatus(QString("搜索失败: %1").arg(text), true);
+        return;
+    }
+
     if (message_search_seq_ != 0 && seq == message_search_seq_) {
         message_search_seq_ = 0;
         if (message_search_timeout_timer_ != nullptr) {
@@ -1595,6 +2075,38 @@ void MainWindow::clearSession() {
     if (room_list_ != nullptr) {
         room_list_->clear();
     }
+    group_store_.clear();
+    pending_group_commands_.clear();
+    joined_groups_.clear();
+    group_requests_by_room_.clear();
+    group_invites_.clear();
+    panel_search_seq_ = 0;
+    history_request_seq_ = 0;
+    history_request_is_jump_ = false;
+    jump_history_pending_ = false;
+    right_panel_profile_ = chatbox::client::UserProfile();
+    if (group_create_dialog_ != nullptr) {
+        group_create_dialog_->hide();
+    }
+    if (group_join_dialog_ != nullptr) {
+        group_join_dialog_->hide();
+    }
+    if (group_list_ != nullptr) {
+        group_list_->clear();
+    }
+    if (group_settings_dialog_ != nullptr) {
+        group_settings_dialog_->disconnect(this);
+        group_settings_dialog_->close();
+        group_settings_dialog_->deleteLater();
+        group_settings_dialog_ = nullptr;
+    }
+    if (group_notify_dialog_ != nullptr) {
+        group_notify_dialog_->disconnect(this);
+        group_notify_dialog_->close();
+        group_notify_dialog_->deleteLater();
+        group_notify_dialog_ = nullptr;
+    }
+    updateGroupNoticeBadge();
     updateOwnProfileStrip();
     refreshUnreadTitle();
     resetContext();

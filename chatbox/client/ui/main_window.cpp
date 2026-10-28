@@ -91,6 +91,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     message_search_timeout_timer_->setInterval(8000);
     connect(message_search_timeout_timer_, &QTimer::timeout, this, [this] {
         message_search_seq_ = 0;
+        if (panel_search_seq_ != 0) {
+            panel_search_seq_ = 0;
+            if (right_search_status_ != nullptr) {
+                right_search_status_->setText("搜索超时，请重试");
+            }
+        }
         if (message_search_dialog_ != nullptr) {
             message_search_dialog_->setBusy(false);
             message_search_dialog_->setStatus("搜索超时，请重试", true);
@@ -142,10 +148,25 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             &MainWindow::showMessageMenu);
     connect(chat_view_->verticalScrollBar(), &QScrollBar::valueChanged, this,
             [this](int) {
+                if (programmatic_scroll_) {
+                    return;
+                }
                 if (chat_view_ != nullptr) {
                     chat_view_->clearHoverState();
                 }
                 hideMessageActionBar();
+                maybeLoadOlder();
+                if (context_type_ == ContextType::Room &&
+                    !message_store_.messages().isEmpty() &&
+                    chat_view_->verticalScrollBar()->value() >=
+                        chat_view_->verticalScrollBar()->maximum() - 4) {
+                    const chatbox::client::GroupInfo* group = group_store_.find(
+                        static_cast<quint64>(current_room_id_));
+                    if (group != nullptr && group->unread > 0) {
+                        markGroupRead(static_cast<quint64>(current_room_id_),
+                                      message_store_.messages().back().message_id);
+                    }
+                }
             });
     if (message_action_bar_ != nullptr) {
         connect(message_action_bar_, &MessageActionBar::replyRequested, this, [this] {
@@ -253,45 +274,33 @@ QWidget* MainWindow::buildChatPage() {
     search_users_button_->setFixedHeight(32);
     left->addWidget(search_users_button_);
 
-    auto* rooms_label = new QLabel("群聊", left_panel);
-    rooms_label->setObjectName("SectionLabel");
-    left->addWidget(rooms_label);
-    room_list_ = new QListWidget(left_panel);
-    room_list_->setAccessibleName("房间列表");
-    room_list_->setSelectionMode(QAbstractItemView::SingleSelection);
-    room_list_->setFocusPolicy(Qt::StrongFocus);
-    room_list_->setIconSize(QSize(30, 30));
-    room_list_->setMinimumHeight(56);
-    room_list_->setMaximumHeight(160);
-    room_list_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
-    // QListWidget 的 sizeHint 是个固定值（约 192px），不会跟着房间数量收缩，
-    // 只有一个房间时会在它下面留出一大片空白。让高度跟随内容。
-    room_list_->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
-    left->addWidget(room_list_);
+    sidebar_tabs_ = new QTabWidget(left_panel);
+    sidebar_tabs_->setObjectName("SidebarTabs");
+
+    auto* conversations_page = new QWidget(sidebar_tabs_);
+    auto* conversations_layout = new QVBoxLayout(conversations_page);
+    conversations_layout->setContentsMargins(0, 0, 0, 0);
+    conversations_layout->setSpacing(6);
 
     // 好友申请属于好友体系，跟着「好友」标题走，而不是悬在群聊列表和好友
     // 列表之间独占一行。标题行右侧放图标按钮，未读数用角标提示。
-    // 用 addLayout 而不是包一层 QWidget：后者在竖直布局里量不出正确宽度，
-    // 会把右侧按钮顶出侧栏。
     auto* friends_header_layout = new QHBoxLayout();
     friends_header_layout->setContentsMargins(0, 0, 0, 0);
     friends_header_layout->setSpacing(4);
 
-    auto* conversations_label = new QLabel("好友", left_panel);
+    auto* conversations_label = new QLabel("好友", conversations_page);
     conversations_label->setObjectName("SectionLabel");
     conversations_label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     friends_header_layout->addWidget(conversations_label, 1);
 
-    friend_requests_badge_ = new QLabel(left_panel);
+    friend_requests_badge_ = new QLabel(conversations_page);
     friend_requests_badge_->setObjectName("FriendRequestBadge");
     friend_requests_badge_->setAlignment(Qt::AlignCenter);
     friend_requests_badge_->setFixedSize(16, 16);
     friend_requests_badge_->hide();
     friends_header_layout->addWidget(friend_requests_badge_, 0, Qt::AlignVCenter);
 
-    // 纯图标在这个尺寸下糊成一团（users.png 线条太细），文字是唯一可靠的
-    // 视觉锚点，所以这里只放文字，图标不再参与。
-    friend_requests_button_ = new QToolButton(left_panel);
+    friend_requests_button_ = new QToolButton(conversations_page);
     friend_requests_button_->setObjectName("HeaderAction");
     friend_requests_button_->setToolButtonStyle(Qt::ToolButtonTextOnly);
     friend_requests_button_->setText("好友申请");
@@ -301,8 +310,9 @@ QWidget* MainWindow::buildChatPage() {
     friend_requests_button_->setToolTip("好友申请");
     friend_requests_button_->setAccessibleName("好友申请");
     friends_header_layout->addWidget(friend_requests_button_, 0, Qt::AlignVCenter);
-    left->addLayout(friends_header_layout);
-    conversation_stack_ = new QStackedWidget(left_panel);
+    conversations_layout->addLayout(friends_header_layout);
+
+    conversation_stack_ = new QStackedWidget(conversations_page);
     conversation_stack_->setObjectName("ConversationStack");
     conversation_list_ = new FriendListWidget(conversation_stack_);
     conversation_list_->setAccessibleName("会话列表");
@@ -319,7 +329,65 @@ QWidget* MainWindow::buildChatPage() {
     conversation_stack_->addWidget(conversation_list_);
     conversation_stack_->addWidget(friends_empty_state_);
     conversation_stack_->setCurrentWidget(friends_empty_state_);
-    left->addWidget(conversation_stack_, 1);
+    conversations_layout->addWidget(conversation_stack_, 1);
+    sidebar_tabs_->addTab(conversations_page, "会话");
+
+    auto* groups_page = new QWidget(sidebar_tabs_);
+    auto* groups_layout = new QVBoxLayout(groups_page);
+    groups_layout->setContentsMargins(0, 0, 0, 0);
+    groups_layout->setSpacing(6);
+
+    auto* notice_row = new QHBoxLayout();
+    notice_row->setContentsMargins(0, 0, 0, 0);
+    group_notice_button_ = new QToolButton(groups_page);
+    group_notice_button_->setObjectName("GroupNoticeButton");
+    group_notice_button_->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    group_notice_button_->setText("群通知");
+    group_notice_button_->setAutoRaise(true);
+    group_notice_button_->setCursor(Qt::PointingHandCursor);
+    notice_row->addWidget(group_notice_button_);
+    group_notice_badge_ = new QLabel(groups_page);
+    group_notice_badge_->setObjectName("GroupNoticeBadge");
+    group_notice_badge_->setAlignment(Qt::AlignCenter);
+    group_notice_badge_->setFixedSize(16, 16);
+    group_notice_badge_->hide();
+    notice_row->addWidget(group_notice_badge_, 0, Qt::AlignVCenter);
+    notice_row->addStretch(1);
+    groups_layout->addLayout(notice_row);
+
+    group_list_ = new QListWidget(groups_page);
+    group_list_->setObjectName("GroupList");
+    group_list_->setAccessibleName("群组列表");
+    group_list_->setSelectionMode(QAbstractItemView::SingleSelection);
+    group_list_->setFocusPolicy(Qt::StrongFocus);
+    group_list_->setIconSize(QSize(30, 30));
+    group_list_->setMinimumHeight(120);
+    group_list_->setTextElideMode(Qt::ElideRight);
+    group_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    group_list_->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
+    groups_layout->addWidget(group_list_, 1);
+
+    auto* group_actions = new QHBoxLayout();
+    group_actions->setContentsMargins(0, 0, 0, 0);
+    group_actions->setSpacing(6);
+    create_group_button_ = new QPushButton("创建群", groups_page);
+    create_group_button_->setObjectName("CreateGroupButton");
+    create_group_button_->setFixedHeight(30);
+    join_group_button_ = new QPushButton("加入群", groups_page);
+    join_group_button_->setObjectName("JoinGroupButton");
+    join_group_button_->setFixedHeight(30);
+    group_actions->addWidget(create_group_button_);
+    group_actions->addWidget(join_group_button_);
+    groups_layout->addLayout(group_actions);
+    sidebar_tabs_->addTab(groups_page, "群组");
+    left->addWidget(sidebar_tabs_, 1);
+
+    // The legacy ROOM_LIST path still exists for 0.2.5 compatibility, but the
+    // new UI uses the group list above. Keep the widget hidden so old handlers
+    // and selection clearing do not need a second code path.
+    room_list_ = new QListWidget(left_panel);
+    room_list_->setObjectName("LegacyRoomList");
+    room_list_->hide();
 
     my_profile_button_ = new QPushButton(left_panel);
     my_profile_button_->setObjectName("MyProfileButton");
@@ -399,34 +467,15 @@ QWidget* MainWindow::buildChatPage() {
     header_row->addWidget(context_label_, 1);
     more_button_ = new QToolButton(header);
     more_button_->setObjectName("MoreButton");
-    more_button_->setAccessibleName("更多");
+    more_button_->setAccessibleName("右侧栏");
     more_button_->setIcon(chatbox::client::moreDotsIcon(QColor(theme::kInk)));
     more_button_->setIconSize(QSize(20, 20));
-    more_button_->setToolTip("更多");
+    more_button_->setToolTip("打开/关闭右侧栏");
     more_button_->setFixedSize(32, 32);
     more_button_->setToolButtonStyle(Qt::ToolButtonIconOnly);
     more_button_->setArrowType(Qt::NoArrow);
-    more_button_->setPopupMode(QToolButton::InstantPopup);
-    more_menu_ = new QMenu(this);
-    more_menu_->addAction(QIcon(":/icons/message.png"), "消息搜索", this,
-                          &MainWindow::openMessageSearch);
-    load_more_action_ = more_menu_->addAction("加载更早消息", this,
-                                              &MainWindow::onLoadMoreClicked);
-    load_more_action_->setEnabled(false);
-    more_menu_->addSeparator();
-    // Member list is off by default: for most sessions the column is dead
-    // space. The switch lives here instead of a permanent header button.
-    show_members_action_ = more_menu_->addAction("显示成员列表");
-    show_members_action_->setCheckable(true);
-    show_members_action_->setChecked(member_panel_visible_);
-    connect(show_members_action_, &QAction::toggled, this, [this](bool shown) {
-        member_panel_visible_ = shown;
-        QSettings settings;
-        settings.setValue(QStringLiteral("settings/member_panel"), shown);
-        settings.sync();
-        updateRightPanelVisibility();
-    });
-    more_button_->setMenu(more_menu_);
+    more_button_->setPopupMode(QToolButton::DelayedPopup);
+    connect(more_button_, &QToolButton::clicked, this, &MainWindow::toggleRightPanel);
     header_row->addWidget(more_button_);
     header_layout->addLayout(header_row);
     center->addWidget(header);
@@ -502,21 +551,142 @@ QWidget* MainWindow::buildChatPage() {
 
     right_panel_ = new QWidget(page);
     right_panel_->setObjectName("RightSidebar");
-    right_panel_->setMinimumWidth(180);
-    right_panel_->setMaximumWidth(280);
+    right_panel_->setMinimumWidth(200);
+    right_panel_->setMaximumWidth(300);
     auto* right = new QVBoxLayout(right_panel_);
     right->setContentsMargins(12, 12, 12, 12);
     right->setSpacing(6);
-    member_count_label_ = new QLabel("在线成员 (0)", right_panel_);
-    member_count_label_->setObjectName("SectionLabel");
-    right->addWidget(member_count_label_);
-    member_list_ = new QListWidget(right_panel_);
-    member_list_->setAccessibleName("在线成员");
+
+    auto* right_header_row = new QHBoxLayout();
+    member_count_label_ = new QLabel("成员", right_panel_);
+    member_count_label_->setObjectName("RightHeader");
+    right_header_row->addWidget(member_count_label_, 1);
+    right_settings_button_ = new QToolButton(right_panel_);
+    right_settings_button_->setObjectName("RightSettingsButton");
+    right_settings_button_->setText("⚙");
+    right_settings_button_->setToolTip("群设置");
+    right_settings_button_->setAutoRaise(true);
+    right_settings_button_->hide();
+    right_header_row->addWidget(right_settings_button_, 0, Qt::AlignVCenter);
+    right->addLayout(right_header_row);
+
+    right_mode_stack_ = new QStackedWidget(right_panel_);
+    right_mode_stack_->setObjectName("RightModeStack");
+
+    right_group_page_ = new QWidget(right_mode_stack_);
+    auto* group_layout = new QVBoxLayout(right_group_page_);
+    group_layout->setContentsMargins(0, 0, 0, 0);
+    group_layout->setSpacing(6);
+    right_group_search_ = new QLineEdit(right_group_page_);
+    right_group_search_->setObjectName("RightGroupSearch");
+    right_group_search_->setPlaceholderText("搜索消息");
+    group_layout->addWidget(right_group_search_);
+    member_list_ = new QListWidget(right_group_page_);
+    member_list_->setObjectName("RightMemberList");
+    member_list_->setAccessibleName("群成员");
     member_list_->setIconSize(QSize(28, 28));
+    member_list_->setTextElideMode(Qt::ElideRight);
+    member_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     member_list_->setContextMenuPolicy(Qt::CustomContextMenu);
-    right->addWidget(member_list_, 1);
-    // The member panel only has meaning in a room; a private chat hides it
-    // entirely instead of leaving an empty column.
+    group_layout->addWidget(member_list_, 1);
+    auto* group_action_row = new QHBoxLayout();
+    group_action_row->setContentsMargins(0, 0, 0, 0);
+    group_action_row->setSpacing(6);
+    right_invite_button_ = new QPushButton("邀请成员", right_group_page_);
+    right_invite_button_->setObjectName("RightInviteButton");
+    right_invite_button_->setFixedHeight(30);
+    right_leave_button_ = new QPushButton("退出群", right_group_page_);
+    right_leave_button_->setObjectName("RightLeaveButton");
+    right_leave_button_->setFixedHeight(30);
+    group_action_row->addWidget(right_invite_button_);
+    group_action_row->addWidget(right_leave_button_);
+    group_layout->addLayout(group_action_row);
+    right_group_file_button_ = new QPushButton("文件功能将在下一阶段开放", right_group_page_);
+    right_group_file_button_->setObjectName("RightFileButton");
+    right_group_file_button_->setEnabled(false);
+    group_layout->addWidget(right_group_file_button_);
+
+    right_private_page_ = new QWidget(right_mode_stack_);
+    auto* private_layout = new QVBoxLayout(right_private_page_);
+    private_layout->setContentsMargins(0, 0, 0, 0);
+    private_layout->setSpacing(8);
+    auto* profile_card = new QWidget(right_private_page_);
+    profile_card->setObjectName("RightProfileCard");
+    auto* profile_card_layout = new QVBoxLayout(profile_card);
+    profile_card_layout->setContentsMargins(8, 8, 8, 8);
+    profile_card_layout->setSpacing(4);
+    right_profile_avatar_ = new QLabel(profile_card);
+    right_profile_avatar_->setFixedSize(56, 56);
+    right_profile_avatar_->setAlignment(Qt::AlignCenter);
+    profile_card_layout->addWidget(right_profile_avatar_, 0, Qt::AlignHCenter);
+    right_profile_name_ = new QLabel(profile_card);
+    right_profile_name_->setObjectName("RightProfileName");
+    right_profile_name_->setAlignment(Qt::AlignCenter);
+    profile_card_layout->addWidget(right_profile_name_);
+    right_profile_id_ = new QLabel(profile_card);
+    right_profile_id_->setObjectName("RightProfileId");
+    right_profile_id_->setAlignment(Qt::AlignCenter);
+    right_profile_id_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    profile_card_layout->addWidget(right_profile_id_);
+    right_profile_signature_ = new QLabel(profile_card);
+    right_profile_signature_->setObjectName("RightProfileSignature");
+    right_profile_signature_->setWordWrap(true);
+    right_profile_signature_->setAlignment(Qt::AlignCenter);
+    profile_card_layout->addWidget(right_profile_signature_);
+    private_layout->addWidget(profile_card);
+    right_profile_button_ = new QPushButton("查看资料", right_private_page_);
+    right_profile_button_->setObjectName("RightProfileButton");
+    private_layout->addWidget(right_profile_button_);
+    right_private_file_button_ =
+        new QPushButton("文件功能将在下一阶段开放", right_private_page_);
+    right_private_file_button_->setObjectName("RightFileButton");
+    right_private_file_button_->setEnabled(false);
+    private_layout->addWidget(right_private_file_button_);
+    private_layout->addStretch(1);
+    right_private_search_ = new QLineEdit(right_private_page_);
+    right_private_search_->setObjectName("RightPrivateSearch");
+    right_private_search_->setPlaceholderText("搜索消息");
+    private_layout->addWidget(right_private_search_);
+
+    right_search_page_ = new QWidget(right_mode_stack_);
+    right_search_page_->setObjectName("RightSearchPage");
+    auto* search_layout = new QVBoxLayout(right_search_page_);
+    search_layout->setContentsMargins(0, 0, 0, 0);
+    search_layout->setSpacing(6);
+    auto* search_header = new QHBoxLayout();
+    right_search_input_ = new QLineEdit(right_search_page_);
+    right_search_input_->setObjectName("RightSearchInput");
+    right_search_input_->setPlaceholderText("搜索消息");
+    auto* back = new QPushButton("返回", right_search_page_);
+    back->setObjectName("RightSearchBack");
+    search_header->addWidget(right_search_input_, 1);
+    search_header->addWidget(back);
+    search_layout->addLayout(search_header);
+    right_search_results_ = new QListWidget(right_search_page_);
+    right_search_results_->setObjectName("RightSearchResults");
+    search_layout->addWidget(right_search_results_, 1);
+    right_search_status_ = new QLabel(right_search_page_);
+    right_search_status_->setObjectName("RightSearchStatus");
+    search_layout->addWidget(right_search_status_);
+    connect(back, &QPushButton::clicked, this, [this] {
+        panel_search_seq_ = 0;
+        updateRightPanelVisibility();
+    });
+    connect(right_search_input_, &QLineEdit::returnPressed, this,
+            [this] { startPanelSearch(right_search_input_->text()); });
+    connect(right_search_results_, &QListWidget::itemDoubleClicked, this,
+            [this](QListWidgetItem* item) {
+                if (item == nullptr) {
+                    return;
+                }
+                jumpToMessage(item->data(Qt::UserRole).toULongLong());
+                updateRightPanelVisibility();
+            });
+
+    right_mode_stack_->addWidget(right_group_page_);
+    right_mode_stack_->addWidget(right_private_page_);
+    right_mode_stack_->addWidget(right_search_page_);
+    right->addWidget(right_mode_stack_, 1);
     right_panel_->hide();
     splitter->addWidget(center_panel);
     splitter->addWidget(right_panel_);
@@ -524,8 +694,35 @@ QWidget* MainWindow::buildChatPage() {
     splitter->setStretchFactor(1, 1);
     splitter->setStretchFactor(2, 0);
 
+    connect(right_group_search_, &QLineEdit::returnPressed, this,
+            [this] { startPanelSearch(right_group_search_->text()); });
+    connect(right_private_search_, &QLineEdit::returnPressed, this,
+            [this] { startPanelSearch(right_private_search_->text()); });
+    connect(right_settings_button_, &QToolButton::clicked, this,
+            &MainWindow::openGroupSettings);
+    connect(right_profile_button_, &QPushButton::clicked, this, [this] {
+        if (current_peer_id_ != 0) {
+            openProfile(current_peer_id_, current_peer_name_);
+        }
+    });
+    connect(right_invite_button_, &QPushButton::clicked, this, [this] {
+        openGroupInviteDialog(static_cast<quint64>(current_room_id_));
+    });
+    connect(right_leave_button_, &QPushButton::clicked, this, [this] {
+        leaveGroup(static_cast<quint64>(current_room_id_));
+    });
+
     connect(room_list_, &QListWidget::itemClicked, this, &MainWindow::onRoomClicked);
     connect(room_list_, &QListWidget::itemActivated, this, &MainWindow::onRoomClicked);
+    connect(group_list_, &QListWidget::itemClicked, this, &MainWindow::onGroupClicked);
+    connect(group_list_, &QListWidget::itemActivated, this,
+            &MainWindow::onGroupClicked);
+    connect(group_notice_button_, &QToolButton::clicked, this,
+            &MainWindow::openGroupNotifications);
+    connect(create_group_button_, &QPushButton::clicked, this,
+            &MainWindow::openCreateGroupDialog);
+    connect(join_group_button_, &QPushButton::clicked, this,
+            &MainWindow::openJoinGroupDialog);
     connect(conversation_list_, &QListWidget::itemClicked, this,
             &MainWindow::onConversationClicked);
     connect(conversation_list_, &FriendListWidget::avatarClicked, this,

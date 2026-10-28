@@ -28,6 +28,30 @@ std::vector<RoomView> RoomManager::list() const {
     return result;
 }
 
+bool RoomManager::addRoom(const RoomInfo& room, std::string& error) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = rooms_.find(room.id);
+    if (it != rooms_.end()) {
+        it->second.info = room;
+        error.clear();
+        return true;
+    }
+    RoomState state;
+    state.info = room;
+    rooms_.emplace(room.id, std::move(state));
+    error.clear();
+    return true;
+}
+
+void RoomManager::removeRoom(int room_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    rooms_.erase(room_id);
+    for (auto& entry : connection_rooms_) {
+        auto& ids = entry.second;
+        ids.erase(std::remove(ids.begin(), ids.end(), room_id), ids.end());
+    }
+}
+
 bool RoomManager::join(int room_id, const RoomMember& member, std::string& error) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto room_it = rooms_.find(room_id);
@@ -51,8 +75,9 @@ bool RoomManager::join(int room_id, const RoomMember& member, std::string& error
         return true;
     }
 
-    if (static_cast<int>(room_it->second.members.size()) >=
-        room_it->second.info.max_members) {
+    if (room_it->second.info.max_members > 0 &&
+        static_cast<int>(room_it->second.members.size()) >=
+            room_it->second.info.max_members) {
         error = "room full";
         return false;
     }

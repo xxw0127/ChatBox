@@ -19,8 +19,14 @@ void MainWindow::insertMention() {
             if (item == nullptr || item->data(Qt::UserRole).toULongLong() == user_id_) {
                 continue;
             }
-            QAction* action = menu.addAction(item->text());
-            action->setData(item->text());
+            const QString nickname = item->data(Qt::UserRole + 1)
+                                         .toString()
+                                         .trimmed()
+                                         .isEmpty()
+                                         ? item->text()
+                                         : item->data(Qt::UserRole + 1).toString();
+            QAction* action = menu.addAction(nickname);
+            action->setData(nickname);
         }
         if (menu.isEmpty()) {
             setStatus("当前没有可提及的成员", true);
@@ -273,11 +279,110 @@ void MainWindow::openMessageSearch() {
         message_search_dialog_ = new MessageSearchDialog(this);
         connect(message_search_dialog_, &MessageSearchDialog::searchRequested, this,
                 &MainWindow::requestMessageSearch);
+        connect(message_search_dialog_, &MessageSearchDialog::resultActivated, this,
+                [this](quint64 message_id) {
+                    jumpToMessage(message_id);
+                    message_search_dialog_->hide();
+                });
     }
     message_search_dialog_->clearResults();
     message_search_dialog_->show();
     message_search_dialog_->raise();
     message_search_dialog_->activateWindow();
+}
+
+void MainWindow::startPanelSearch(const QString& keyword) {
+    if (context_type_ == ContextType::None || right_search_page_ == nullptr) {
+        setStatus("请先选择一个会话", true);
+        return;
+    }
+    const QString trimmed = keyword.trimmed();
+    if (trimmed.toUtf8().size() > 64) {
+        setStatus("关键词不能超过 64 字节", true);
+        return;
+    }
+    right_search_input_->setText(trimmed);
+    right_search_results_->clear();
+    right_search_status_->setText(QStringLiteral("搜索中..."));
+    right_mode_stack_->setCurrentWidget(right_search_page_);
+    if (trimmed.isEmpty()) {
+        right_search_status_->setText(QStringLiteral("请输入关键词"));
+        return;
+    }
+
+    auto append_result = [this](quint64 message_id, const QString& nickname,
+                                const QString& content, const QString& created_at) {
+        auto* item = new QListWidgetItem(
+            QString("%1  %2\n%3").arg(nickname, created_at, content),
+            right_search_results_);
+        item->setData(Qt::UserRole, QVariant::fromValue<qulonglong>(message_id));
+        item->setToolTip(QStringLiteral("双击跳转到该消息"));
+    };
+
+    const chatbox::client::GroupInfo* search_group =
+        context_type_ == ContextType::Room
+            ? group_store_.find(static_cast<quint64>(current_room_id_))
+            : nullptr;
+    const bool local_only =
+        offline_mode_ || (search_group != nullptr && search_group->status != 0);
+    if (local_only) {
+        chatbox::client::ChatContext context = chatbox::client::ChatContext::kRoom;
+        quint64 target_id = 0;
+        if (!currentChatContext(context, target_id) || !history_store_.isOpen()) {
+            right_search_status_->setText(QStringLiteral("没有可搜索的本地记录"));
+            return;
+        }
+        const QVector<chatbox::client::ChatMessage> hits =
+            history_store_.search(context, target_id, trimmed, 50);
+        for (const chatbox::client::ChatMessage& message : hits) {
+            append_result(message.message_id, message.sender_name,
+                          message.recalled ? QString() : message.content,
+                          message.created_at_utc.toLocalTime().toString(
+                              "yyyy-MM-dd HH:mm:ss"));
+        }
+        right_search_status_->setText(
+            hits.isEmpty() ? QStringLiteral("本地记录中没有匹配消息")
+                           : QString("本地记录 · %1 条").arg(hits.size()));
+        return;
+    }
+
+    chatbox::Frame frame;
+    frame.header.cmd = chatbox::kCmdMessageSearch;
+    frame.header.seq = next_seq_++;
+    chatbox::ByteWriter writer;
+    if (context_type_ == ContextType::Room) {
+        writer.putU8(1);
+        writer.putU64(static_cast<quint64>(current_room_id_));
+    } else {
+        writer.putU8(2);
+        writer.putU64(current_peer_id_);
+    }
+    writer.putString(chatbox::toUtf8(trimmed));
+    writer.putU16(50);
+    frame.body = writer.data();
+    panel_search_seq_ = frame.header.seq;
+    if (message_search_timeout_timer_ != nullptr) {
+        message_search_timeout_timer_->start();
+    }
+    if (!sendFrame(frame)) {
+        panel_search_seq_ = 0;
+        if (message_search_timeout_timer_ != nullptr) {
+            message_search_timeout_timer_->stop();
+        }
+        right_search_status_->setText(QStringLiteral("网络未连接，无法搜索"));
+    }
+}
+
+void MainWindow::openMessageSearchWith(const QString& keyword) {
+    openMessageSearch();
+    if (message_search_dialog_ == nullptr) {
+        return;
+    }
+    const QString trimmed = keyword.trimmed();
+    message_search_dialog_->setKeyword(trimmed);
+    if (!trimmed.isEmpty()) {
+        requestMessageSearch(trimmed);
+    }
 }
 
 void MainWindow::requestMessageSearch(const QString& keyword) {
@@ -379,8 +484,14 @@ void MainWindow::requestHistory(int kind, quint64 target, quint64 before_id) {
     writer.putU64(before_id);
     writer.putU16(50);
     frame.body = writer.data();
-    loading_older_history_ = before_id != 0;
-    load_more_action_->setEnabled(false);
+    const bool is_jump = jump_history_pending_;
+    jump_history_pending_ = false;
+    loading_older_history_ = before_id != 0 && !is_jump;
+    history_request_seq_ = frame.header.seq;
+    history_request_kind_ = kind;
+    history_request_target_ = target;
+    history_request_before_ = before_id;
+    history_request_is_jump_ = is_jump;
     sendFrame(frame);
 }
 
@@ -571,6 +682,10 @@ void MainWindow::clearStaleListSelection(ContextType keep) {
         conversation_list_->clearSelection();
         conversation_list_->setCurrentRow(-1);
     }
+    if (keep != ContextType::Room && group_list_ != nullptr) {
+        group_list_->clearSelection();
+        group_list_->setCurrentRow(-1);
+    }
 }
 
 void MainWindow::selectRoom(int room_id, const QString& name) {
@@ -581,6 +696,7 @@ void MainWindow::selectRoom(int room_id, const QString& name) {
     current_peer_id_ = 0;
     current_peer_name_ = name;
     context_label_->setText(name);
+    updateRightPanelVisibility();
     if (offline_mode_) {
         mention_button_->hide();
     } else {
@@ -607,9 +723,20 @@ void MainWindow::selectRoom(int room_id, const QString& name) {
                          static_cast<quint64>(room_id));
     // 分页状态先复位，再由本地首屏决定：
     // 离线时「还有没有更早的消息」完全由本地库说了算。
-    load_more_action_->setEnabled(false);
     has_more_ = false;
     loading_older_history_ = false;
+    pending_jump_message_id_ = 0;
+    history_request_seq_ = 0;
+    history_request_is_jump_ = false;
+    jump_history_pending_ = false;
+    panel_search_seq_ = 0;
+    message_search_seq_ = 0;
+    if (message_search_timeout_timer_ != nullptr) {
+        message_search_timeout_timer_->stop();
+    }
+    if (message_search_dialog_ != nullptr) {
+        message_search_dialog_->clearResults();
+    }
     next_before_id_ = 0;
     loadInitialHistory(chatbox::client::ChatContext::kRoom,
                        static_cast<quint64>(room_id));
@@ -617,7 +744,12 @@ void MainWindow::selectRoom(int room_id, const QString& name) {
     renderCurrentConversation(ScrollMode::kBottom);
     member_list_->clear();
     if (member_count_label_ != nullptr) {
-        member_count_label_->setText("在线成员 (0)");
+        const chatbox::client::GroupInfo* group =
+            group_store_.find(static_cast<quint64>(room_id));
+        member_count_label_->setText(
+            group != nullptr
+                ? QString("%1 · %2 人").arg(group->name).arg(group->member_count)
+                : QStringLiteral("成员 (0)"));
     }
 
     if (offline_mode_) {
@@ -637,7 +769,9 @@ void MainWindow::selectRoom(int room_id, const QString& name) {
     join.body = writer.data();
     sendFrame(join);
 
-    requestMembers(room_id);
+    if (group_store_.find(static_cast<quint64>(room_id)) == nullptr) {
+        requestMembers(room_id);
+    }
     requestHistory(1, static_cast<quint64>(room_id), 0);
     input_edit_->setEnabled(online_);
     send_button_->setEnabled(online_);
@@ -654,7 +788,12 @@ void MainWindow::selectPrivate(quint64 peer_id, const QString& nickname) {
     current_peer_id_ = peer_id;
     current_peer_name_ = nickname;
     peer_names_.insert(peer_id, nickname);
+    right_panel_profile_ = chatbox::client::UserProfile();
     context_label_->setText(nickname);
+    if (!offline_mode_) {
+        requestProfile(peer_id);
+    }
+    updateRightPanelVisibility();
     mention_button_->hide();
     updatePrivateHeaderAvatar(peer_id, nickname);
     context_avatar_->setCursor(Qt::PointingHandCursor);
@@ -675,16 +814,27 @@ void MainWindow::selectPrivate(quint64 peer_id, const QString& nickname) {
     }
     message_store_.reset(chatbox::client::ChatContext::kPrivate, peer_id);
     // 分页状态先复位，再由本地首屏决定（见 selectRoom）。
-    load_more_action_->setEnabled(false);
     has_more_ = false;
     loading_older_history_ = false;
+    pending_jump_message_id_ = 0;
+    history_request_seq_ = 0;
+    history_request_is_jump_ = false;
+    jump_history_pending_ = false;
+    panel_search_seq_ = 0;
+    message_search_seq_ = 0;
+    if (message_search_timeout_timer_ != nullptr) {
+        message_search_timeout_timer_->stop();
+    }
+    if (message_search_dialog_ != nullptr) {
+        message_search_dialog_->clearResults();
+    }
     next_before_id_ = 0;
     loadInitialHistory(chatbox::client::ChatContext::kPrivate, peer_id);
     restorePendingForCurrentContext();
     renderCurrentConversation(ScrollMode::kBottom);
     member_list_->clear();
     if (member_count_label_ != nullptr) {
-        member_count_label_->setText("在线成员 (0)");
+        member_count_label_->setText(nickname);
     }
     if (QListWidgetItem* item = findConversationItem(peer_id)) {
         item->setData(Qt::UserRole + 2, 0);
@@ -731,11 +881,22 @@ void MainWindow::retryConnection() {
 }
 
 void MainWindow::onLoadMoreClicked() {
-    if (!has_more_ || context_type_ == ContextType::None) {
+    maybeLoadOlder();
+}
+
+void MainWindow::maybeLoadOlder() {
+    if (!has_more_ || loading_older_history_ ||
+        context_type_ == ContextType::None) {
         return;
     }
-    if (offline_mode_) {
-        // 离线翻页走本地库，不发历史请求。
+    if (chat_view_->verticalScrollBar()->value() > 40) {
+        return;
+    }
+    const chatbox::client::GroupInfo* group =
+        context_type_ == ContextType::Room
+            ? group_store_.find(static_cast<quint64>(current_room_id_))
+            : nullptr;
+    if (offline_mode_ || (group != nullptr && group->status != 0)) {
         loadOlderFromLocal();
         return;
     }
@@ -743,6 +904,61 @@ void MainWindow::onLoadMoreClicked() {
         requestHistory(1, static_cast<quint64>(current_room_id_), next_before_id_);
     } else {
         requestHistory(2, current_peer_id_, next_before_id_);
+    }
+}
+
+void MainWindow::jumpToMessage(quint64 message_id) {
+    if (message_id == 0 || context_type_ == ContextType::None) {
+        return;
+    }
+    const chatbox::client::ChatMessage* message =
+        message_store_.findMessage(message_id);
+    if (message != nullptr) {
+        const QRect rect = chat_view_->messageBubbleRect(message_id);
+        if (!rect.isNull()) {
+            QScrollBar* bar = chat_view_->verticalScrollBar();
+            bar->setValue(std::max(0, bar->value() + rect.top() - 48));
+        }
+        return;
+    }
+    const chatbox::client::GroupInfo* group =
+        context_type_ == ContextType::Room
+            ? group_store_.find(static_cast<quint64>(current_room_id_))
+            : nullptr;
+    const bool local_only =
+        offline_mode_ || (group != nullptr && group->status != 0);
+    if (local_only) {
+        if (!history_store_.isOpen()) {
+            setStatus("消息不在本地记录中", true);
+            return;
+        }
+        chatbox::client::ChatContext context = chatbox::client::ChatContext::kRoom;
+        quint64 target_id = 0;
+        if (!currentChatContext(context, target_id)) {
+            return;
+        }
+        const QVector<chatbox::client::ChatMessage> page =
+            history_store_.before(context, target_id, message_id + 1, 50);
+        if (page.isEmpty()) {
+            setStatus("消息不在本地记录中", true);
+            return;
+        }
+        message_store_.replaceHistory(page);
+        next_before_id_ = page.first().message_id;
+        has_more_ = !history_store_
+                         .before(context, target_id, next_before_id_, 1)
+                         .isEmpty();
+        renderCurrentConversation(ScrollMode::kBottom);
+        jumpToMessage(message_id);
+        return;
+    }
+    pending_jump_message_id_ = message_id;
+    jump_history_pending_ = true;
+    const quint64 before_id = message_id + 1;
+    if (context_type_ == ContextType::Room) {
+        requestHistory(1, static_cast<quint64>(current_room_id_), before_id);
+    } else {
+        requestHistory(2, current_peer_id_, before_id);
     }
 }
 
@@ -799,6 +1015,18 @@ void MainWindow::resetContext() {
     message_store_.reset(chatbox::client::ChatContext::kRoom, 0);
     has_more_ = false;
     loading_older_history_ = false;
+    pending_jump_message_id_ = 0;
+    history_request_seq_ = 0;
+    history_request_is_jump_ = false;
+    jump_history_pending_ = false;
+    panel_search_seq_ = 0;
+    message_search_seq_ = 0;
+    if (message_search_timeout_timer_ != nullptr) {
+        message_search_timeout_timer_->stop();
+    }
+    if (message_search_dialog_ != nullptr) {
+        message_search_dialog_->clearResults();
+    }
     next_before_id_ = 0;
     if (input_edit_ != nullptr) {
         input_edit_->clear();
@@ -826,15 +1054,14 @@ void MainWindow::resetContext() {
     if (member_count_label_ != nullptr) {
         member_count_label_->setText("在线成员 (0)");
     }
-    if (load_more_action_ != nullptr) {
-        load_more_action_->setEnabled(false);
-    }
     updateChatEmptyState();
 }
 
 void MainWindow::renderCurrentConversation(ScrollMode mode) {
     QScrollBar* bar = chat_view_->verticalScrollBar();
     const int previous = bar->value();
+    const int previous_max = bar->maximum();
+    programmatic_scroll_ = true;
     hideMessageActionBar();
     QVector<chatbox::client::MessageKey> rendered_messages;
     chat_view_->setConversationHtml(
@@ -851,7 +1078,11 @@ void MainWindow::renderCurrentConversation(ScrollMode mode) {
         case ScrollMode::kPreserve:
             bar->setValue(std::min(previous, bar->maximum()));
             break;
+        case ScrollMode::kPreserveAnchor:
+            bar->setValue(std::max(0, previous + (bar->maximum() - previous_max)));
+            break;
     }
+    programmatic_scroll_ = false;
     updateChatEmptyState();
 }
 
@@ -867,6 +1098,16 @@ void MainWindow::addIncomingMessage(const chatbox::client::ChatMessage& message)
         chatbox::client::formatLocalDate(messages.last().created_at_utc) ==
             chatbox::client::formatLocalDate(message.created_at_utc);
     const bool appended = message_store_.appendIncoming(message);
+    if (appended && context_type_ == ContextType::Room) {
+        if (at_bottom) {
+            markGroupRead(static_cast<quint64>(current_room_id_),
+                          message.message_id);
+        } else if (chatbox::client::GroupInfo* group =
+                       group_store_.find(static_cast<quint64>(current_room_id_))) {
+            ++group->unread;
+            refreshGroupListView();
+        }
+    }
     if (appended && at_bottom && same_day) {
         chatbox::client::MessageKey key;
         key.message_id = message.message_id;
