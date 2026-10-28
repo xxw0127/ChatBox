@@ -681,6 +681,7 @@ bool MainWindow::enterOfflineMode(bool with_token) {
     }
     offline_mode_ = true;
     offline_session_ = with_token && !token_.isEmpty();
+    exitJumpMode(false);
     if (!with_token) {
         // 纯本地浏览：不算登录态，也不参与自动重连。
         logged_in_ = false;

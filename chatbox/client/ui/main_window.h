@@ -175,6 +175,9 @@ private:
     void sendRecall(quint64 message_id);
     void showMessageMenu(quint64 message_id, const QString& client_msg_id,
                          const QPoint& global_pos);
+    void jumpToMessage(quint64 message_id);
+    void exitJumpMode(bool reload_latest);
+    void positionJumpLatestButton();
     void copyMessageText(const chatbox::client::ChatMessage& message);
     void requestMembers(int room_id);
     void requestHistory(int kind, quint64 target, quint64 before_id);
@@ -267,6 +270,11 @@ private:
     QLabel* reply_label_ = nullptr;
     QPushButton* reply_cancel_button_ = nullptr;
     ChatView* chat_view_ = nullptr;
+    QPushButton* jump_latest_button_ = nullptr;
+    bool jump_mode_ = false;
+    quint64 pending_jump_id_ = 0;
+    quint64 jump_target_id_ = 0;
+    int jump_kind_ = 0;  // 1 room, 2 private
     QStackedWidget* chat_stack_ = nullptr;
     EmptyState* chat_empty_state_ = nullptr;
     chatbox::client::UpdateService* update_service_ = nullptr;

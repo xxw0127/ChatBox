@@ -254,6 +254,7 @@ void MainWindow::setOnline(bool online, const QString& text) {
     online_ = online;
     if (!online) {
         closeMentionPopup();
+        exitJumpMode(false);
     }
     if (banner_row_ != nullptr) {
         if (online) {
@@ -773,7 +774,9 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                                     : item->data(Qt::UserRole + 3).toBool();
             if (context_type_ == ContextType::Private && from_id == current_peer_id_) {
                 addIncomingMessage(message);
-                sendMarkRead(from_id, message_id);
+                if (!jump_mode_) {
+                    sendMarkRead(from_id, message_id);
+                }
                 updateConversationItem(from_id, 0, nickname, content, created_at, online);
                 refreshUnreadTitle();
             } else {
@@ -891,6 +894,24 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 message.status = chatbox::client::MessageStatus::kSent;
                 page.push_back(message);
                 peer_names_.insert(sender_id, nickname);
+            }
+
+            if (pending_jump_id_ != 0) {
+                const quint64 jump_id = pending_jump_id_;
+                pending_jump_id_ = 0;
+                loading_older_history_ = false;
+                message_store_.replaceHistory(page);
+                has_more_ = has_more != 0;
+                next_before_id_ = next_before;
+                load_more_action_->setEnabled(has_more_);
+                renderCurrentConversation(ScrollMode::kBottom);
+                if (message_store_.findMessage(jump_id) == nullptr) {
+                    setStatus("消息不存在", true);
+                    exitJumpMode(false);
+                } else {
+                    chat_view_->scrollToMessage(jump_id, true);
+                }
+                break;
             }
 
             const bool was_older_page = loading_older_history_;

@@ -336,6 +336,19 @@ QTextBrowser {
     padding: 8px;
 }
 
+QPushButton#JumpLatestButton {
+    background: #FFFFFF;
+    border: 1px solid #E7EBF0;
+    border-radius: 14px;
+    padding: 5px 12px;
+    color: #2C74CC;
+    font-size: 12px;
+}
+
+QPushButton#JumpLatestButton:hover {
+    background: #F4F4F5;
+}
+
 QFrame#MentionPopup {
     background: #FFFFFF;
     border: 1px solid #E7EBF0;

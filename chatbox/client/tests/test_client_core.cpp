@@ -287,6 +287,11 @@ private slots:
     void atAllNotificationMatchesEveryone();
     void messageSearchEmitsJumpOnClick();
     void chatViewScrollsToMessageAndFlashes();
+    void jumpModeSkipsLiveAppend();
+    void jumpModeShowsReturnButton();
+    void jumpLatestRestoresBottom();
+    void switchConversationExitsJumpMode();
+    void jumpRequestUsesTargetPlusOne();
     void contactStorePersistsAndUpdates();
     void avatarCenterCrop();
     void avatarCompressionLimit();
@@ -1869,6 +1874,53 @@ void TestClientCore::chatViewScrollsToMessageAndFlashes() {
     QVERIFY(view.messageBubbleRect(50).intersects(view.viewport()->rect()));
 
     QTRY_VERIFY_WITH_TIMEOUT(view.highlightedMessageId() == 0, 3000);
+}
+
+void TestClientCore::jumpModeSkipsLiveAppend() {
+    const QString source = readClientSource(QStringLiteral("ui/main_window_chat.cpp"));
+    const QString function = sourceSection(
+        source, QStringLiteral("void MainWindow::addIncomingMessage("),
+        QStringLiteral("bool MainWindow::currentChatContext("));
+    QVERIFY2(function.contains(QStringLiteral("if (jump_mode_)")),
+             "live pushes must not append while the user reads an old page");
+    QVERIFY2(function.contains(QStringLiteral("message_store_.appendIncoming(")),
+             "the push must still be stored locally");
+}
+
+void TestClientCore::jumpModeShowsReturnButton() {
+    const QString source = readClientSource(QStringLiteral("ui/main_window_chat.cpp"));
+    const QString function = sourceSection(
+        source, QStringLiteral("void MainWindow::jumpToMessage("),
+        QStringLiteral("void MainWindow::exitJumpMode("));
+    QVERIFY2(function.contains(QStringLiteral("jump_latest_button_->show()")),
+             "jump mode must expose the return-to-latest button");
+}
+
+void TestClientCore::jumpLatestRestoresBottom() {
+    const QString source = readClientSource(QStringLiteral("ui/main_window.cpp"));
+    QVERIFY2(source.contains(QStringLiteral("exitJumpMode(true)")),
+             "the return button must reload the latest page");
+}
+
+void TestClientCore::switchConversationExitsJumpMode() {
+    const QString source = readClientSource(QStringLiteral("ui/main_window_chat.cpp"));
+    for (const QString& marker :
+         {QStringLiteral("void MainWindow::selectRoom("),
+          QStringLiteral("void MainWindow::selectPrivate(")}) {
+        const QString function = sourceSection(source, marker, QStringLiteral("void MainWindow::"));
+        QVERIFY2(function.contains(QStringLiteral("exitJumpMode(false)")),
+                 qPrintable(marker));
+    }
+}
+
+void TestClientCore::jumpRequestUsesTargetPlusOne() {
+    const QString source = readClientSource(QStringLiteral("ui/main_window_chat.cpp"));
+    const QString function = sourceSection(
+        source, QStringLiteral("void MainWindow::jumpToMessage("),
+        QStringLiteral("void MainWindow::exitJumpMode("));
+    QVERIFY2(function.contains(QStringLiteral("message_id + 1")),
+             "the jump page must be fetched with before_id = target + 1 so the "
+             "target is its newest record");
 }
 
 void TestClientCore::contactStorePersistsAndUpdates() {

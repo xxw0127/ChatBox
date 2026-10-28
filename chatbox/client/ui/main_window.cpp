@@ -549,6 +549,16 @@ QWidget* MainWindow::buildChatPage() {
     connect(mention_popup_, &MentionPopup::chosen, this,
             &MainWindow::insertMentionChoice);
 
+    jump_latest_button_ =
+        new QPushButton(QString::fromUtf8("回到最新 \u2193"), chat_view_->viewport());
+    jump_latest_button_->setObjectName(QStringLiteral("JumpLatestButton"));
+    jump_latest_button_->setCursor(Qt::PointingHandCursor);
+    jump_latest_button_->setAccessibleName(QString::fromUtf8("回到最新消息"));
+    jump_latest_button_->hide();
+    connect(jump_latest_button_, &QPushButton::clicked, this,
+            [this] { exitJumpMode(true); });
+    chat_view_->installEventFilter(this);
+
     return page;
 }
 
@@ -808,6 +818,9 @@ void MainWindow::setStatus(const QString& text, bool error) {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == chat_view_ && event->type() == QEvent::Resize) {
+        positionJumpLatestButton();
+    }
     if (watched == input_edit_ && mention_popup_ != nullptr) {
         if (event->type() == QEvent::KeyPress && mention_popup_->isVisible()) {
             auto* key = static_cast<QKeyEvent*>(event);
