@@ -17,6 +17,7 @@
 #include "server/net/acceptor.h"
 #include "server/net/connection_limiter.h"
 #include "server/net/io_thread.h"
+#include "server/presence/presence_service.h"
 #include "server/room/room_manager.h"
 #include "server/room/room_service.h"
 #include "server/util/logging.h"
@@ -65,6 +66,39 @@ void broadcastChangedRoomMembers(
         for (const auto& group : groups) {
             io_threads[group.first]->postMulticast(group.second, encoded);
         }
+    }
+}
+
+// Presence events are rare (login / logout / disconnect), so fanning one
+// small frame out to every authenticated session is cheaper than maintaining
+// friend and room audiences in two places. The sender's own connection is
+// excluded: it does not need to learn its own state.
+void broadcastPresence(const chatbox::SessionManager& sessions,
+                       const std::vector<chatbox::IoThread*>& io_threads,
+                       const chatbox::PresenceEntry& entry,
+                       uint64_t exclude_connection_id) {
+    if (entry.user_id == 0) {
+        return;
+    }
+    const std::vector<chatbox::SessionTarget> targets = sessions.targets();
+    std::unordered_map<int, std::vector<uint64_t>> groups;
+    for (const chatbox::SessionTarget& target : targets) {
+        if (target.connection_id == exclude_connection_id) {
+            continue;
+        }
+        if (target.io_thread_id < 0 ||
+            target.io_thread_id >= static_cast<int>(io_threads.size())) {
+            continue;
+        }
+        groups[target.io_thread_id].push_back(target.connection_id);
+    }
+    if (groups.empty()) {
+        return;
+    }
+    const std::string encoded =
+        chatbox::encodeFrame(chatbox::makePresencePushFrame({entry}));
+    for (const auto& group : groups) {
+        io_threads[group.first]->postMulticast(group.second, encoded);
     }
 }
 
@@ -184,7 +218,7 @@ int main(int argc, char** argv) {
     io_threads.reserve(static_cast<std::size_t>(config.io_threads));
     io_thread_refs.reserve(static_cast<std::size_t>(config.io_threads));
 
-    auto frame_handler = [&worker_pool, &io_thread_refs, &room_manager](
+    auto frame_handler = [&worker_pool, &io_thread_refs, &room_manager, &sessions](
                              const Connection::Ptr& connection, const Frame& frame,
                              chatbox::IoThread&) -> bool {
         if (frame.header.cmd == chatbox::kCmdPing) {
@@ -247,7 +281,7 @@ int main(int argc, char** argv) {
             connection_id,
             [connection, frame, command, auth_command, room_command, private_command,
              history_command, friend_command, profile_command, connection_id, io_thread_id,
-             user_id, nickname, token_hash, &io_thread_refs, &room_manager](
+             user_id, nickname, token_hash, &io_thread_refs, &room_manager, &sessions](
                 chatbox::WorkerContext& context) {
                 if (auth_command) {
                     chatbox::SessionBinding binding;
@@ -258,6 +292,20 @@ int main(int argc, char** argv) {
 
                     chatbox::AuthResult result =
                         context.auth.handle(frame, user_id, token_hash, binding);
+                    if (result.bind_session && result.presence_seq != 0) {
+                        chatbox::PresenceEntry entry;
+                        entry.user_id = result.user_id;
+                        entry.online = true;
+                        entry.seq = result.presence_seq;
+                        broadcastPresence(sessions, io_thread_refs, entry, connection_id);
+                    }
+                    if (result.clear_session && result.presence_seq != 0) {
+                        chatbox::PresenceEntry entry;
+                        entry.user_id = user_id;
+                        entry.online = false;
+                        entry.seq = result.presence_seq;
+                        broadcastPresence(sessions, io_thread_refs, entry, connection_id);
+                    }
                     if (result.has_old_binding &&
                         result.old_binding.connection_id != connection_id &&
                         result.old_binding.io_thread_id >= 0 &&
@@ -458,8 +506,17 @@ int main(int argc, char** argv) {
                     room_manager.removeConnection(connection_id);
                 broadcastChangedRoomMembers(room_manager, io_thread_refs,
                                             changed_rooms);
-                sessions.unbindByConnection(connection_id);
+                uint64_t presence_seq = 0;
+                const uint64_t user_id =
+                    sessions.unbindByConnection(connection_id, &presence_seq);
                 connection_limiter.release(connection_id);
+                if (user_id != 0 && presence_seq != 0) {
+                    chatbox::PresenceEntry entry;
+                    entry.user_id = user_id;
+                    entry.online = false;
+                    entry.seq = presence_seq;
+                    broadcastPresence(sessions, io_thread_refs, entry, connection_id);
+                }
             },
             config.proxy_protocol,
             [&connection_limiter](uint64_t connection_id, const std::string& ip,
