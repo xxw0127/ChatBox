@@ -336,6 +336,18 @@ QTextBrowser {
     padding: 8px;
 }
 
+QFrame#MentionPopup {
+    background: #FFFFFF;
+    border: 1px solid #E7EBF0;
+    border-radius: 12px;
+}
+
+QListWidget#MentionList {
+    background: transparent;
+    border: none;
+    outline: none;
+}
+
 QStackedWidget {
     background: #F4F4F5;
 }

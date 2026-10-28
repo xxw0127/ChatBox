@@ -59,6 +59,8 @@ SOURCES += \
     ui/main_window_net.cpp \
     ui/main_window_profile.cpp \
     ui/main_window_tray.cpp \
+    ui/mention_popup.cpp \
+    ui/mention_item_delegate.cpp \
     ui/message_search_dialog.cpp \
     ui/settings_dialog.cpp \
     ui/update_dialog.cpp \
@@ -105,6 +107,8 @@ HEADERS += \
     ui/friend_list_widget.h \
     ui/main_window.h \
     ui/main_window_support.h \
+    ui/mention_popup.h \
+    ui/mention_item_delegate.h \
     ui/message_search_dialog.h \
     ui/settings_dialog.h \
     ui/update_dialog.h \

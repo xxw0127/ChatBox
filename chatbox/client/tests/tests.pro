@@ -31,6 +31,8 @@ SOURCES += \
     ../ui/chat_view.cpp \
     ../ui/empty_state.cpp \
     ../ui/message_input.cpp \
+    ../ui/mention_popup.cpp \
+    ../ui/mention_item_delegate.cpp \
     ../ui/profile_dialog.cpp \
     ../ui/login_page.cpp \
     ../ui/more_dots.cpp \
@@ -62,6 +64,8 @@ HEADERS += \
     ../ui/chat_view.h \
     ../ui/empty_state.h \
     ../ui/message_input.h \
+    ../ui/mention_popup.h \
+    ../ui/mention_item_delegate.h \
     ../ui/profile_dialog.h \
     ../ui/login_page.h \
     ../ui/more_dots.h \

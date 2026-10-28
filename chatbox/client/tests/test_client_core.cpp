@@ -72,6 +72,7 @@
 #include "ui/empty_state.h"
 #include "ui/login_page.h"
 #include "ui/message_input.h"
+#include "ui/mention_popup.h"
 #include "ui/profile_dialog.h"
 #include "ui/settings_dialog.h"
 #include "ui/update_dialog.h"
@@ -276,6 +277,9 @@ private slots:
     void mentionTokenNeedsBoundary();
     void mentionTokenAllowsAfterCjkComma();
     void mentionTokenIgnoresCursorBeforeAt();
+    void mentionPopupFiltersByNameAndId();
+    void mentionPopupKeyboardSelectionEmitsChosen();
+    void mentionPopupAllEntryStaysFirst();
     void contactStorePersistsAndUpdates();
     void avatarCenterCrop();
     void avatarCompressionLimit();
@@ -451,6 +455,66 @@ void TestClientCore::mentionTokenIgnoresCursorBeforeAt() {
     const chatbox::client::MentionToken token =
         chatbox::client::mentionTokenAt(QString::fromUtf8("@\u674e"), 0);
     QVERIFY(!token.active);
+}
+
+void TestClientCore::mentionPopupFiltersByNameAndId() {
+    MentionCandidate all;
+    all.name = QString::fromUtf8("\u6240\u6709\u4eba");
+    all.online = true;
+    MentionCandidate li;
+    li.user_id = 7;
+    li.name = QString::fromUtf8("\u674e\u786c");
+    li.public_id = QStringLiteral("U00000007");
+    li.online = true;
+    MentionCandidate he;
+    he.user_id = 9;
+    he.name = QString::fromUtf8("\u4f55\u586b");
+    he.public_id = QStringLiteral("U00000009");
+
+    MentionPopup popup;
+    popup.setCandidates({all, li, he}, QString::fromUtf8("\u4f55"));
+    QCOMPARE(popup.visibleCount(), 2);  // 所有人 + 何填
+    QCOMPARE(popup.selectedCandidate().name, all.name);
+
+    popup.setCandidates({all, li, he}, QStringLiteral("00000007"));
+    QCOMPARE(popup.visibleCount(), 2);  // 所有人 + 李硬
+    popup.moveSelection(1);
+    QCOMPARE(popup.selectedCandidate().name, li.name);
+}
+
+void TestClientCore::mentionPopupKeyboardSelectionEmitsChosen() {
+    MentionCandidate all;
+    all.name = QString::fromUtf8("\u6240\u6709\u4eba");
+    MentionCandidate li;
+    li.user_id = 7;
+    li.name = QString::fromUtf8("\u674e\u786c");
+    li.public_id = QStringLiteral("U00000007");
+    MentionCandidate he;
+    he.user_id = 9;
+    he.name = QString::fromUtf8("\u4f55\u586b");
+    he.public_id = QStringLiteral("U00000009");
+
+    MentionPopup popup;
+    QSignalSpy spy(&popup, &MentionPopup::chosen);
+    popup.setCandidates({all, li, he}, QString());
+    popup.moveSelection(2);  // 所有人 -> 李硬 -> 何填
+    QCOMPARE(popup.selectedCandidate().name, he.name);
+    popup.activateSelected();
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.at(0).at(0).toULongLong(), qulonglong(9));
+    QCOMPARE(spy.at(0).at(1).toString(), he.name);
+}
+
+void TestClientCore::mentionPopupAllEntryStaysFirst() {
+    MentionCandidate li;
+    li.user_id = 7;
+    li.name = QString::fromUtf8("\u674e\u786c");
+    MentionPopup popup;
+    popup.setCandidates({li}, QString());
+    QCOMPARE(popup.visibleCount(), 2);
+    QCOMPARE(popup.selectedCandidate().user_id, quint64(0));
+    QCOMPARE(popup.selectedCandidate().name, QString::fromUtf8("\u6240\u6709\u4eba"));
 }
 
 void TestClientCore::invalidTimestamp() {
