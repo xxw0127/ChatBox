@@ -18,6 +18,8 @@ public:
     void store(quint64 user_id, quint32 version, const QImage& image);
     bool lookup(quint64 user_id, QImage& image) const;
     bool contains(quint64 user_id) const;
+    // Cached version, or 0 when the user has no entry / no avatar.
+    quint32 version(quint64 user_id) const;
     void remove(quint64 user_id);
     void clear();
 

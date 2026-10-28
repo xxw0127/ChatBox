@@ -2,6 +2,7 @@
 chatbox/client/build/
 chatbox/client/build-test/
 chatbox/client/ui-file-test*/
+chatbox/client/integration*/
 chatbox/client/release/
 chatbox/release/
 chatbox/client/screenshots/screenshot-*.png

@@ -17,8 +17,10 @@
 #include "core/friend_view.h"
 #include "core/group_store.h"
 #include "core/history_store.h"
+#include "core/message_renderer.h"
 #include "core/message_store.h"
 #include "core/outbox.h"
+#include "core/presence_book.h"
 #include "core/update_manifest.h"
 #include "core/user_profile.h"
 
@@ -28,7 +30,6 @@ class NetworkThread;
 class ProfileDialog;
 class ChatView;
 class EmptyState;
-class MessageActionBar;
 class MessageInput;
 class QAction;
 class QCloseEvent;
@@ -48,6 +49,7 @@ class QTimer;
 class QToolButton;
 class QImage;
 class FriendRequestDialog;
+class MentionPopup;
 class MessageSearchDialog;
 class SettingsDialog;
 class UpdateDialog;
@@ -65,6 +67,13 @@ class UpdateService;
 class FileTransferManager;
 }  // namespace client
 }  // namespace chatbox
+
+// Image resources for the senders in one rendered page. srcs feeds the
+// renderer's <img> URLs; images feeds QTextDocument::addResource.
+struct MessageAvatars {
+    chatbox::client::AvatarSrcMap srcs;
+    QHash<QString, QImage> images;
+};
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -153,6 +162,7 @@ private:
     void openMessageSearch();
     void openMessageSearchWith(const QString& keyword);
     void startPanelSearch(const QString& keyword);
+    void closeMessageSearch();
     void requestMessageSearch(const QString& keyword);
     void refreshContacts();
     void requestProfile(quint64 user_id);
@@ -179,19 +189,22 @@ private:
                                 quint32 avatar_version);
     void updateRoomMemberNickname(quint64 user_id, const QString& nickname);
     void insertMention();
+    void openMentionPopup(const QString& query);
+    void closeMentionPopup();
+    void updateMentionPopup();
+    void insertMentionChoice(quint64 user_id, const QString& name);
     void setReplyTo(const chatbox::client::ChatMessage& message);
     void clearReply();
     void sendRecall(quint64 message_id);
-    void showMessageActions(quint64 message_id, const QRect& meta_rect);
-    void hideMessageActionBar();
-    void hideMessageActionsUnlessHovered();
     void showMessageMenu(quint64 message_id, const QString& client_msg_id,
                          const QPoint& global_pos);
+    void jumpToMessage(quint64 message_id);
+    void exitJumpMode(bool reload_latest);
+    void positionJumpLatestButton();
     void copyMessageText(const chatbox::client::ChatMessage& message);
     void requestMembers(int room_id);
-    void requestHistory(int kind, quint64 target, quint64 before_id);
+    bool requestHistory(int kind, quint64 target, quint64 before_id);
     void maybeLoadOlder();
-    void jumpToMessage(quint64 message_id);
     void selectRoom(int room_id, const QString& name);
     void selectGroup(quint64 room_id, const QString& name);
     void selectDissolvedGroup(quint64 room_id, const QString& name);
@@ -246,11 +259,16 @@ private:
     void updateMessageByteCounter();
     void resetContext();
     void renderCurrentConversation(ScrollMode mode);
+    MessageAvatars messageAvatars(
+        const QVector<chatbox::client::ChatMessage>& messages) const;
+    void requestMissingMessageAvatars(
+        const QVector<chatbox::client::ChatMessage>& messages);
     void addIncomingMessage(const chatbox::client::ChatMessage& message);
     bool currentChatContext(chatbox::client::ChatContext& context,
                             quint64& target_id) const;
     void restorePendingForCurrentContext();
     void setOnline(bool online, const QString& text = QString());
+    void applyPresenceUpdate(quint64 user_id, bool online, quint64 seq);
     void handleError(quint16 code, const QString& message, quint32 seq);
     void clearSession();
     void scheduleReconnect();
@@ -317,16 +335,19 @@ private:
     QLabel* reply_label_ = nullptr;
     QPushButton* reply_cancel_button_ = nullptr;
     ChatView* chat_view_ = nullptr;
+    QPushButton* jump_latest_button_ = nullptr;
+    bool jump_mode_ = false;
+    quint64 pending_jump_id_ = 0;
+    quint64 jump_target_id_ = 0;
+    int jump_kind_ = 0;  // 1 room, 2 private
     QStackedWidget* chat_stack_ = nullptr;
     EmptyState* chat_empty_state_ = nullptr;
-    MessageActionBar* message_action_bar_ = nullptr;
     chatbox::client::UpdateService* update_service_ = nullptr;
     UpdateDialog* update_dialog_ = nullptr;
     chatbox::client::UpdateManifest pending_update_;
     QString downloaded_update_zip_;
     bool update_check_started_ = false;
     bool update_download_active_ = false;
-    quint64 action_bar_message_id_ = 0;
     MessageInput* input_edit_ = nullptr;
     QLabel* message_byte_counter_ = nullptr;
     QPushButton* mention_button_ = nullptr;
@@ -334,6 +355,7 @@ private:
     int last_upload_percent_ = -1;
     int last_download_percent_ = -1;
     QSet<quint64> thumbnail_requests_;
+    MentionPopup* mention_popup_ = nullptr;
     QPushButton* send_button_ = nullptr;
     QWidget* right_panel_ = nullptr;
     QStackedWidget* right_mode_stack_ = nullptr;
@@ -380,6 +402,7 @@ private:
     QTimer* reconnect_timer_ = nullptr;
     QTimer* search_timeout_timer_ = nullptr;
     QTimer* message_search_timeout_timer_ = nullptr;
+    QTimer* jump_timeout_timer_ = nullptr;
     QTimer* profile_timeout_timer_ = nullptr;
     QTimer* avatar_timeout_timer_ = nullptr;
     quint32 user_search_seq_ = 0;
@@ -404,6 +427,7 @@ private:
     quint64 current_peer_id_ = 0;
     QString current_peer_name_;
     chatbox::client::MessageStore message_store_;
+    chatbox::client::PresenceBook presence_book_;
     chatbox::client::HistoryStore history_store_;
     chatbox::client::GroupStore group_store_;
     chatbox::client::FileTransferManager* file_transfer_ = nullptr;

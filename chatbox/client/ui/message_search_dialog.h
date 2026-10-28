@@ -33,12 +33,14 @@ public:
 
 signals:
     void searchRequested(const QString& keyword);
-    void resultActivated(quint64 message_id);
+    void jumpRequested(quint64 message_id);
 
 private slots:
     void submitSearch();
 
 private:
+    void emitJump(QListWidgetItem* item);
+
     QLineEdit* search_edit_ = nullptr;
     QPushButton* search_button_ = nullptr;
     QListWidget* result_list_ = nullptr;

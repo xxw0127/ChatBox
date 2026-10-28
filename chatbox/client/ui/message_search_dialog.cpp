@@ -37,18 +37,10 @@ MessageSearchDialog::MessageSearchDialog(QWidget* parent) : QDialog(parent) {
             &MessageSearchDialog::submitSearch);
     connect(search_edit_, &QLineEdit::returnPressed, this,
             &MessageSearchDialog::submitSearch);
+    connect(result_list_, &QListWidget::itemClicked, this,
+            &MessageSearchDialog::emitJump);
     connect(result_list_, &QListWidget::itemActivated, this,
-            [this](QListWidgetItem* item) {
-                if (item != nullptr) {
-                    emit resultActivated(item->data(Qt::UserRole).toULongLong());
-                }
-            });
-    connect(result_list_, &QListWidget::itemDoubleClicked, this,
-            [this](QListWidgetItem* item) {
-                if (item != nullptr) {
-                    emit resultActivated(item->data(Qt::UserRole).toULongLong());
-                }
-            });
+            &MessageSearchDialog::emitJump);
 }
 
 void MessageSearchDialog::setKeyword(const QString& keyword) {
@@ -56,6 +48,16 @@ void MessageSearchDialog::setKeyword(const QString& keyword) {
         search_edit_->setText(keyword);
         search_edit_->selectAll();
         search_edit_->setFocus();
+    }
+}
+
+void MessageSearchDialog::emitJump(QListWidgetItem* item) {
+    if (item == nullptr) {
+        return;
+    }
+    const quint64 message_id = item->data(Qt::UserRole).toULongLong();
+    if (message_id != 0) {
+        emit jumpRequested(message_id);
     }
 }
 

@@ -1,6 +1,8 @@
 #include "ui/main_window_support.h"
 
 #include "core/file_transfer_manager.h"
+#include <QGuiApplication>
+#include <QScreen>
 
 void MainWindow::insertMention() {
     if (offline_mode_ || !online_) {
@@ -11,41 +13,112 @@ void MainWindow::insertMention() {
         setStatus("请先选择一个会话", true);
         return;
     }
-    QString nickname;
-    if (context_type_ == ContextType::Private) {
-        nickname = current_peer_name_;
-    } else if (member_list_ != nullptr && member_list_->count() > 0) {
-        QMenu menu(this);
-        for (int i = 0; i < member_list_->count(); ++i) {
-            QListWidgetItem* item = member_list_->item(i);
-            if (item == nullptr || item->data(Qt::UserRole).toULongLong() == user_id_) {
-                continue;
-            }
-            const QString nickname = item->data(Qt::UserRole + 1)
-                                         .toString()
-                                         .trimmed()
-                                         .isEmpty()
-                                         ? item->text()
-                                         : item->data(Qt::UserRole + 1).toString();
-            QAction* action = menu.addAction(nickname);
-            action->setData(nickname);
-        }
-        if (menu.isEmpty()) {
-            setStatus("当前没有可提及的成员", true);
-            return;
-        }
-        QAction* selected = menu.exec(QCursor::pos());
-        if (selected == nullptr) {
-            return;
-        }
-        nickname = selected->data().toString();
-    }
-    if (nickname.isEmpty()) {
-        setStatus("当前没有可提及的成员", true);
+    if (context_type_ != ContextType::Room) {
+        setStatus("私聊无需 @ 提及", true);
         return;
     }
-    input_edit_->insertPlainText("@" + nickname + " ");
+    const chatbox::client::MentionToken token = chatbox::client::mentionTokenAt(
+        input_edit_->toPlainText(), input_edit_->textCursor().position());
+    openMentionPopup(token.active ? token.query : QString());
+}
+
+void MainWindow::openMentionPopup(const QString& query) {
+    if (mention_popup_ == nullptr) {
+        return;
+    }
+    if (offline_mode_ || !online_ || context_type_ != ContextType::Room) {
+        closeMentionPopup();
+        return;
+    }
+
+    QVector<MentionCandidate> candidates;
+    MentionCandidate all;
+    all.name = QString::fromUtf8("所有人");
+    all.online = true;
+    all.avatar = QPixmap::fromImage(chatbox::client::roomAvatar(28));
+    candidates.push_back(all);
+
+    if (member_list_ != nullptr) {
+        for (int i = 0; i < member_list_->count(); ++i) {
+            QListWidgetItem* item = member_list_->item(i);
+            if (item == nullptr) {
+                continue;
+            }
+            const quint64 member_id = item->data(Qt::UserRole).toULongLong();
+            if (member_id == 0 || member_id == user_id_) {
+                continue;
+            }
+            MentionCandidate candidate;
+            candidate.user_id = member_id;
+            candidate.name = item->text();
+            candidate.public_id = chatbox::client::publicUserId(member_id);
+            candidate.online = true;
+            candidate.avatar =
+                memberAvatarIcon(member_id, candidate.name, 28).pixmap(28, 28);
+            candidates.push_back(candidate);
+        }
+    }
+
+    mention_popup_->setCandidates(candidates, query);
+    mention_popup_->adjustSize();
+    const QSize size = mention_popup_->size();
+    const QPoint caret =
+        input_edit_->mapToGlobal(input_edit_->cursorRect().bottomLeft());
+    int x = caret.x();
+    int y = caret.y() - size.height() - 4;
+    if (const QScreen* screen = QGuiApplication::screenAt(caret); screen != nullptr) {
+        const QRect available = screen->availableGeometry();
+        if (y < available.top() + 4) {
+            y = caret.y() + 4;
+        }
+        x = qBound(available.left() + 4, x,
+                   available.right() - size.width() - 4);
+    }
+    mention_popup_->showAt(QPoint(x, y));
+}
+
+void MainWindow::updateMentionPopup() {
+    if (mention_popup_ == nullptr || input_edit_ == nullptr) {
+        return;
+    }
+    if (offline_mode_ || !online_ || context_type_ != ContextType::Room) {
+        closeMentionPopup();
+        return;
+    }
+    const chatbox::client::MentionToken token = chatbox::client::mentionTokenAt(
+        input_edit_->toPlainText(), input_edit_->textCursor().position());
+    if (!token.active) {
+        closeMentionPopup();
+        return;
+    }
+    openMentionPopup(token.query);
+}
+
+void MainWindow::closeMentionPopup() {
+    if (mention_popup_ != nullptr && mention_popup_->isVisible()) {
+        mention_popup_->hide();
+    }
+}
+
+void MainWindow::insertMentionChoice(quint64 user_id, const QString& name) {
+    (void)user_id;
+    if (input_edit_ == nullptr || name.isEmpty()) {
+        return;
+    }
+    QTextCursor cursor = input_edit_->textCursor();
+    const int caret = cursor.position();
+    // Recompute at insertion time: the caret may have moved since the popup
+    // opened, and a stale start would delete text between token and caret.
+    const chatbox::client::MentionToken token = chatbox::client::mentionTokenAt(
+        input_edit_->toPlainText(), caret);
+    if (token.active && token.start < caret) {
+        cursor.setPosition(token.start);
+        cursor.setPosition(caret, QTextCursor::KeepAnchor);
+    }
+    cursor.insertText("@" + name + " ");
+    input_edit_->setTextCursor(cursor);
     input_edit_->setFocus();
+    closeMentionPopup();
 }
 
 void MainWindow::setReplyTo(const chatbox::client::ChatMessage& message) {
@@ -102,106 +175,6 @@ void MainWindow::sendRecall(quint64 message_id) {
     sendFrame(frame);
 }
 
-void MainWindow::showMessageActions(quint64 message_id, const QRect& meta_rect) {
-    if (message_action_bar_ == nullptr || chat_view_ == nullptr || message_id == 0) {
-        hideMessageActionBar();
-        return;
-    }
-    const chatbox::client::ChatMessage* message =
-        message_store_.findMessage(message_id);
-    if (message == nullptr) {
-        hideMessageActionBar();
-        return;
-    }
-    chatbox::client::MessageActions actions =
-        chatbox::client::messageActions(*message, user_id_);
-    if (offline_mode_) {
-        // 离线是只读视图：撤回与重发都不提供。
-        actions.can_recall = false;
-        actions.can_retry = false;
-    }
-    if (!actions.can_reply && !actions.can_recall) {
-        hideMessageActionBar();
-        return;
-    }
-    message_action_bar_->setActions(actions.can_reply, actions.can_recall);
-    const QRect viewport_rect = chat_view_->viewport()->rect();
-    const QSize bar_size = message_action_bar_->size();
-    const QRect bubble = chat_view_->messageBubbleRect(message_id);
-    int x = 0;
-    int y = 0;
-    bool placed = false;
-    if (!bubble.isNull()) {
-        // Place the bar in the empty space beside the bubble (Coinbase-style
-    // floating action bar),
-        // so it neither covers the message nor sits under the pointer.
-        const int right_space = viewport_rect.width() - bubble.right() - 1;
-        const int left_space = bubble.left();
-        if (right_space >= bar_size.width() + 8) {
-            x = bubble.right() + 6;
-            y = bubble.top() + 2;
-            placed = true;
-        } else if (left_space >= bar_size.width() + 8) {
-            x = bubble.left() - bar_size.width() - 6;
-            y = bubble.top() + 2;
-            placed = true;
-        }
-    }
-    if (!placed && !bubble.isNull()) {
-        // Wide bubble with no room on either side: float the bar in the gap
-        // just above the bubble so it never lands under the pointer.
-        const int above_y = bubble.top() - bar_size.height() - 2;
-        if (above_y >= 4) {
-            x = bubble.right() - bar_size.width();
-            y = above_y;
-            placed = true;
-        } else {
-            const int below_y = bubble.bottom() + 3;
-            if (below_y + bar_size.height() <= viewport_rect.height() - 4) {
-                x = bubble.right() - bar_size.width();
-                y = below_y;
-                placed = true;
-            }
-        }
-    }
-    if (!placed) {
-        // Fall back to the row above the message time.
-        x = meta_rect.isNull() ? viewport_rect.right() - bar_size.width() - 8
-                               : meta_rect.right() - bar_size.width();
-        y = meta_rect.isNull()
-                ? viewport_rect.bottom() - bar_size.height() - 8
-                : meta_rect.top() - bar_size.height() - 2;
-    }
-    x = qBound(4, x, qMax(4, viewport_rect.width() - bar_size.width() - 4));
-    y = qBound(4, y, qMax(4, viewport_rect.height() - bar_size.height() - 4));
-    message_action_bar_->move(x, y);
-    message_action_bar_->raise();
-    message_action_bar_->show();
-    action_bar_message_id_ = message_id;
-}
-
-void MainWindow::hideMessageActionBar() {
-    action_bar_message_id_ = 0;
-    if (message_action_bar_ != nullptr && message_action_bar_->isVisible()) {
-        message_action_bar_->hide();
-    }
-}
-
-void MainWindow::hideMessageActionsUnlessHovered() {
-    if (message_action_bar_ == nullptr || !message_action_bar_->isVisible()) {
-        return;
-    }
-    // Leave events also fire when the pointer moves onto the bar's buttons,
-    // and the bar floats a few pixels away from the bubble, so accept a small
-    // corridor around it while keeping the bar as long as the pointer is
-    // inside.
-    const QRect hit_rect = message_action_bar_->rect().adjusted(-10, -10, 10, 10);
-    if (hit_rect.contains(message_action_bar_->mapFromGlobal(QCursor::pos()))) {
-        return;
-    }
-    hideMessageActionBar();
-}
-
 void MainWindow::showMessageMenu(quint64 message_id, const QString& client_msg_id,
                                  const QPoint& global_pos) {
     const chatbox::client::ChatMessage* message =
@@ -217,7 +190,6 @@ void MainWindow::showMessageMenu(quint64 message_id, const QString& client_msg_i
         actions.can_recall = false;
         actions.can_retry = false;
     }
-    hideMessageActionBar();
 
     QMenu menu(this);
     QAction* retry_action = nullptr;
@@ -285,6 +257,133 @@ void MainWindow::showMessageMenu(quint64 message_id, const QString& client_msg_i
     }
 }
 
+void MainWindow::jumpToMessage(quint64 message_id) {
+    if (message_id == 0) {
+        return;
+    }
+    if (message_search_dialog_ != nullptr) {
+        message_search_dialog_->close();
+    }
+    if (message_store_.findMessage(message_id) != nullptr) {
+        chat_view_->scrollToMessage(message_id, true);
+        return;
+    }
+
+    chatbox::client::ChatContext context = chatbox::client::ChatContext::kRoom;
+    quint64 target_id = 0;
+    if (!currentChatContext(context, target_id)) {
+        setStatus("请先选择一个会话", true);
+        return;
+    }
+
+    jump_target_id_ = target_id;
+    jump_kind_ = context == chatbox::client::ChatContext::kRoom ? 1 : 2;
+    jump_mode_ = true;
+    if (jump_latest_button_ != nullptr) {
+        jump_latest_button_->show();
+        positionJumpLatestButton();
+    }
+
+    if (offline_mode_) {
+        if (!history_store_.isOpen()) {
+            setStatus("没有可搜索的本地记录", true);
+            exitJumpMode(false);
+            return;
+        }
+        const QVector<chatbox::client::ChatMessage> page =
+            history_store_.before(context, target_id, message_id + 1, 50);
+        loading_older_history_ = false;
+        message_store_.replaceHistory(page);
+        if (!page.isEmpty()) {
+            next_before_id_ = page.first().message_id;
+            has_more_ =
+                !history_store_.before(context, target_id, next_before_id_, 1).isEmpty();
+        } else {
+            has_more_ = false;
+            next_before_id_ = 0;
+        }
+        renderCurrentConversation(ScrollMode::kBottom);
+        if (message_store_.findMessage(message_id) == nullptr) {
+            setStatus("消息不存在", true);
+            exitJumpMode(false);
+        } else {
+            chat_view_->scrollToMessage(message_id, true);
+        }
+        return;
+    }
+
+    pending_jump_id_ = message_id;
+    if (jump_timeout_timer_ != nullptr) {
+        jump_timeout_timer_->start();
+    }
+    if (!requestHistory(jump_kind_, target_id, message_id + 1)) {
+        exitJumpMode(false);
+        setStatus("网络未连接，无法跳转", true);
+    }
+}
+
+void MainWindow::exitJumpMode(bool reload_latest) {
+    const bool was_jumping = jump_mode_ || pending_jump_id_ != 0;
+    if (pending_jump_id_ != 0) {
+        // The in-flight page request will not be treated as an older page
+        // after the jump state is cleared.
+        loading_older_history_ = false;
+    }
+    jump_mode_ = false;
+    pending_jump_id_ = 0;
+    if (jump_timeout_timer_ != nullptr) {
+        jump_timeout_timer_->stop();
+    }
+    if (jump_latest_button_ != nullptr) {
+        jump_latest_button_->hide();
+    }
+    if (!reload_latest || !was_jumping) {
+        return;
+    }
+
+    chatbox::client::ChatContext context = chatbox::client::ChatContext::kRoom;
+    quint64 target_id = 0;
+    if (!currentChatContext(context, target_id)) {
+        return;
+    }
+    if (offline_mode_) {
+        if (!history_store_.isOpen()) {
+            return;
+        }
+        const QVector<chatbox::client::ChatMessage> page =
+            history_store_.recent(context, target_id, 50);
+        message_store_.replaceHistory(page);
+        if (!page.isEmpty()) {
+            next_before_id_ = page.first().message_id;
+            has_more_ =
+                !history_store_.before(context, target_id, next_before_id_, 1).isEmpty();
+        } else {
+            has_more_ = false;
+            next_before_id_ = 0;
+        }
+        renderCurrentConversation(ScrollMode::kBottom);
+        return;
+    }
+    const int kind =
+        jump_kind_ != 0 ? jump_kind_
+                        : (context == chatbox::client::ChatContext::kRoom ? 1 : 2);
+    requestHistory(kind, target_id, 0);
+}
+
+void MainWindow::positionJumpLatestButton() {
+    if (jump_latest_button_ == nullptr || chat_view_ == nullptr ||
+        chat_view_->viewport() == nullptr) {
+        return;
+    }
+    jump_latest_button_->adjustSize();
+    const int x =
+        chat_view_->viewport()->width() - jump_latest_button_->width() - 16;
+    const int y =
+        chat_view_->viewport()->height() - jump_latest_button_->height() - 16;
+    jump_latest_button_->move(qMax(8, x), qMax(8, y));
+    jump_latest_button_->raise();
+}
+
 void MainWindow::copyMessageText(const chatbox::client::ChatMessage& message) {
     const QTextCursor selection = chat_view_->textCursor();
     if (selection.hasSelection()) {
@@ -303,11 +402,8 @@ void MainWindow::openMessageSearch() {
         message_search_dialog_ = new MessageSearchDialog(this);
         connect(message_search_dialog_, &MessageSearchDialog::searchRequested, this,
                 &MainWindow::requestMessageSearch);
-        connect(message_search_dialog_, &MessageSearchDialog::resultActivated, this,
-                [this](quint64 message_id) {
-                    jumpToMessage(message_id);
-                    message_search_dialog_->hide();
-                });
+        connect(message_search_dialog_, &MessageSearchDialog::jumpRequested, this,
+                &MainWindow::jumpToMessage);
     }
     message_search_dialog_->clearResults();
     message_search_dialog_->show();
@@ -409,6 +505,17 @@ void MainWindow::openMessageSearchWith(const QString& keyword) {
     }
 }
 
+void MainWindow::closeMessageSearch() {
+    if (message_search_dialog_ != nullptr) {
+        message_search_dialog_->close();
+        message_search_dialog_->clearResults();
+    }
+    message_search_seq_ = 0;
+    if (message_search_timeout_timer_ != nullptr) {
+        message_search_timeout_timer_->stop();
+    }
+}
+
 void MainWindow::requestMessageSearch(const QString& keyword) {
     if (message_search_dialog_ == nullptr || context_type_ == ContextType::None) {
         return;
@@ -495,9 +602,9 @@ void MainWindow::requestMembers(int room_id) {
     sendFrame(frame);
 }
 
-void MainWindow::requestHistory(int kind, quint64 target, quint64 before_id) {
+bool MainWindow::requestHistory(int kind, quint64 target, quint64 before_id) {
     if (offline_mode_) {
-        return;
+        return false;
     }
     chatbox::Frame frame;
     frame.header.cmd = chatbox::kCmdHistory;
@@ -508,15 +615,14 @@ void MainWindow::requestHistory(int kind, quint64 target, quint64 before_id) {
     writer.putU64(before_id);
     writer.putU16(50);
     frame.body = writer.data();
-    const bool is_jump = jump_history_pending_;
-    jump_history_pending_ = false;
-    loading_older_history_ = before_id != 0 && !is_jump;
+    loading_older_history_ = before_id != 0;
     history_request_seq_ = frame.header.seq;
     history_request_kind_ = kind;
     history_request_target_ = target;
     history_request_before_ = before_id;
-    history_request_is_jump_ = is_jump;
-    sendFrame(frame);
+    history_request_is_jump_ = pending_jump_id_ != 0;
+    jump_history_pending_ = pending_jump_id_ != 0;
+    return sendFrame(frame);
 }
 
 void MainWindow::onSendClicked() {
@@ -535,6 +641,11 @@ void MainWindow::onSendClicked() {
     if (text.toUtf8().size() > 2000) {
         setStatus("消息不能超过 2000 字节", true);
         return;
+    }
+    if (jump_mode_) {
+        // Leaving the old page first keeps the new pending bubble on the
+        // latest page instead of pinning it under the historical window.
+        exitJumpMode(true);
     }
 
     const QString client_msg_id =
@@ -732,8 +843,9 @@ void MainWindow::selectRoom(int room_id, const QString& name) {
         context_avatar_->setCursor(Qt::ArrowCursor);
     }
     chat_view_->clear();
-    chat_view_->clearHoverState();
-    hideMessageActionBar();
+    closeMentionPopup();
+    exitJumpMode(false);
+    closeMessageSearch();
     if (input_edit_ != nullptr) {
         input_edit_->clear();
     }
@@ -825,8 +937,9 @@ void MainWindow::selectPrivate(quint64 peer_id, const QString& nickname) {
         requestPeerAvatar(peer_id);
     }
     chat_view_->clear();
-    chat_view_->clearHoverState();
-    hideMessageActionBar();
+    closeMentionPopup();
+    exitJumpMode(false);
+    closeMessageSearch();
     if (input_edit_ != nullptr) {
         input_edit_->clear();
     }
@@ -931,61 +1044,6 @@ void MainWindow::maybeLoadOlder() {
     }
 }
 
-void MainWindow::jumpToMessage(quint64 message_id) {
-    if (message_id == 0 || context_type_ == ContextType::None) {
-        return;
-    }
-    const chatbox::client::ChatMessage* message =
-        message_store_.findMessage(message_id);
-    if (message != nullptr) {
-        const QRect rect = chat_view_->messageBubbleRect(message_id);
-        if (!rect.isNull()) {
-            QScrollBar* bar = chat_view_->verticalScrollBar();
-            bar->setValue(std::max(0, bar->value() + rect.top() - 48));
-        }
-        return;
-    }
-    const chatbox::client::GroupInfo* group =
-        context_type_ == ContextType::Room
-            ? group_store_.find(static_cast<quint64>(current_room_id_))
-            : nullptr;
-    const bool local_only =
-        offline_mode_ || (group != nullptr && group->status != 0);
-    if (local_only) {
-        if (!history_store_.isOpen()) {
-            setStatus("消息不在本地记录中", true);
-            return;
-        }
-        chatbox::client::ChatContext context = chatbox::client::ChatContext::kRoom;
-        quint64 target_id = 0;
-        if (!currentChatContext(context, target_id)) {
-            return;
-        }
-        const QVector<chatbox::client::ChatMessage> page =
-            history_store_.before(context, target_id, message_id + 1, 50);
-        if (page.isEmpty()) {
-            setStatus("消息不在本地记录中", true);
-            return;
-        }
-        message_store_.replaceHistory(page);
-        next_before_id_ = page.first().message_id;
-        has_more_ = !history_store_
-                         .before(context, target_id, next_before_id_, 1)
-                         .isEmpty();
-        renderCurrentConversation(ScrollMode::kBottom);
-        jumpToMessage(message_id);
-        return;
-    }
-    pending_jump_message_id_ = message_id;
-    jump_history_pending_ = true;
-    const quint64 before_id = message_id + 1;
-    if (context_type_ == ContextType::Room) {
-        requestHistory(1, static_cast<quint64>(current_room_id_), before_id);
-    } else {
-        requestHistory(2, current_peer_id_, before_id);
-    }
-}
-
 void MainWindow::updateMessageByteCounter() {
     if (input_edit_ == nullptr || message_byte_counter_ == nullptr ||
         send_button_ == nullptr) {
@@ -1069,8 +1127,9 @@ void MainWindow::resetContext() {
     }
     if (chat_view_ != nullptr) {
         chat_view_->clear();
-        chat_view_->clearHoverState();
-        hideMessageActionBar();
+        closeMentionPopup();
+        exitJumpMode(false);
+        closeMessageSearch();
     }
     if (member_list_ != nullptr) {
         member_list_->clear();
@@ -1086,12 +1145,13 @@ void MainWindow::renderCurrentConversation(ScrollMode mode) {
     const int previous = bar->value();
     const int previous_max = bar->maximum();
     programmatic_scroll_ = true;
-    hideMessageActionBar();
     QVector<chatbox::client::MessageKey> rendered_messages;
+    const QVector<chatbox::client::ChatMessage>& messages = message_store_.messages();
+    const MessageAvatars avatars = messageAvatars(messages);
     chat_view_->setConversationHtml(
-        chatbox::client::renderConversationHtml(message_store_.messages(), user_id_,
-                                                 &rendered_messages),
-        rendered_messages);
+        chatbox::client::renderConversationHtml(messages, user_id_, &rendered_messages,
+                                                 avatars.srcs),
+        rendered_messages, avatars.images);
     switch (mode) {
         case ScrollMode::kBottom:
             bar->setValue(bar->maximum());
@@ -1109,10 +1169,55 @@ void MainWindow::renderCurrentConversation(ScrollMode mode) {
     programmatic_scroll_ = false;
     updateChatEmptyState();
     requestMissingThumbnails();
+    requestMissingMessageAvatars(messages);
+}
+
+MessageAvatars MainWindow::messageAvatars(
+    const QVector<chatbox::client::ChatMessage>& messages) const {
+    MessageAvatars result;
+    QSet<quint64> seen;
+    for (const chatbox::client::ChatMessage& message : messages) {
+        const quint64 sender_id = message.sender_id;
+        if (sender_id == 0 || seen.contains(sender_id)) {
+            continue;
+        }
+        seen.insert(sender_id);
+        const quint32 version = avatar_cache_.version(sender_id);
+        const QString src = chatbox::client::avatarSrc(sender_id, version);
+        result.srcs.insert(sender_id, src);
+        QImage image;
+        if (version != 0 && avatar_cache_.lookup(sender_id, image) && !image.isNull()) {
+            result.images.insert(src, chatbox::client::circularAvatar(image, 36));
+        } else {
+            result.images.insert(
+                src, chatbox::client::fallbackAvatar(message.sender_name, sender_id, 36));
+        }
+    }
+    return result;
+}
+
+void MainWindow::requestMissingMessageAvatars(
+    const QVector<chatbox::client::ChatMessage>& messages) {
+    QSet<quint64> requested;
+    for (const chatbox::client::ChatMessage& message : messages) {
+        const quint64 sender_id = message.sender_id;
+        if (sender_id == 0 || sender_id == user_id_ || requested.contains(sender_id) ||
+            avatar_cache_.contains(sender_id)) {
+            continue;
+        }
+        requested.insert(sender_id);
+        requestPeerAvatar(sender_id);
+    }
 }
 
 void MainWindow::addIncomingMessage(const chatbox::client::ChatMessage& message) {
     if (!message_store_.isCurrent(message.context, message.target_id)) {
+        return;
+    }
+    if (jump_mode_) {
+        // The push handler already persisted this message to history_store_.
+        // Appending it to the visible old page would create a gap the moment
+        // any unrelated path re-renders the store.
         return;
     }
     QScrollBar* bar = chat_view_->verticalScrollBar();
@@ -1142,10 +1247,12 @@ void MainWindow::addIncomingMessage(const chatbox::client::ChatMessage& message)
         const bool show_sender_name =
             messages.isEmpty() ||
             chatbox::client::shouldShowSenderName(&messages.last(), message);
+        const MessageAvatars avatars = messageAvatars({message});
         chat_view_->appendFragment(
             chatbox::client::renderMessageFragment(message, user_id_, false, QString(),
-                                                   show_sender_name),
-            key);
+                                                   show_sender_name, avatars.srcs),
+            key, avatars.images);
+        requestMissingMessageAvatars({message});
         bar->setValue(bar->maximum());
         updateChatEmptyState();
         return;

@@ -2,6 +2,7 @@
 #define CHATBOX_CLIENT_CORE_MESSAGE_RENDERER_H
 
 #include <QDateTime>
+#include <QHash>
 #include <QString>
 #include <QVector>
 
@@ -9,6 +10,13 @@
 
 namespace chatbox {
 namespace client {
+
+// user_id -> QTextDocument image URL for that sender's avatar.
+using AvatarSrcMap = QHash<quint64, QString>;
+
+// URL used by the renderer for a sender's avatar; version 0 means the
+// fallback initial image.
+QString avatarSrc(quint64 user_id, quint32 version);
 
 // The server allows a recall only while the message is younger than this
 // (SQL: created_at >= UTC_TIMESTAMP() - INTERVAL 2 MINUTE); the client uses
@@ -36,7 +44,8 @@ bool shouldShowSenderName(const ChatMessage* previous, const ChatMessage& curren
 
 QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
                               bool include_date_header, const QString& date_label,
-                              bool show_sender_name = true);
+                              bool show_sender_name = true,
+                              const AvatarSrcMap& avatar_srcs = {});
 
 // Surface colour used by the bubble for the current palette. ChatView also
 // uses this when painting rounded corners over the square rich-text table.
@@ -47,7 +56,8 @@ QString messageBubbleColor(const ChatMessage& message, quint64 self_user_id);
 // can map mouse positions back to messages.
 QString renderConversationHtml(const QVector<ChatMessage>& messages,
                                quint64 self_user_id,
-                               QVector<MessageKey>* rendered_messages = nullptr);
+                               QVector<MessageKey>* rendered_messages = nullptr,
+                               const AvatarSrcMap& avatar_srcs = {});
 
 }  // namespace client
 }  // namespace chatbox

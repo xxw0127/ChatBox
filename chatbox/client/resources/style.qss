@@ -336,31 +336,35 @@ QTextBrowser {
     padding: 8px;
 }
 
-QFrame#MessageActionBar {
+QPushButton#JumpLatestButton {
+    background: #FFFFFF;
+    border: 1px solid #E7EBF0;
+    border-radius: 14px;
+    padding: 5px 12px;
+    color: #2C74CC;
+    font-size: 12px;
+}
+
+QPushButton#JumpLatestButton:hover {
+    background: #F4F4F5;
+}
+
+QFrame#MentionPopup {
     background: #FFFFFF;
     border: 1px solid #E7EBF0;
     border-radius: 12px;
 }
 
-QFrame#MessageActionBar QPushButton {
+QListWidget#MentionList {
     background: transparent;
     border: none;
-    border-radius: 8px;
-    padding: 3px 9px;
-    color: #2C74CC;
-    font-size: 11px;
+    outline: none;
 }
 
-QFrame#MessageActionBar QPushButton:hover {
-    background: #F4F4F5;
-}
-
-QFrame#MessageActionBar QPushButton[keyboardFocus="true"]:focus {
-    border: 1px solid #2C74CC;
-}
-
-QFrame#MessageActionBar QPushButton:pressed {
-    background: #F1F1F1;
+QLabel#MentionEmpty {
+    color: #6A6E74;
+    font-size: 12px;
+    background: transparent;
 }
 
 QStackedWidget {

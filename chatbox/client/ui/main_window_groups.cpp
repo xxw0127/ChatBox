@@ -87,8 +87,6 @@ void MainWindow::selectDissolvedGroup(quint64 room_id, const QString& name) {
                                   : QStringLiteral("已解散");
     context_label_->setText(QString("%1（%2）").arg(name, tombstone));
     chat_view_->clear();
-    chat_view_->clearHoverState();
-    hideMessageActionBar();
     input_edit_->setEnabled(false);
     send_button_->setEnabled(false);
     mention_button_->hide();

@@ -15,10 +15,57 @@
 #include <QTextDocument>
 #include <QTextFrame>
 #include <QTextTable>
+#include <QTimer>
 
 #include "core/ui_theme.h"
 
 namespace theme = chatbox::client::theme;  // Coinbase palette tokens
+
+namespace {
+
+// The renderer wraps each message in a top-level row table. The row may hold
+// an avatar cell next to a content cell; the content cell holds the 1px
+// surface band (bubble_wrapper) and, inside it, the coloured bubble table.
+void findBubbleTables(QTextTable* outer, QTextTable** wrapper, QTextTable** bubble) {
+    if (wrapper != nullptr) {
+        *wrapper = nullptr;
+    }
+    if (bubble != nullptr) {
+        *bubble = nullptr;
+    }
+    if (outer == nullptr) {
+        return;
+    }
+    for (int row = 0; row < outer->rows(); ++row) {
+        for (int col = 0; col < outer->columns(); ++col) {
+            const QTextTableCell cell = outer->cellAt(row, col);
+            for (QTextFrame::iterator it = cell.begin(); !it.atEnd(); ++it) {
+                QTextTable* inner = qobject_cast<QTextTable*>(it.currentFrame());
+                if (inner == nullptr) {
+                    continue;
+                }
+                if (wrapper != nullptr) {
+                    *wrapper = inner;
+                }
+                if (bubble != nullptr && inner->rows() > 0 && inner->columns() > 0) {
+                    const QTextTableCell bubble_cell = inner->cellAt(0, 0);
+                    for (QTextFrame::iterator jt = bubble_cell.begin(); !jt.atEnd();
+                         ++jt) {
+                        QTextTable* candidate =
+                            qobject_cast<QTextTable*>(jt.currentFrame());
+                        if (candidate != nullptr) {
+                            *bubble = candidate;
+                            break;
+                        }
+                    }
+                }
+                return;
+            }
+        }
+    }
+}
+
+}  // namespace
 
 // A transparent overlay above the viewport. It paints after the rich-text
 // document has rendered, so it can erase the square table corners without
@@ -48,14 +95,6 @@ ChatView::ChatView(QWidget* parent) : QTextBrowser(parent) {
     // message menu through the normal Tab chain.
     setFocusPolicy(Qt::StrongFocus);
     setAccessibleName("聊天记录");
-    setMouseTracking(true);
-    if (viewport() != nullptr) {
-        viewport()->setMouseTracking(true);
-        // The viewport fills the widget, so the scroll area itself rarely
-        // receives a Leave event; listen on the viewport to reset the hover
-        // state when the pointer moves to the composer or another panel.
-        viewport()->installEventFilter(this);
-    }
     bubble_overlay_ = new BubbleOverlay(this);
     bubble_overlay_->setGeometry(viewport()->geometry());
     bubble_overlay_->show();
@@ -66,32 +105,41 @@ ChatView::ChatView(QWidget* parent) : QTextBrowser(parent) {
             [this] { bubble_overlay_->update(); });
 }
 
-bool ChatView::eventFilter(QObject* watched, QEvent* event) {
-    if (watched == viewport() && event->type() == QEvent::Leave) {
-        clearHoverState();
-        emit hoverCleared();
-    }
-    return QTextBrowser::eventFilter(watched, event);
-}
-
 void ChatView::setConversationHtml(
     const QString& html,
-    const QVector<chatbox::client::MessageKey>& message_keys) {
+    const QVector<chatbox::client::MessageKey>& message_keys,
+    const QHash<QString, QImage>& avatar_images) {
+    registerAvatarImages(avatar_images);
     setHtml(html);
     styleAnchors();
     buildMessageRanges(message_keys);
-    hovered_id_ = 0;
     if (bubble_overlay_ != nullptr) {
         bubble_overlay_->update();
     }
 }
 
+void ChatView::registerAvatarImages(
+    const QHash<QString, QImage>& avatar_images) {
+    QTextDocument* doc = document();
+    if (doc == nullptr) {
+        return;
+    }
+    // Resources must exist before the HTML is parsed; otherwise the first
+    // layout paints a broken-image placeholder and never retries.
+    for (auto it = avatar_images.constBegin(); it != avatar_images.constEnd(); ++it) {
+        doc->addResource(QTextDocument::ImageResource, QUrl(it.key()), it.value());
+    }
+}
+
 void ChatView::appendFragment(const QString& html,
-                              const chatbox::client::MessageKey& key) {
+                              const chatbox::client::MessageKey& key,
+                              const QHash<QString, QImage>& avatar_images) {
     QTextDocument* doc = document();
     if (doc == nullptr || html.isEmpty()) {
         return;
     }
+
+    registerAvatarImages(avatar_images);
 
     // Appending at the document end cannot move any existing range: all old
     // positions stay before the insertion point. This is the safety property
@@ -120,10 +168,10 @@ void ChatView::appendFragment(const QString& html,
         range.last = table->lastPosition();
         range.key = key;
         range.frame = table;
+        findBubbleTables(table, &range.bubble_wrapper, &range.bubble);
         range.bubble_color = key.bubble_color;
         message_ranges_.append(range);
     }
-    hovered_id_ = 0;
     if (bubble_overlay_ != nullptr) {
         bubble_overlay_->update();
     }
@@ -132,7 +180,6 @@ void ChatView::appendFragment(const QString& html,
 void ChatView::clearConversation() {
     clear();
     message_ranges_.clear();
-    hovered_id_ = 0;
     if (bubble_overlay_ != nullptr) {
         bubble_overlay_->update();
     }
@@ -188,12 +235,14 @@ QRect ChatView::messageAnchorRect(quint64 message_id) const {
 }
 
 QRect ChatView::outerBubbleRect(const MessageRange& range) const {
-    if (range.frame == nullptr || document() == nullptr ||
+    QTextTable* target =
+        range.bubble_wrapper != nullptr ? range.bubble_wrapper : range.frame;
+    if (target == nullptr || document() == nullptr ||
         document()->documentLayout() == nullptr) {
         return QRect();
     }
     return document()->documentLayout()
-        ->frameBoundingRect(range.frame)
+        ->frameBoundingRect(target)
         .toRect()
         .translated(-horizontalScrollBar()->value(), -verticalScrollBar()->value());
 }
@@ -247,6 +296,19 @@ void ChatView::paintRoundedBubbleCorners(QPainter& painter) {
                                    rect.height()),
                              canvas);
         }
+        if (flash_id_ != 0 && range.key.message_id == flash_id_) {
+            const QRectF flash_rect = QRectF(rect).adjusted(1, 1, -1, -1);
+            QColor fill(theme::kAccent);
+            fill.setAlpha(40);
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(fill);
+            painter.drawRoundedRect(flash_rect, kRadius - 1, kRadius - 1);
+            QPen flash_pen(QColor(theme::kAccent));
+            flash_pen.setWidthF(2.0);
+            painter.setPen(flash_pen);
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRoundedRect(flash_rect, kRadius, kRadius);
+        }
     }
     painter.restore();
 }
@@ -263,27 +325,58 @@ QRect ChatView::messageOuterBubbleRect(quint64 message_id) const {
     return QRect();
 }
 
+void ChatView::scrollToMessage(quint64 message_id, bool flash) {
+    if (message_id == 0) {
+        return;
+    }
+    for (const MessageRange& range : message_ranges_) {
+        if (range.key.message_id != message_id) {
+            continue;
+        }
+        const QRect rect = outerBubbleRect(range);
+        if (rect.isNull()) {
+            return;
+        }
+        QScrollBar* bar = verticalScrollBar();
+        const int delta = rect.center().y() - viewport()->height() / 2;
+        bar->setValue(qBound(0, bar->value() + delta, bar->maximum()));
+        if (flash) {
+            flashMessage(message_id);
+        }
+        return;
+    }
+}
+
+void ChatView::flashMessage(quint64 message_id) {
+    flash_id_ = message_id;
+    if (bubble_overlay_ != nullptr) {
+        bubble_overlay_->update();
+    }
+    QTimer::singleShot(1800, this, [this, message_id] {
+        if (flash_id_ != message_id) {
+            return;
+        }
+        flash_id_ = 0;
+        if (bubble_overlay_ != nullptr) {
+            bubble_overlay_->update();
+        }
+    });
+}
+
+quint64 ChatView::highlightedMessageId() const {
+    return flash_id_;
+}
+
 QRect ChatView::messageBubbleRect(quint64 message_id) const {
     if (message_id == 0) {
         return QRect();
     }
     for (const MessageRange& range : message_ranges_) {
-        if (range.key.message_id != message_id || range.frame == nullptr) {
+        if (range.key.message_id != message_id) {
             continue;
         }
-        // The renderer wraps every message in an outer full-width table whose
-        // single cell holds the actual bubble table.
-        QTextTable* bubble = nullptr;
-        if (range.frame->rows() > 0 && range.frame->columns() > 0) {
-            const QTextTableCell cell = range.frame->cellAt(0, 0);
-            for (QTextFrame::iterator it = cell.begin(); !it.atEnd(); ++it) {
-                QTextTable* inner = qobject_cast<QTextTable*>(it.currentFrame());
-                if (inner != nullptr) {
-                    bubble = inner;
-                    break;
-                }
-            }
-        }
+        QTextTable* bubble =
+            range.bubble != nullptr ? range.bubble : range.bubble_wrapper;
         if (bubble == nullptr || document() == nullptr ||
             document()->documentLayout() == nullptr) {
             return QRect();
@@ -296,57 +389,12 @@ QRect ChatView::messageBubbleRect(quint64 message_id) const {
     return QRect();
 }
 
-void ChatView::clearHoverState() {
-    hovered_id_ = 0;
-}
-
-void ChatView::mouseMoveEvent(QMouseEvent* event) {
-    QTextBrowser::mouseMoveEvent(event);
-    if (event->buttons() != Qt::NoButton) {
-        if (hovered_id_ != 0) {
-            hovered_id_ = 0;
-            emit hoverCleared();
-        }
-        return;
-    }
-    const quint64 id = messageIdAt(event->pos());
-    if (id == hovered_id_) {
-        return;
-    }
-    hovered_id_ = id;
-    if (id == 0) {
-        emit hoverCleared();
-    } else {
-        emit hoveredMessage(id, messageAnchorRect(id));
-    }
-}
-
-void ChatView::mousePressEvent(QMouseEvent* event) {
-    if (hovered_id_ != 0) {
-        hovered_id_ = 0;
-        emit hoverCleared();
-    }
-    QTextBrowser::mousePressEvent(event);
-}
-
-void ChatView::leaveEvent(QEvent* event) {
-    // Forget which message was hovered, otherwise returning to the same
-    // bubble would compare equal to the stale id and never re-emit hovered.
-    clearHoverState();
-    emit hoverCleared();
-    QTextBrowser::leaveEvent(event);
-}
-
 void ChatView::resizeEvent(QResizeEvent* event) {
     QTextBrowser::resizeEvent(event);
     if (bubble_overlay_ != nullptr) {
         bubble_overlay_->setGeometry(viewport()->geometry());
         bubble_overlay_->update();
     }
-    // The bar was positioned for the old geometry; reset the hover state so
-    // the same message can show it again at the new position.
-    clearHoverState();
-    emit hoverCleared();
 }
 
 void ChatView::keyPressEvent(QKeyEvent* event) {
@@ -408,6 +456,7 @@ void ChatView::buildMessageRanges(
         range.last = frames.at(i)->lastPosition();
         range.key = message_keys.at(i);
         range.frame = frames.at(i);
+        findBubbleTables(range.frame, &range.bubble_wrapper, &range.bubble);
         range.bubble_color = message_keys.at(i).bubble_color;
         message_ranges_.append(range);
     }

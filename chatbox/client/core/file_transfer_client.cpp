@@ -377,19 +377,20 @@ void FileTransferClient::handleFrame(quint16 cmd, quint32 seq,
         return;
     }
     if (cmd == chatbox::kCmdFileThumb) {
-        if (body.size() < 8) {
-            emit fileOperationFailed(QStringLiteral("???????"));
+        if (body.size() < 10) {
+            emit fileOperationFailed(QStringLiteral("\u7f29\u7565\u56fe\u54cd\u5e94\u65e0\u6548"));
             return;
         }
         chatbox::ByteReader reader(body.constData(),
                                    static_cast<std::size_t>(body.size()));
         uint64_t file_id = 0;
-        if (!reader.getU64(file_id)) {
-            emit fileOperationFailed(QStringLiteral("???????"));
+        std::string image;
+        if (!reader.getU64(file_id) || !reader.getString(image)) {
+            emit fileOperationFailed(QStringLiteral("\u7f29\u7565\u56fe\u54cd\u5e94\u65e0\u6548"));
             return;
         }
-        const int header = static_cast<int>(body.size()) - reader.remaining();
-        emit thumbnailReady(file_id, body.mid(header));
+        emit thumbnailReady(
+            file_id, QByteArray(image.data(), static_cast<int>(image.size())));
         return;
     }
     if (cmd == chatbox::kCmdFileList) {
@@ -400,7 +401,7 @@ void FileTransferClient::handleFrame(quint16 cmd, quint32 seq,
                 std::string(body.constData(),
                             static_cast<std::size_t>(body.size())),
                 wire_entries, total, used)) {
-            emit connectionError("????????");
+            emit connectionError(QStringLiteral("\u6587\u4ef6\u5217\u8868\u54cd\u5e94\u65e0\u6548"));
             return;
         }
         QVector<chatbox::client::FileEntryView> entries;

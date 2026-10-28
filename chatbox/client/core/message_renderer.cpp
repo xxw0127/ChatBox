@@ -7,6 +7,7 @@
 #include <QStringList>
 #include <QUrl>
 
+#include "core/identity.h"
 #include "core/message_time.h"
 #include "core/ui_theme.h"
 
@@ -70,6 +71,10 @@ QString messageMeta(const ChatMessage& message) {
 
 }  // namespace
 
+QString avatarSrc(quint64 user_id, quint32 version) {
+    return QStringLiteral("chatbox-avatar://%1?v=%2").arg(user_id).arg(version);
+}
+
 MessageActions messageActions(const ChatMessage& message, quint64 self_user_id,
                               const QDateTime& now_utc) {
     MessageActions actions;
@@ -114,7 +119,7 @@ bool shouldShowSenderName(const ChatMessage* previous, const ChatMessage& curren
 
 QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
                               bool include_date_header, const QString& date_label,
-                              bool show_sender_name) {
+                              bool show_sender_name, const AvatarSrcMap& avatar_srcs) {
     QString html;
     if (include_date_header) {
         html += "<div align=\"center\" style=\"color: " +
@@ -181,26 +186,44 @@ QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
         content.replace("\n", "<br>");
     }
 
+    const QString avatar_src = avatar_srcs.value(message.sender_id);
+    const QString avatar_cell =
+        avatar_src.isEmpty()
+            ? QString()
+            : "<td valign=\"top\"><img src=\"" + avatar_src.toHtmlEscaped() +
+                  "\" width=\"36\" height=\"36\"></td>";
+
     const int top_margin = show_sender_name ? 12 : 4;
     html += "<div style=\"margin-top: " + QString::number(top_margin) + "px;\">";
-    // Nested tables are the only reliable way to create the 1px inset gap in
-    // Qt's rich-text engine (border-radius and box-shadow are unsupported).
-    // Once content would exceed roughly 620px at 14px, pin the bubble to 72%
-    // of the viewport so short messages stay content-sized and long ones stop
-    // before filling the whole transcript. The visible border is painted by
-    // ChatView; a square bgcolor here would leave a frame outside the corners.
+    // Once content would exceed roughly 620px at 14px, pin the whole row to
+    // 72% of the viewport; the avatar column takes its 36px out of that budget.
     const QString width_attr =
         messageNeedsWidthCap(message) ? " width=\"72%\"" : QString();
     html += "<table align=\"" + alignment + "\"" + width_attr +
-            " cellspacing=\"0\" cellpadding=\"1\" bgcolor=\"" +
+            " cellspacing=\"0\" cellpadding=\"4\"><tr>";
+    if (!outgoing) {
+        html += avatar_cell;
+    }
+    html += "<td>";
+    if (!outgoing && !message.recalled && show_sender_name) {
+        QString identity = senderLabel(message).toHtmlEscaped();
+        if (message.sender_id != 0) {
+            identity += "&nbsp;&nbsp;<span style=\"color: " +
+                        QString::fromLatin1(theme::kMuted) +
+                        "; font-size: 11px;\">" +
+                        publicUserId(message.sender_id).toHtmlEscaped() + "</span>";
+        }
+        html += "<div style=\"color: " + QString::fromLatin1(theme::kBody) +
+                "; font-size: 12px; margin-bottom: 2px;\">" + identity + "</div>";
+    }
+    // Nested tables are the only reliable way to create the 1px inset gap in
+    // Qt's rich-text engine (border-radius and box-shadow are unsupported).
+    // The visible border is painted by ChatView; a square bgcolor here would
+    // leave a frame outside the corners.
+    html += "<table cellspacing=\"0\" cellpadding=\"1\" bgcolor=\"" +
             QString::fromLatin1(theme::kSurfaceSoft) + "\"><tr><td>";
     html += "<table cellspacing=\"0\" cellpadding=\"12\" bgcolor=\"" + background +
             "\"><tr><td>";
-    if (!outgoing && !message.recalled && show_sender_name) {
-        html += "<div style=\"color: " + QString::fromLatin1(theme::kBody) +
-                "; font-size: 12px; margin-bottom: 2px;\">" +
-                senderLabel(message).toHtmlEscaped() + "</div>";
-    }
     if (message.reply_to_id != 0) {
         QString quote = message.reply_content.toHtmlEscaped();
         quote.replace("\n", "<br>");
@@ -222,11 +245,18 @@ QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
                 QString::fromLatin1(theme::kBubbleMeta) + ";\"><i>" + content +
                 "</i></div>";
     } else {
-        html += "<div style=\"font-size: 14px; line-height: 150%;\">" + content +
+        // 110% keeps the last line's leading close to the bottom padding; at
+        // 150% the extra half-line made short bubbles look top-aligned.
+        html += "<div style=\"font-size: 14px; line-height: 110%;\">" + content +
                 "</div>";
     }
     html += "</td></tr></table>";
     html += "</td></tr></table>";
+    html += "</td>";
+    if (outgoing) {
+        html += avatar_cell;
+    }
+    html += "</tr></table>";
     html += "<div style=\"color: " + QString::fromLatin1(theme::kBubbleMeta) +
             "; font-size: 11px; margin: 4px 4px 8px 4px; text-align: " +
             (outgoing ? "right" : "left") + ";\">" + messageMeta(message) + "</div>";
@@ -236,7 +266,8 @@ QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
 
 QString renderConversationHtml(const QVector<ChatMessage>& messages,
                                quint64 self_user_id,
-                               QVector<MessageKey>* rendered_messages) {
+                               QVector<MessageKey>* rendered_messages,
+                               const AvatarSrcMap& avatar_srcs) {
     if (rendered_messages != nullptr) {
         rendered_messages->clear();
     }
@@ -262,7 +293,7 @@ QString renderConversationHtml(const QVector<ChatMessage>& messages,
         const bool show_sender_name =
             include_date_header || shouldShowSenderName(previous, message);
         html << renderMessageFragment(message, self_user_id, include_date_header, date,
-                                      show_sender_name);
+                                      show_sender_name, avatar_srcs);
     }
 
     html << "</body></html>";
