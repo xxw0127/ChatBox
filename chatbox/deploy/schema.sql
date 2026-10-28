@@ -59,7 +59,8 @@ CREATE TABLE IF NOT EXISTS messages (
     room_id       INT UNSIGNED    NOT NULL,
     sender_id     BIGINT UNSIGNED NOT NULL,
     client_msg_id VARCHAR(36)     NOT NULL COMMENT '客户端 UUID v4，用于幂等',
-    msg_type      TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '0文本',
+    msg_type      TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '0文本 1文件',
+    file_id       BIGINT UNSIGNED NOT NULL DEFAULT 0,
     content       VARCHAR(2000)   NOT NULL,
     reply_to_id   BIGINT UNSIGNED NOT NULL DEFAULT 0,
     reply_sender_name VARCHAR(32) NOT NULL DEFAULT '',
@@ -77,6 +78,8 @@ CREATE TABLE IF NOT EXISTS private_messages (
     sender_id     BIGINT UNSIGNED NOT NULL,
     receiver_id   BIGINT UNSIGNED NOT NULL,
     client_msg_id VARCHAR(36)     NOT NULL COMMENT '客户端 UUID v4，用于幂等',
+    msg_type      TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '0 text 1 file',
+    file_id       BIGINT UNSIGNED NOT NULL DEFAULT 0,
     content       VARCHAR(2000)   NOT NULL,
     reply_to_id   BIGINT UNSIGNED NOT NULL DEFAULT 0,
     reply_sender_name VARCHAR(32) NOT NULL DEFAULT '',
@@ -86,8 +89,7 @@ CREATE TABLE IF NOT EXISTS private_messages (
     PRIMARY KEY (id),
     KEY idx_sender_receiver (sender_id, receiver_id, id),
     KEY idx_receiver_sender (receiver_id, sender_id, id),
-    UNIQUE KEY uk_pair_sender_client (sender_id, receiver_id, client_msg_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+    UNIQUE KEY uk_pair_sender_client (sender_id, receiver_id, client_msg_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 CREATE TABLE IF NOT EXISTS private_read_state (
     user_id              BIGINT UNSIGNED NOT NULL,
@@ -171,4 +173,54 @@ CREATE TABLE IF NOT EXISTS friend_remarks (
     updated_at DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP
               ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (owner_id, friend_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+
+CREATE TABLE IF NOT EXISTS files (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    uploader_id         BIGINT UNSIGNED NOT NULL,
+    kind                TINYINT UNSIGNED NOT NULL COMMENT '1 room 2 private',
+    room_id             INT UNSIGNED    NULL,
+    private_sender_id   BIGINT UNSIGNED NULL,
+    private_receiver_id BIGINT UNSIGNED NULL,
+    message_id          BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    name                VARCHAR(180)    NOT NULL,
+    size                BIGINT UNSIGNED NOT NULL,
+    mime                VARCHAR(128)    NOT NULL DEFAULT '',
+    sha256              CHAR(64)        NOT NULL,
+    storage_path        VARCHAR(255)    NOT NULL,
+    thumb_path          VARCHAR(255)    NOT NULL DEFAULT '',
+    thumb_available     TINYINT         NOT NULL DEFAULT 0,
+    width               INT UNSIGNED    NOT NULL DEFAULT 0,
+    height              INT UNSIGNED    NOT NULL DEFAULT 0,
+    duration_ms         INT UNSIGNED    NOT NULL DEFAULT 0,
+    status              TINYINT         NOT NULL DEFAULT 0 COMMENT '0 ready 1 deleted',
+    created_at          DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    KEY idx_files_room_status (room_id, status, id),
+    KEY idx_files_private_sender (private_sender_id, private_receiver_id, status, id),
+    KEY idx_files_message (message_id),
+    KEY idx_files_uploader (uploader_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS file_uploads (
+    upload_id           CHAR(36)        NOT NULL,
+    uploader_id         BIGINT UNSIGNED NOT NULL,
+    kind                TINYINT UNSIGNED NOT NULL,
+    room_id             INT UNSIGNED    NULL,
+    private_sender_id   BIGINT UNSIGNED NULL,
+    private_receiver_id BIGINT UNSIGNED NULL,
+    name                VARCHAR(180)    NOT NULL,
+    size                BIGINT UNSIGNED NOT NULL,
+    mime                VARCHAR(128)    NOT NULL DEFAULT '',
+    sha256              CHAR(64)        NOT NULL,
+    temp_path           VARCHAR(255)    NOT NULL,
+    offset              BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    status              TINYINT         NOT NULL DEFAULT 0 COMMENT '0 active 1 committed 2 cancelled',
+    created_at          DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at          DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    expires_at          DATETIME(3)     NOT NULL,
+    PRIMARY KEY (upload_id),
+    KEY idx_file_uploads_uploader (uploader_id),
+    KEY idx_file_uploads_expiry (status, expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

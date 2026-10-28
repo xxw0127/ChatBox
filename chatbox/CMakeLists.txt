@@ -58,6 +58,7 @@ add_executable(chatbox_server
     server/business/worker_pool.cpp
     server/group/group_rules.cpp
     server/group/group_service.cpp
+    server/file/file_rules.cpp
     server/room/room_manager.cpp
     server/room/room_service.cpp
     server/private/private_service.cpp
@@ -125,3 +126,10 @@ add_test(NAME group_rules COMMAND test_group_rules)
 add_executable(test_group_protocol tests/test_group_protocol.cpp)
 target_link_libraries(test_group_protocol PRIVATE chatbox_common)
 add_test(NAME group_protocol COMMAND test_group_protocol)
+
+add_executable(test_file_rules
+    tests/test_file_rules.cpp
+    server/file/file_rules.cpp)
+target_include_directories(test_file_rules PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_file_rules PRIVATE chatbox_common)
+add_test(NAME file_rules COMMAND test_file_rules)

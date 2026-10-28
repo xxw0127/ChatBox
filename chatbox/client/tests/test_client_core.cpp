@@ -340,6 +340,7 @@ private slots:
     void startupPolicyRequiresUsableTray();
     void unreadBadgesHonourAlertsSwitch();
     void historyStoreCreatesSchema();
+    void historyStoreMigratesV1();
     void historyStoreReportsOpenFailure();
     void historyStoreRejectsSecondInstance();
     void historyStoreSaveAndLoadRecent();
@@ -3384,9 +3385,21 @@ void TestClientCore::historyStoreCreatesSchema() {
         QVERIFY(db.isOpen());
         QVERIFY(db.tables().contains(QStringLiteral("messages")));
         QVERIFY(db.tables().contains(QStringLiteral("conversations")));
+        QVERIFY(db.tables().contains(QStringLiteral("pending_uploads")));
+        QVERIFY(db.tables().contains(QStringLiteral("files")));
+        QVERIFY(db.tables().contains(QStringLiteral("groups")));
+        QCOMPARE(store.schemaVersion(), 2);
+        QSqlQuery columns(db);
+        QVERIFY(columns.exec(QStringLiteral("PRAGMA table_info(messages)")));
+        QStringList column_names;
+        while (columns.next()) {
+            column_names << columns.value(1).toString();
+        }
+        QVERIFY(column_names.contains(QStringLiteral("file_id")));
+        QVERIFY(column_names.contains(QStringLiteral("transfer_state")));
         QSqlQuery version(db);
         QVERIFY(version.exec(QStringLiteral("PRAGMA user_version")) && version.next());
-        QCOMPARE(version.value(0).toInt(), 1);
+        QCOMPARE(version.value(0).toInt(), 2);
         QSqlQuery indexes(db);
         QVERIFY(indexes.exec(QStringLiteral("PRAGMA index_list(messages)")));
         QStringList index_names;
@@ -3402,6 +3415,54 @@ void TestClientCore::historyStoreCreatesSchema() {
 
 // A path that is a regular file can never host the database, so opening must
 // fail with a Chinese message instead of silently succeeding.
+void TestClientCore::historyStoreMigratesV1() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = QDir(dir.path()).filePath(QStringLiteral("history.sqlite"));
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"),
+                                                    QStringLiteral("v1_setup"));
+        db.setDatabaseName(path);
+        QVERIFY(db.open());
+        QSqlQuery query(db);
+        QVERIFY(query.exec(QStringLiteral(
+            "CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            " user_id INTEGER NOT NULL, context INTEGER NOT NULL,"
+            " target_id INTEGER NOT NULL, message_id INTEGER NOT NULL,"
+            " sender_id INTEGER NOT NULL, sender_name TEXT NOT NULL DEFAULT '',"
+            " content TEXT NOT NULL, created_at_utc TEXT NOT NULL,"
+            " reply_to_id INTEGER NOT NULL DEFAULT 0,"
+            " reply_sender_name TEXT NOT NULL DEFAULT '',"
+            " reply_content TEXT NOT NULL DEFAULT '',"
+            " recalled INTEGER NOT NULL DEFAULT 0,"
+            " outgoing INTEGER NOT NULL DEFAULT 0)")));
+        QVERIFY(query.exec(QStringLiteral(
+            "CREATE TABLE conversations (user_id INTEGER NOT NULL,"
+            " context INTEGER NOT NULL, target_id INTEGER NOT NULL,"
+            " title TEXT NOT NULL, last_message_id INTEGER NOT NULL DEFAULT 0,"
+            " last_content TEXT NOT NULL DEFAULT '',"
+            " last_time_utc TEXT NOT NULL DEFAULT '',"
+            " PRIMARY KEY (user_id, context, target_id))")));
+        QVERIFY(query.exec(QStringLiteral(
+            "INSERT INTO messages (user_id, context, target_id, message_id,"
+            " sender_id, content, created_at_utc) VALUES (7, 0, 1, 42, 4,"
+            " 'old', '2026-10-01 00:00:00')")));
+        QVERIFY(query.exec(QStringLiteral("PRAGMA user_version=1")));
+        db.close();
+    }
+    QSqlDatabase::removeDatabase(QStringLiteral("v1_setup"));
+
+    chatbox::client::HistoryStore store;
+    QString error;
+    QVERIFY2(store.open(dir.path(), 7, &error), qPrintable(error));
+    QCOMPARE(store.schemaVersion(), 2);
+    const QVector<chatbox::client::ChatMessage> messages =
+        store.recent(chatbox::client::ChatContext::kRoom, 1, 10);
+    QCOMPARE(messages.size(), 1);
+    QCOMPARE(messages[0].content, QStringLiteral("old"));
+    store.close();
+}
+
 void TestClientCore::historyStoreReportsOpenFailure() {
     QTemporaryDir dir;
     QFile blocker(dir.filePath(QStringLiteral("not-a-dir")));

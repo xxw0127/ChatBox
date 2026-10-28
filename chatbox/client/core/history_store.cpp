@@ -22,7 +22,7 @@ namespace client {
 namespace {
 
 const char* const kDatabaseFileName = "history.sqlite";
-const int kSchemaVersion = 1;
+const int kSchemaVersion = 2;
 
 // 建库语句与设计文档 §5.2 完全一致（注释一并保留，便于逐条比对）。
 const char* const kCreateMessagesTable =
@@ -64,6 +64,58 @@ const char* const kCreateConversationsTable =
     last_content   TEXT    NOT NULL DEFAULT '',
     last_time_utc  TEXT    NOT NULL DEFAULT '',
     PRIMARY KEY (user_id, context, target_id)
+);
+)";
+
+const char* const kCreatePendingUploadsTable =
+    R"(CREATE TABLE IF NOT EXISTS pending_uploads (
+    upload_id           TEXT PRIMARY KEY,
+    user_id             INTEGER NOT NULL,
+    context             INTEGER NOT NULL,
+    target_id           INTEGER NOT NULL,
+    source_path         TEXT NOT NULL,
+    name                TEXT NOT NULL,
+    size                INTEGER NOT NULL,
+    mime                TEXT NOT NULL DEFAULT '',
+    sha256              TEXT NOT NULL DEFAULT '',
+    offset              INTEGER NOT NULL DEFAULT 0,
+    status              TEXT NOT NULL DEFAULT 'queued',
+    updated_at_utc      TEXT NOT NULL
+);
+)";
+
+const char* const kCreateFilesTable =
+    R"(CREATE TABLE IF NOT EXISTS files (
+    file_id             INTEGER NOT NULL,
+    user_id             INTEGER NOT NULL,
+    message_id          INTEGER NOT NULL DEFAULT 0,
+    context             INTEGER NOT NULL,
+    target_id           INTEGER NOT NULL,
+    name                TEXT NOT NULL,
+    size                INTEGER NOT NULL,
+    mime                TEXT NOT NULL DEFAULT '',
+    sha256              TEXT NOT NULL DEFAULT '',
+    thumb_path          TEXT NOT NULL DEFAULT '',
+    local_path          TEXT NOT NULL DEFAULT '',
+    transfer_state      TEXT NOT NULL DEFAULT '',
+    transfer_progress   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, file_id, context, target_id)
+);
+)";
+
+const char* const kCreateGroupsTable =
+    R"(CREATE TABLE IF NOT EXISTS groups (
+    user_id             INTEGER NOT NULL,
+    room_id             INTEGER NOT NULL,
+    name                TEXT NOT NULL,
+    group_no            TEXT NOT NULL DEFAULT '',
+    role                INTEGER NOT NULL DEFAULT 0,
+    member_count        INTEGER NOT NULL DEFAULT 0,
+    status              INTEGER NOT NULL DEFAULT 0,
+    last_message        TEXT NOT NULL DEFAULT '',
+    unread              INTEGER NOT NULL DEFAULT 0,
+    is_default          INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, room_id)
 );
 )";
 
@@ -187,6 +239,31 @@ bool runStatement(QSqlDatabase& db, const QString& label, const QString& sql,
     return true;
 }
 
+bool columnExists(QSqlDatabase& db, const QString& table,
+                  const QString& column) {
+    QSqlQuery query(db);
+    if (!query.exec(QStringLiteral("PRAGMA table_info(%1)").arg(table))) {
+        return false;
+    }
+    while (query.next()) {
+        if (query.value(1).toString() == column) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ensureColumn(QSqlDatabase& db, const QString& table, const QString& column,
+                  const QString& definition, QString* error) {
+    if (columnExists(db, table, column)) {
+        return true;
+    }
+    return runStatement(db, QStringLiteral("迁移列 ") + column,
+                        QStringLiteral("ALTER TABLE %1 ADD COLUMN %2 %3")
+                            .arg(table, column, definition),
+                        error);
+}
+
 // 建表 / 建索引 / 写入 user_version。所有语句都要求幂等，可在已有库上重跑。
 bool applySchema(QSqlDatabase& db, QString* error) {
     if (!runStatement(db, QStringLiteral("日志模式"),
@@ -211,6 +288,39 @@ bool applySchema(QSqlDatabase& db, QString* error) {
     }
     if (!runStatement(db, QStringLiteral("会话表"),
                       QString::fromUtf8(kCreateConversationsTable), error)) {
+        return false;
+    }
+    const struct {
+        const char* name;
+        const char* definition;
+    } message_columns[] = {
+        {"msg_type", "INTEGER NOT NULL DEFAULT 0"},
+        {"file_id", "INTEGER NOT NULL DEFAULT 0"},
+        {"file_name", "TEXT NOT NULL DEFAULT ''"},
+        {"file_size", "INTEGER NOT NULL DEFAULT 0"},
+        {"mime", "TEXT NOT NULL DEFAULT ''"},
+        {"thumb_path", "TEXT NOT NULL DEFAULT ''"},
+        {"local_path", "TEXT NOT NULL DEFAULT ''"},
+        {"transfer_state", "TEXT NOT NULL DEFAULT ''"},
+        {"transfer_progress", "INTEGER NOT NULL DEFAULT 0"},
+    };
+    for (const auto& column : message_columns) {
+        if (!ensureColumn(db, QStringLiteral("messages"),
+                          QString::fromLatin1(column.name),
+                          QString::fromLatin1(column.definition), error)) {
+            return false;
+        }
+    }
+    if (!runStatement(db, QStringLiteral("待上传表"),
+                      QString::fromUtf8(kCreatePendingUploadsTable), error)) {
+        return false;
+    }
+    if (!runStatement(db, QStringLiteral("文件表"),
+                      QString::fromUtf8(kCreateFilesTable), error)) {
+        return false;
+    }
+    if (!runStatement(db, QStringLiteral("群缓存表"),
+                      QString::fromUtf8(kCreateGroupsTable), error)) {
         return false;
     }
     if (!runStatement(db, QStringLiteral("版本号"),
@@ -369,6 +479,18 @@ bool HistoryStore::isOpen() const {
     }
     const QSqlDatabase db = QSqlDatabase::database(connection_name_, false);
     return db.isValid() && db.isOpen();
+}
+
+int HistoryStore::schemaVersion() const {
+    if (!isOpen()) {
+        return 0;
+    }
+    const QSqlDatabase db = QSqlDatabase::database(connection_name_, false);
+    QSqlQuery query(db);
+    if (!query.exec(QStringLiteral("PRAGMA user_version")) || !query.next()) {
+        return 0;
+    }
+    return query.value(0).toInt();
 }
 
 QString HistoryStore::directory() const {

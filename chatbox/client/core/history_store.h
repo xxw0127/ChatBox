@@ -38,6 +38,7 @@ public:
     bool open(const QString& directory, quint64 user_id, QString* error);
     void close();
     bool isOpen() const;
+    int schemaVersion() const;
 
     QString directory() const;   // 绝对路径
     quint64 userId() const;
