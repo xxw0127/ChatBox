@@ -2949,6 +2949,8 @@ void TestClientCore::rightSidebarHasRequiredPanels() {
     QVERIFY(source.contains(QStringLiteral("RightSearchPage")));
     QVERIFY(source.contains(QStringLiteral("RightSearchResults")));
     QVERIFY(source.contains(QStringLiteral("RightFileButton")));
+    QVERIFY(source.contains(QStringLiteral("RightInviteButton")));
+    QVERIFY(source.contains(QStringLiteral("RightLeaveButton")));
     QVERIFY(!source.contains(QStringLiteral("more_menu_")));
     const QString profile =
         readClientSource(QStringLiteral("ui/main_window_profile.cpp"));
@@ -2962,6 +2964,11 @@ void TestClientCore::rightSidebarHasRequiredPanels() {
     QVERIFY(net.contains(QStringLiteral("frame.header.flags & chatbox::kFlagError")));
     QVERIFY(net.contains(QStringLiteral("joined_groups_.clear();")));
     QVERIFY(net.contains(QStringLiteral("selectDissolvedGroup")));
+    const QString groups =
+        readClientSource(QStringLiteral("ui/main_window_groups.cpp"));
+    QVERIFY(groups.contains(QStringLiteral("void MainWindow::openGroupInviteDialog")));
+    QVERIFY(groups.contains(QStringLiteral("void MainWindow::leaveGroup")));
+    QVERIFY(groups.contains(QStringLiteral("kCmdGroupLeave")));
 }
 
 void TestClientCore::scrollLoadsOlderAndJumpsToSearchHit() {

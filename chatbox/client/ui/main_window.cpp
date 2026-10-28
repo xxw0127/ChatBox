@@ -576,6 +576,18 @@ QWidget* MainWindow::buildChatPage() {
     member_list_->setIconSize(QSize(28, 28));
     member_list_->setContextMenuPolicy(Qt::CustomContextMenu);
     group_layout->addWidget(member_list_, 1);
+    auto* group_action_row = new QHBoxLayout();
+    group_action_row->setContentsMargins(0, 0, 0, 0);
+    group_action_row->setSpacing(6);
+    right_invite_button_ = new QPushButton("邀请成员", right_group_page_);
+    right_invite_button_->setObjectName("RightInviteButton");
+    right_invite_button_->setFixedHeight(30);
+    right_leave_button_ = new QPushButton("退出群", right_group_page_);
+    right_leave_button_->setObjectName("RightLeaveButton");
+    right_leave_button_->setFixedHeight(30);
+    group_action_row->addWidget(right_invite_button_);
+    group_action_row->addWidget(right_leave_button_);
+    group_layout->addLayout(group_action_row);
     right_group_file_button_ = new QPushButton("文件功能将在下一阶段开放", right_group_page_);
     right_group_file_button_->setObjectName("RightFileButton");
     right_group_file_button_->setEnabled(false);
@@ -672,6 +684,12 @@ QWidget* MainWindow::buildChatPage() {
             [this] { startPanelSearch(right_private_search_->text()); });
     connect(right_settings_button_, &QToolButton::clicked, this,
             &MainWindow::openGroupSettings);
+    connect(right_invite_button_, &QPushButton::clicked, this, [this] {
+        openGroupInviteDialog(static_cast<quint64>(current_room_id_));
+    });
+    connect(right_leave_button_, &QPushButton::clicked, this, [this] {
+        leaveGroup(static_cast<quint64>(current_room_id_));
+    });
 
     connect(room_list_, &QListWidget::itemClicked, this, &MainWindow::onRoomClicked);
     connect(room_list_, &QListWidget::itemActivated, this, &MainWindow::onRoomClicked);

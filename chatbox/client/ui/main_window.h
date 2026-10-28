@@ -196,6 +196,8 @@ private:
     void openCreateGroupDialog();
     void openJoinGroupDialog();
     void openGroupSettings();
+    void openGroupInviteDialog(quint64 room_id);
+    void leaveGroup(quint64 room_id);
     void openGroupNotifications();
     void markGroupRead(quint64 room_id, quint64 message_id);
     void updateGroupNoticeBadge();
@@ -319,6 +321,8 @@ private:
     QLineEdit* right_private_search_ = nullptr;
     QPushButton* right_group_file_button_ = nullptr;
     QPushButton* right_private_file_button_ = nullptr;
+    QPushButton* right_invite_button_ = nullptr;
+    QPushButton* right_leave_button_ = nullptr;
     QToolButton* right_settings_button_ = nullptr;
     QLabel* right_profile_avatar_ = nullptr;
     QLabel* right_profile_name_ = nullptr;

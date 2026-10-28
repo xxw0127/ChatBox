@@ -605,6 +605,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             setOnline(true);
             resetContext();
             requestGroupList();
+            requestGroupRequests(0);
             requestConversations();
             requestFriendList();
             requestFriendRequests();
@@ -702,6 +703,7 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 resetContext();
             }
             requestGroupList();
+            requestGroupRequests(0);
             requestConversations();
             requestFriendList();
             requestFriendRequests();

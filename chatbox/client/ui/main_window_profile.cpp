@@ -27,11 +27,30 @@ void MainWindow::updateRightPanelVisibility() {
                 group->status != 0
                     ? QString("%1 · 已解散").arg(group->name)
                     : QString("%1 · %2 人").arg(group->name).arg(group->member_count));
+            const bool active = group->status == 0;
             right_settings_button_->setVisible(
-                group->status == 0 && (group->role == 1 || group->role == 2));
+                active && (group->role == 1 || group->role == 2));
+            if (right_invite_button_ != nullptr) {
+                right_invite_button_->setVisible(active);
+                right_invite_button_->setEnabled(active && online_ &&
+                                                 !offline_mode_);
+            }
+            if (right_leave_button_ != nullptr) {
+                const bool can_leave =
+                    active && !group->is_default && group->role != 2;
+                right_leave_button_->setVisible(can_leave);
+                right_leave_button_->setEnabled(can_leave && online_ &&
+                                                !offline_mode_);
+            }
         } else {
             member_count_label_->setText(current_peer_name_);
             right_settings_button_->hide();
+            if (right_invite_button_ != nullptr) {
+                right_invite_button_->hide();
+            }
+            if (right_leave_button_ != nullptr) {
+                right_leave_button_->hide();
+            }
         }
     } else {
         right_mode_stack_->setCurrentWidget(right_private_page_);

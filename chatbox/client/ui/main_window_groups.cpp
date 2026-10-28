@@ -99,6 +99,9 @@ void MainWindow::selectGroup(quint64 room_id, const QString& name) {
     }
     selectRoom(static_cast<int>(room_id), name);
     requestGroupMembers(room_id);
+    if (group->role >= 1) {
+        requestGroupRequests(room_id);
+    }
     quint64 last_message_id = 0;
     if (!message_store_.messages().isEmpty()) {
         last_message_id = message_store_.messages().back().message_id;
@@ -257,6 +260,98 @@ void MainWindow::openGroupSettings() {
     group_settings_dialog_->show();
     group_settings_dialog_->raise();
     group_settings_dialog_->activateWindow();
+}
+
+void MainWindow::openGroupInviteDialog(quint64 room_id) {
+    if (offline_mode_ || room_id == 0) {
+        setStatus("离线模式下不能邀请成员", true);
+        return;
+    }
+    const chatbox::client::GroupInfo* group = group_store_.find(room_id);
+    if (group == nullptr || group->status != 0) {
+        setStatus("群不存在或已解散", true);
+        return;
+    }
+    QSet<quint64> members;
+    for (const chatbox::client::GroupMemberInfo& member :
+         group_store_.members(room_id)) {
+        members.insert(member.user_id);
+    }
+
+    QVector<QPair<QString, quint64>> candidates;
+    for (auto it = friend_views_.constBegin(); it != friend_views_.constEnd();
+         ++it) {
+        if (it.key() == user_id_ || members.contains(it.key())) {
+            continue;
+        }
+        QString name = it.value().remark.trimmed();
+        if (name.isEmpty()) {
+            name = it.value().nickname.trimmed();
+        }
+        if (name.isEmpty()) {
+            name = it.value().username;
+        }
+        candidates.push_back(
+            {QString("%1 (%2)").arg(name, chatbox::client::publicUserId(it.key())),
+             it.key()});
+    }
+    if (candidates.isEmpty()) {
+        setStatus("没有可邀请的好友", true);
+        return;
+    }
+    std::sort(candidates.begin(), candidates.end(),
+              [](const QPair<QString, quint64>& a,
+                 const QPair<QString, quint64>& b) { return a.first < b.first; });
+    QStringList labels;
+    for (const auto& candidate : candidates) {
+        labels.push_back(candidate.first);
+    }
+    bool ok = false;
+    const QString chosen = QInputDialog::getItem(
+        this, "邀请成员", "选择好友", labels, 0, false, &ok);
+    if (!ok || chosen.isEmpty()) {
+        return;
+    }
+    const int index = labels.indexOf(chosen);
+    if (index < 0) {
+        return;
+    }
+    chatbox::ByteWriter writer;
+    writer.putU32(static_cast<uint32_t>(room_id));
+    writer.putU64(candidates.at(index).second);
+    sendGroupCommand(chatbox::kCmdGroupInvite, writer.data());
+    setStatus(QString("已向 %1 发送入群邀请").arg(chosen));
+}
+
+void MainWindow::leaveGroup(quint64 room_id) {
+    if (offline_mode_ || room_id == 0) {
+        setStatus("离线模式下不能退出群", true);
+        return;
+    }
+    const chatbox::client::GroupInfo* group = group_store_.find(room_id);
+    if (group == nullptr || group->status != 0) {
+        setStatus("群不存在或已解散", true);
+        return;
+    }
+    if (group->is_default) {
+        setStatus("默认群不能退出", true);
+        return;
+    }
+    if (group->role == 2) {
+        setStatus("请先转让群主再退出", true);
+        return;
+    }
+    if (QMessageBox::question(
+            this, "退出群",
+            QString("退出“%1”后，服务器上的群消息和文件将不再可见。确定退出？")
+                .arg(group->name),
+            QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) {
+        return;
+    }
+    chatbox::ByteWriter writer;
+    writer.putU32(static_cast<uint32_t>(room_id));
+    sendGroupCommand(chatbox::kCmdGroupLeave, writer.data());
+    setStatus("正在退出群...");
 }
 
 void MainWindow::openGroupNotifications() {
