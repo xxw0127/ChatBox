@@ -20,6 +20,7 @@ SOURCES += \
     ../core/message_store.cpp \
     ../core/outbox.cpp \
     ../core/message_renderer.cpp \
+    ../core/mention_query.cpp \
     ../core/contact_store.cpp \
     ../core/update_manifest.cpp \
     ../core/update_service.cpp \
@@ -48,6 +49,7 @@ HEADERS += \
     ../core/message_store.h \
     ../core/outbox.h \
     ../core/message_renderer.h \
+    ../core/mention_query.h \
     ../core/ui_theme.h \
     ../core/contact_store.h \
     ../core/update_manifest.h \

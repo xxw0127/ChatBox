@@ -61,6 +61,7 @@
 #include "core/message_renderer.h"
 #include "core/message_store.h"
 #include "core/message_time.h"
+#include "core/mention_query.h"
 #include "core/outbox.h"
 #include "core/ui_theme.h"
 #include "core/update_installer.h"
@@ -269,6 +270,12 @@ private slots:
     void chatViewStylesAppendedRetryLink();
     void chatViewStylesRetryLink();
     void messageMenuKeepsReplyAndRecall();
+    void mentionTokenDetectsAtStart();
+    void mentionTokenStopsAtWhitespace();
+    void mentionTokenRejectsEmail();
+    void mentionTokenNeedsBoundary();
+    void mentionTokenAllowsAfterCjkComma();
+    void mentionTokenIgnoresCursorBeforeAt();
     void contactStorePersistsAndUpdates();
     void avatarCenterCrop();
     void avatarCompressionLimit();
@@ -393,6 +400,57 @@ void TestClientCore::formatLocalTimeAndDate() {
     const QDateTime utc = local.toUTC();
     QCOMPARE(chatbox::client::formatLocalTime(utc), QString("10:30"));
     QCOMPARE(chatbox::client::formatLocalDate(utc), QString("2026-10-18"));
+}
+
+void TestClientCore::mentionTokenDetectsAtStart() {
+    const chatbox::client::MentionToken token =
+        chatbox::client::mentionTokenAt(QStringLiteral("@"), 1);
+    QVERIFY(token.active);
+    QCOMPARE(token.start, 0);
+    QVERIFY(token.query.isEmpty());
+}
+
+void TestClientCore::mentionTokenStopsAtWhitespace() {
+    const QString text = QString::fromUtf8("@\u674e\u786c \u4f60\u597d");
+    const chatbox::client::MentionToken token =
+        chatbox::client::mentionTokenAt(text, 3);
+    QVERIFY(token.active);
+    QCOMPARE(token.start, 0);
+    QCOMPARE(token.query, QString::fromUtf8("\u674e\u786c"));
+
+    const chatbox::client::MentionToken after_space =
+        chatbox::client::mentionTokenAt(text, 4);
+    QVERIFY(!after_space.active);
+}
+
+void TestClientCore::mentionTokenRejectsEmail() {
+    const chatbox::client::MentionToken token =
+        chatbox::client::mentionTokenAt(QStringLiteral("a@b.com"), 7);
+    QVERIFY(!token.active);
+}
+
+void TestClientCore::mentionTokenNeedsBoundary() {
+    const chatbox::client::MentionToken token =
+        chatbox::client::mentionTokenAt(QString::fromUtf8("\u4f60\u597d@\u674e"), 4);
+    QVERIFY(!token.active);
+
+    const chatbox::client::MentionToken after_space = chatbox::client::mentionTokenAt(
+        QString::fromUtf8("hello @\u674e"), 8);
+    QVERIFY(after_space.active);
+    QCOMPARE(after_space.start, 6);
+}
+
+void TestClientCore::mentionTokenAllowsAfterCjkComma() {
+    const chatbox::client::MentionToken token =
+        chatbox::client::mentionTokenAt(QString::fromUtf8("\u4f60\u597d\uff0c@\u674e"), 5);
+    QVERIFY(token.active);
+    QCOMPARE(token.start, 3);
+}
+
+void TestClientCore::mentionTokenIgnoresCursorBeforeAt() {
+    const chatbox::client::MentionToken token =
+        chatbox::client::mentionTokenAt(QString::fromUtf8("@\u674e"), 0);
+    QVERIFY(!token.active);
 }
 
 void TestClientCore::invalidTimestamp() {
