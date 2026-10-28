@@ -984,6 +984,28 @@ bool MysqlConnection::insertPrivateFileMessage(
     return message_id != 0;
 }
 
+bool MysqlConnection::deleteFileMessage(uint64_t message_id, bool room,
+                                        std::string& error) {
+    if (!ensureConnected(error)) {
+        return false;
+    }
+    Stmt stmt(mysql_,
+              room ? "DELETE FROM messages WHERE id = ?"
+                   : "DELETE FROM private_messages WHERE id = ?",
+              error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+    uint64_t id = message_id;
+    MYSQL_BIND p[1] = {};
+    bindU64(p[0], id);
+    if (mysql_stmt_bind_param(stmt.get(), p) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    return execute(stmt.get(), error);
+}
+
 bool MysqlConnection::updateFileMessageDeleted(uint64_t message_id, bool room,
                                                std::string& error) {
     if (!ensureConnected(error)) {

@@ -36,8 +36,10 @@ public:
     bool removeByClientId(const QString& client_msg_id);
     int markAllSendingFailed();
     bool markRecalled(quint64 message_id);
-    bool markFileDeleted(quint64 message_id);
-    bool updateFileMetadata(quint64 message_id, const FileMeta& meta);
+    bool markFileDeleted(ChatContext context, quint64 target_id,
+                         quint64 message_id);
+    bool updateFileMetadata(ChatContext context, quint64 target_id,
+                            quint64 message_id, const FileMeta& meta);
     const ChatMessage* findMessage(quint64 message_id) const;
     const ChatMessage* findByClientId(const QString& client_msg_id) const;
 

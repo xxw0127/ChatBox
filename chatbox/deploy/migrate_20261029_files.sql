@@ -60,3 +60,28 @@ CREATE TABLE IF NOT EXISTS file_uploads (
     KEY idx_file_uploads_uploader (uploader_id),
     KEY idx_file_uploads_expiry (status, expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Additive upgrade for databases that already ran an earlier Phase 2 draft.
+SET @ddl = (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE file_uploads ADD COLUMN committed_message_id BIGINT UNSIGNED NOT NULL DEFAULT 0',
+    'SELECT 1')
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'file_uploads'
+    AND column_name = 'committed_message_id');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE file_uploads ADD COLUMN committed_file_id BIGINT UNSIGNED NOT NULL DEFAULT 0',
+    'SELECT 1')
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'file_uploads'
+    AND column_name = 'committed_file_id');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE file_uploads ADD COLUMN committed_at DATETIME(3) NULL',
+    'SELECT 1')
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'file_uploads'
+    AND column_name = 'committed_at');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;

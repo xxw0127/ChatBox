@@ -302,6 +302,8 @@ public:
                                   uint64_t& message_id, std::string& error);
     bool updateFileMessageDeleted(uint64_t message_id, bool room,
                                   std::string& error);
+    bool deleteFileMessage(uint64_t message_id, bool room,
+                           std::string& error);
 
 private:
     bool ensureConnected(std::string& error);

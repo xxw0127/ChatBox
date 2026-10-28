@@ -22,6 +22,8 @@ public:
                   const QVector<chatbox::client::FileEntryView>& entries);
     void setStatus(const QString& text, bool error = false);
     void setBusy(bool busy);
+    int kind() const { return kind_; }
+    quint64 targetId() const { return target_id_; }
 
 signals:
     void refreshRequested();

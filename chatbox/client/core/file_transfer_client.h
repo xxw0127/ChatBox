@@ -85,6 +85,7 @@ private:
     void finishUpload();
     void requestNextDownloadChunk();
     void finishDownload();
+    void resetAfterFailure();
 
     QTcpSocket* socket_ = nullptr;
     QTimer* chunk_timer_ = nullptr;
@@ -94,6 +95,7 @@ private:
     quint32 next_seq_ = 1;
     quint32 auth_seq_ = 0;
     quint32 upload_seq_ = 0;
+    quint32 upload_chunk_seq_ = 0;
     quint32 download_seq_ = 0;
 
     QFile upload_file_;

@@ -381,7 +381,8 @@ FileResult FileService::handleUploadCommit(const Frame& request,
     UploadState stored;
     bool stored_found = false;
     if (database_.findFileUpload(upload_id, stored, stored_found, error) &&
-        stored_found && stored.status == 1 &&
+        stored_found && stored.uploader_id == caller.user_id &&
+        stored.status == 1 &&
         stored.committed_message_id != 0 && stored.committed_file_id != 0) {
         return successResult(
             request, encodeUploadCommitResponse(
@@ -495,14 +496,14 @@ FileResult FileService::handleUploadCommit(const Frame& request,
             return errorResult(request, 2001, error);
         }
         if (!database_.setFileMessageId(entry.file_id, message_id, error)) {
-            database_.updateFileMessageDeleted(message_id, true, error);
+            database_.deleteFileMessage(message_id, true, error);
             rollback();
             return errorResult(request, 2001, error);
         }
         if (!database_.setFileUploadCommitted(upload_id, message_id,
                                               entry.file_id, created_at,
                                               error)) {
-            database_.updateFileMessageDeleted(message_id, true, error);
+            database_.deleteFileMessage(message_id, true, error);
             rollback();
             return errorResult(request, 2001, error);
         }
@@ -531,13 +532,13 @@ FileResult FileService::handleUploadCommit(const Frame& request,
         return errorResult(request, 2001, error);
     }
     if (!database_.setFileMessageId(entry.file_id, message_id, error)) {
-        database_.updateFileMessageDeleted(message_id, false, error);
+        database_.deleteFileMessage(message_id, false, error);
         rollback();
         return errorResult(request, 2001, error);
     }
     if (!database_.setFileUploadCommitted(upload_id, message_id, entry.file_id,
                                           created_at, error)) {
-        database_.updateFileMessageDeleted(message_id, false, error);
+        database_.deleteFileMessage(message_id, false, error);
         rollback();
         return errorResult(request, 2001, error);
     }

@@ -37,6 +37,10 @@ FileTransferClient::FileTransferClient(QObject* parent) : QObject(parent) {
     chunk_timer_->setInterval(0);
     connect(chunk_timer_, &QTimer::timeout, this,
             &FileTransferClient::startNextChunk);
+    connect(this, &FileTransferClient::uploadFailed, this,
+            [this](const QString&) { resetAfterFailure(); });
+    connect(this, &FileTransferClient::downloadFailed, this,
+            [this](quint64, const QString&) { resetAfterFailure(); });
 }
 
 FileTransferClient::~FileTransferClient() {
@@ -224,6 +228,10 @@ void FileTransferClient::handleFrame(quint16 cmd, quint32 seq,
         return;
     }
     if (cmd == chatbox::kCmdFileUploadChunk) {
+        if (upload_chunk_seq_ == 0 || seq != upload_chunk_seq_) {
+            return;
+        }
+        upload_chunk_seq_ = 0;
         uint64_t offset = 0;
         if (!chatbox::decodeUploadAck(
                 std::string(body.constData(), static_cast<std::size_t>(body.size())),
@@ -509,6 +517,7 @@ void FileTransferClient::cancelUpload() {
     }
     upload_id_.clear();
     upload_paused_ = false;
+    upload_chunk_seq_ = 0;
     state_ = State::kReady;
 }
 
@@ -531,7 +540,9 @@ void FileTransferClient::startNextChunk() {
     writer.putU64(upload_offset_);
     writer.putString(std::string(data.constData(),
                                  static_cast<std::size_t>(data.size())));
-    sendFrame(chatbox::kCmdFileUploadChunk, next_seq_++, QByteArray::fromStdString(writer.data()));
+    upload_chunk_seq_ = next_seq_++;
+    sendFrame(chatbox::kCmdFileUploadChunk, upload_chunk_seq_,
+              QByteArray::fromStdString(writer.data()));
 }
 
 void FileTransferClient::finishUpload() {
@@ -626,6 +637,23 @@ void FileTransferClient::requestFileInfo(quint64 file_id) {
     writer.putU64(file_id);
     sendFrame(chatbox::kCmdFileInfo, next_seq_++,
               QByteArray::fromStdString(writer.data()));
+}
+
+void FileTransferClient::resetAfterFailure() {
+    if (upload_file_.isOpen()) {
+        upload_file_.close();
+    }
+    if (download_file_.isOpen()) {
+        download_file_.close();
+    }
+    upload_id_.clear();
+    upload_paused_ = false;
+    upload_chunk_seq_ = 0;
+    download_paused_ = false;
+    if (socket_ != nullptr &&
+        socket_->state() == QAbstractSocket::ConnectedState) {
+        state_ = State::kReady;
+    }
 }
 
 void FileTransferClient::sendKeepAlive() {

@@ -5,6 +5,7 @@
 #include "core/file_transfer_manager.h"
 #include "core/file_types.h"
 #include "core/group_types.h"
+#include "ui/file_manager_dialog.h"
 #include "ui/group_create_dialog.h"
 #include "ui/group_join_dialog.h"
 #include "ui/group_notify_dialog.h"
@@ -1857,19 +1858,18 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 return;
             }
             (void)file_id;
-            history_store_.markFileDeleted(
+            const auto delete_context =
                 kind == 0 ? chatbox::client::ChatContext::kRoom
-                          : chatbox::client::ChatContext::kPrivate,
-                target_id, message_id);
-            if (message_store_.markFileDeleted(message_id)) {
+                          : chatbox::client::ChatContext::kPrivate;
+            history_store_.markFileDeleted(delete_context, target_id,
+                                          message_id);
+            if (message_store_.markFileDeleted(delete_context, target_id,
+                                               message_id)) {
                 renderCurrentConversation(ScrollMode::kPreserve);
             }
             if (file_manager_dialog_ != nullptr && file_transfer_ != nullptr) {
-                file_transfer_->listFiles(
-                    context_type_ == ContextType::Room ? 1 : 2,
-                    context_type_ == ContextType::Room
-                        ? static_cast<quint64>(current_room_id_)
-                        : current_peer_id_);
+                file_transfer_->listFiles(file_manager_dialog_->kind(),
+                                          file_manager_dialog_->targetId());
             }
             break;
         }

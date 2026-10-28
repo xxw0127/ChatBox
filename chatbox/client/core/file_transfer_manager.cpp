@@ -111,6 +111,24 @@ FileTransferManager::FileTransferManager(QObject* parent) : QObject(parent) {
                 if (task == nullptr) {
                     return;
                 }
+                if (message.contains(QStringLiteral("upload cancelled")) ||
+                    message.contains(
+                        QStringLiteral("\u4e0a\u4f20\u4efb\u52a1\u5df2\u53d6\u6d88"))) {
+                    if (history_ != nullptr) {
+                        if (!task->upload_id.isEmpty()) {
+                            history_->removePendingUpload(task->upload_id);
+                        }
+                        if (task->task_id != task->upload_id) {
+                            history_->removePendingUpload(task->task_id);
+                        }
+                    }
+                    task->state = QStringLiteral("failed");
+                    emit uploadStateChanged(task->task_id, task->state);
+                    emit uploadFailed(task->task_id, message);
+                    active_upload_id_.clear();
+                    startNextUpload();
+                    return;
+                }
                 if (message.contains(QStringLiteral("upload not found")) ||
                     message.contains(QStringLiteral("upload is closed"))) {
                     // The server lost the temporary upload (e.g. test DB reset).
@@ -202,11 +220,14 @@ FileTransferManager::FileTransferManager(QObject* parent) : QObject(parent) {
     connect(download_client_, &FileTransferClient::downloadFailed, this,
             [this](quint64 file_id, const QString& message) {
                 DownloadTask* task = findDownload(file_id);
-                if (task != nullptr && history_ != nullptr) {
-                    history_->updateFileTask(task->file_id, task->context,
-                                             task->target_id,
-                                             QStringLiteral("paused"),
-                                             task->received, task->total);
+                if (task != nullptr) {
+                    task->state = QStringLiteral("paused");
+                    if (history_ != nullptr) {
+                        history_->updateFileTask(
+                            task->file_id, task->context, task->target_id,
+                            QStringLiteral("paused"), task->received,
+                            task->total);
+                    }
                 }
                 active_download_id_ = 0;
                 emit downloadFailed(file_id, message);
@@ -249,6 +270,21 @@ void FileTransferManager::setHistoryStore(HistoryStore* store) {
 
 void FileTransferManager::start(const QString& host, quint16 port, bool tls,
                                 const QString& ca_path, const QString& token) {
+    if (!active_upload_id_.isEmpty()) {
+        UploadTask* task = findUpload(active_upload_id_);
+        if (task != nullptr) {
+            task->state = QStringLiteral("queued");
+            persistUpload(*task);
+        }
+        active_upload_id_.clear();
+    }
+    if (active_download_id_ != 0) {
+        DownloadTask* task = findDownload(active_download_id_);
+        if (task != nullptr) {
+            task->state = QStringLiteral("queued");
+        }
+        active_download_id_ = 0;
+    }
     started_ = true;
     host_ = host;
     port_ = port;
@@ -440,6 +476,12 @@ void FileTransferManager::restorePending() {
     const QVector<HistoryStore::PendingUpload> pending =
         history_->pendingUploads();
     for (const HistoryStore::PendingUpload& item : pending) {
+        if (item.status == QStringLiteral("failed") ||
+            item.status == QStringLiteral("cancelled") ||
+            item.status == QStringLiteral("done")) {
+            history_->removePendingUpload(item.upload_id);
+            continue;
+        }
         UploadTask task;
         task.task_id = item.upload_id;
         if (item.upload_id.contains('-')) {

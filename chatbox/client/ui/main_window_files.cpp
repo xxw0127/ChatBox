@@ -127,13 +127,9 @@ void MainWindow::startFileTransfer() {
         connect(file_transfer_, &FileTransferManager::fileListReady, this,
                 [this](int kind, quint64 target, quint32 total, quint64 used,
                        const QVector<chatbox::client::FileEntryView>& entries) {
-                    const int current_kind =
-                        context_type_ == ContextType::Room ? 1 : 2;
-                    const quint64 current_target =
-                        context_type_ == ContextType::Room
-                            ? static_cast<quint64>(current_room_id_)
-                            : current_peer_id_;
-                    if (kind != current_kind || target != current_target) {
+                    if (file_manager_dialog_ == nullptr ||
+                        kind != file_manager_dialog_->kind() ||
+                        target != file_manager_dialog_->targetId()) {
                         return;
                     }
                     if (file_manager_dialog_ != nullptr) {
@@ -160,8 +156,16 @@ void MainWindow::startFileTransfer() {
                     meta.width = entry.width;
                     meta.height = entry.height;
                     meta.duration_ms = entry.duration_ms;
-                    if (message_store_.updateFileMetadata(entry.message_id,
-                                                          meta)) {
+                    const auto context =
+                        context_type_ == ContextType::Room
+                            ? chatbox::client::ChatContext::kRoom
+                            : chatbox::client::ChatContext::kPrivate;
+                    const quint64 target =
+                        context_type_ == ContextType::Room
+                            ? static_cast<quint64>(current_room_id_)
+                            : current_peer_id_;
+                    if (message_store_.updateFileMetadata(
+                            context, target, entry.message_id, meta)) {
                         renderCurrentConversation(ScrollMode::kPreserve);
                     }
                 });
@@ -174,12 +178,11 @@ void MainWindow::startFileTransfer() {
                 });
         connect(file_transfer_, &FileTransferManager::fileDeleted, this,
                 [this](quint64) {
-                    if (file_manager_dialog_ != nullptr) {
+                    if (file_manager_dialog_ != nullptr &&
+                        file_transfer_ != nullptr) {
                         file_transfer_->listFiles(
-                            context_type_ == ContextType::Room ? 1 : 2,
-                            context_type_ == ContextType::Room
-                                ? static_cast<quint64>(current_room_id_)
-                                : current_peer_id_);
+                            file_manager_dialog_->kind(),
+                            file_manager_dialog_->targetId());
                     }
                 });
     }
@@ -326,8 +329,10 @@ void MainWindow::onFileUploadFinished(
         file_transfer_->requestFileInfo(file_id);
     }
     if (file_manager_dialog_ != nullptr && file_transfer_ != nullptr) {
-        file_transfer_->listFiles(static_cast<int>(pending_upload_kind_),
-                                  pending_upload_target_);
+        file_transfer_->listFiles(context == chatbox::client::ChatContext::kRoom
+                                      ? 1
+                                      : 2,
+                                  target_id);
     }
     pending_upload_task_id_.clear();
 }

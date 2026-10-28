@@ -263,13 +263,15 @@ bool MessageStore::markRecalled(quint64 message_id) {
     return false;
 }
 
-bool MessageStore::updateFileMetadata(quint64 message_id,
+bool MessageStore::updateFileMetadata(ChatContext context,
+                                      quint64 target_id, quint64 message_id,
                                       const FileMeta& meta) {
     if (message_id == 0 || meta.file_id == 0) {
         return false;
     }
     for (ChatMessage& message : messages_) {
-        if (message.message_id != message_id) {
+        if (message.message_id != message_id ||
+            message.context != context || message.target_id != target_id) {
             continue;
         }
         message.type = MessageType::kFile;
@@ -286,12 +288,14 @@ bool MessageStore::updateFileMetadata(quint64 message_id,
     return false;
 }
 
-bool MessageStore::markFileDeleted(quint64 message_id) {
+bool MessageStore::markFileDeleted(ChatContext context, quint64 target_id,
+                                   quint64 message_id) {
     if (message_id == 0) {
         return false;
     }
     for (ChatMessage& message : messages_) {
-        if (message.message_id != message_id) {
+        if (message.message_id != message_id ||
+            message.context != context || message.target_id != target_id) {
             continue;
         }
         message.type = MessageType::kText;
