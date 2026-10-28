@@ -729,10 +729,12 @@ void MainWindow::renderCurrentConversation(ScrollMode mode) {
     QScrollBar* bar = chat_view_->verticalScrollBar();
     const int previous = bar->value();
     QVector<chatbox::client::MessageKey> rendered_messages;
+    const QVector<chatbox::client::ChatMessage>& messages = message_store_.messages();
+    const MessageAvatars avatars = messageAvatars(messages);
     chat_view_->setConversationHtml(
-        chatbox::client::renderConversationHtml(message_store_.messages(), user_id_,
-                                                 &rendered_messages),
-        rendered_messages);
+        chatbox::client::renderConversationHtml(messages, user_id_, &rendered_messages,
+                                                 avatars.srcs),
+        rendered_messages, avatars.images);
     switch (mode) {
         case ScrollMode::kBottom:
             bar->setValue(bar->maximum());
@@ -745,6 +747,45 @@ void MainWindow::renderCurrentConversation(ScrollMode mode) {
             break;
     }
     updateChatEmptyState();
+    requestMissingMessageAvatars(messages);
+}
+
+MessageAvatars MainWindow::messageAvatars(
+    const QVector<chatbox::client::ChatMessage>& messages) const {
+    MessageAvatars result;
+    QSet<quint64> seen;
+    for (const chatbox::client::ChatMessage& message : messages) {
+        const quint64 sender_id = message.sender_id;
+        if (sender_id == 0 || seen.contains(sender_id)) {
+            continue;
+        }
+        seen.insert(sender_id);
+        const quint32 version = avatar_cache_.version(sender_id);
+        const QString src = chatbox::client::avatarSrc(sender_id, version);
+        result.srcs.insert(sender_id, src);
+        QImage image;
+        if (version != 0 && avatar_cache_.lookup(sender_id, image) && !image.isNull()) {
+            result.images.insert(src, chatbox::client::circularAvatar(image, 36));
+        } else {
+            result.images.insert(
+                src, chatbox::client::fallbackAvatar(message.sender_name, sender_id, 36));
+        }
+    }
+    return result;
+}
+
+void MainWindow::requestMissingMessageAvatars(
+    const QVector<chatbox::client::ChatMessage>& messages) {
+    QSet<quint64> requested;
+    for (const chatbox::client::ChatMessage& message : messages) {
+        const quint64 sender_id = message.sender_id;
+        if (sender_id == 0 || sender_id == user_id_ || requested.contains(sender_id) ||
+            avatar_cache_.contains(sender_id)) {
+            continue;
+        }
+        requested.insert(sender_id);
+        requestPeerAvatar(sender_id);
+    }
 }
 
 void MainWindow::addIncomingMessage(const chatbox::client::ChatMessage& message) {
@@ -768,10 +809,12 @@ void MainWindow::addIncomingMessage(const chatbox::client::ChatMessage& message)
         const bool show_sender_name =
             messages.isEmpty() ||
             chatbox::client::shouldShowSenderName(&messages.last(), message);
+        const MessageAvatars avatars = messageAvatars({message});
         chat_view_->appendFragment(
             chatbox::client::renderMessageFragment(message, user_id_, false, QString(),
-                                                   show_sender_name),
-            key);
+                                                   show_sender_name, avatars.srcs),
+            key, avatars.images);
+        requestMissingMessageAvatars({message});
         bar->setValue(bar->maximum());
         updateChatEmptyState();
         return;

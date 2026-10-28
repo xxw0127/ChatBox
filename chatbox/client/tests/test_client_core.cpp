@@ -274,6 +274,8 @@ private slots:
     void avatarCompressionLimit();
     void avatarFallback();
     void avatarCacheVersion();
+    void avatarSrcFallsBackToVersionZero();
+    void mainWindowRequestsAvatarForMessageSender();
     void avatarCacheIgnoresOlderVersions();
     void profileDisplayNameFallsBackToNickname();
     void profileDialogSelfMode();
@@ -1747,6 +1749,7 @@ void TestClientCore::avatarCacheVersion() {
     QVERIFY(cache.needsFetch(7, 3));
     QVERIFY(!cache.lookup(7, image));
     QVERIFY(!cache.contains(7));
+    QCOMPARE(cache.version(7), quint32(0));
 
     QImage source(8, 8, QImage::Format_RGB32);
     source.fill(Qt::red);
@@ -1756,21 +1759,40 @@ void TestClientCore::avatarCacheVersion() {
     QVERIFY(cache.lookup(7, image));
     QVERIFY(image == source);
     QVERIFY(cache.needsFetch(7, 4));
+    QCOMPARE(cache.version(7), quint32(3));
 
     cache.store(8, 1, QImage());
     QVERIFY(cache.contains(8));
     QVERIFY(!cache.needsFetch(8, 1));
     QVERIFY(!cache.lookup(8, image));
+    QCOMPARE(cache.version(8), quint32(1));
 
     cache.remove(7);
     QVERIFY(!cache.contains(7));
     QVERIFY(cache.needsFetch(7, 3));
     QVERIFY(cache.contains(8));
+    QCOMPARE(cache.version(7), quint32(0));
 
     cache.clear();
     QVERIFY(!cache.contains(8));
     QVERIFY(cache.needsFetch(7, 3));
     QVERIFY(!cache.lookup(7, image));
+}
+
+void TestClientCore::avatarSrcFallsBackToVersionZero() {
+    QCOMPARE(chatbox::client::avatarSrc(7, 0),
+             QStringLiteral("chatbox-avatar://7?v=0"));
+    QCOMPARE(chatbox::client::avatarSrc(7, 3),
+             QStringLiteral("chatbox-avatar://7?v=3"));
+}
+
+void TestClientCore::mainWindowRequestsAvatarForMessageSender() {
+    const QString source = readClientSource(QStringLiteral("ui/main_window_chat.cpp"));
+    const QString render = sourceSection(
+        source, QStringLiteral("void MainWindow::renderCurrentConversation("),
+        QStringLiteral("void MainWindow::addIncomingMessage("));
+    QVERIFY2(render.contains(QStringLiteral("requestMissingMessageAvatars(")),
+             "rendering must request avatars for senders without a cache entry");
 }
 
 void TestClientCore::avatarCacheIgnoresOlderVersions() {

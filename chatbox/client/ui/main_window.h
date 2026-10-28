@@ -15,6 +15,7 @@
 #include "core/contact_store.h"
 #include "core/friend_view.h"
 #include "core/history_store.h"
+#include "core/message_renderer.h"
 #include "core/message_store.h"
 #include "core/outbox.h"
 #include "core/update_manifest.h"
@@ -54,6 +55,13 @@ namespace client {
 class UpdateService;
 }  // namespace client
 }  // namespace chatbox
+
+// Image resources for the senders in one rendered page. srcs feeds the
+// renderer's <img> URLs; images feeds QTextDocument::addResource.
+struct MessageAvatars {
+    chatbox::client::AvatarSrcMap srcs;
+    QHash<QString, QImage> images;
+};
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -189,6 +197,10 @@ private:
     void updateMessageByteCounter();
     void resetContext();
     void renderCurrentConversation(ScrollMode mode);
+    MessageAvatars messageAvatars(
+        const QVector<chatbox::client::ChatMessage>& messages) const;
+    void requestMissingMessageAvatars(
+        const QVector<chatbox::client::ChatMessage>& messages);
     void addIncomingMessage(const chatbox::client::ChatMessage& message);
     bool currentChatContext(chatbox::client::ChatContext& context,
                             quint64& target_id) const;

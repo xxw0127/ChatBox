@@ -14,6 +14,10 @@ namespace client {
 // user_id -> QTextDocument image URL for that sender's avatar.
 using AvatarSrcMap = QHash<quint64, QString>;
 
+// URL used by the renderer for a sender's avatar; version 0 means the
+// fallback initial image.
+QString avatarSrc(quint64 user_id, quint32 version);
+
 // The server allows a recall only while the message is younger than this
 // (SQL: created_at >= UTC_TIMESTAMP() - INTERVAL 2 MINUTE); the client uses
 // the same window so it never offers an action the server would reject.

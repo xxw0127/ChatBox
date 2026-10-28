@@ -66,6 +66,10 @@ QString messageMeta(const ChatMessage& message) {
 
 }  // namespace
 
+QString avatarSrc(quint64 user_id, quint32 version) {
+    return QStringLiteral("chatbox-avatar://%1?v=%2").arg(user_id).arg(version);
+}
+
 MessageActions messageActions(const ChatMessage& message, quint64 self_user_id,
                               const QDateTime& now_utc) {
     MessageActions actions;
