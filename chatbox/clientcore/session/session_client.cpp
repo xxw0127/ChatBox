@@ -162,6 +162,18 @@ void SessionClient::revokeSession(const QString& session_id) {
     }
 }
 
+quint32 SessionClient::sendRequest(uint16_t command, const std::string& body) {
+    chatbox::Frame frame;
+    frame.header.cmd = command;
+    frame.body = body;
+    const quint32 seq = next_seq_;
+    QString error;
+    if (!send(frame, &error)) {
+        return 0;
+    }
+    return seq;
+}
+
 void SessionClient::handleFrame(const QByteArray& raw) {
     if (static_cast<std::size_t>(raw.size()) < chatbox::kFrameHeaderSize) {
         return;

@@ -16,6 +16,8 @@ add_library(chatbox_clientcore STATIC
     ipc/ipc_server.cpp
     session/session_client.cpp
     store/mobile_store.cpp
+    secure/secure_store.cpp
+    service/chat_service.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/protocol.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/session_protocol.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/group_protocol.cpp

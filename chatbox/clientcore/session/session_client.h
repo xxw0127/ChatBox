@@ -47,6 +47,9 @@ public:
     void logout();
     void requestSessionList();
     void revokeSession(const QString& session_id);
+    // Sends any command through the shared sequence counter and returns the
+    // sequence number, or 0 when the transport rejected the frame.
+    quint32 sendRequest(uint16_t command, const std::string& body);
 
 signals:
     void loginSucceeded(const chatbox::clientcore::LoginResult& result);

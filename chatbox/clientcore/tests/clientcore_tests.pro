@@ -8,9 +8,14 @@ SOURCES += \
     test_main.cpp \
     test_session_client.cpp \
     test_mobile_store.cpp \
+    test_secure_store.cpp \
+    test_chat_service.cpp \
     ../session/session_client.cpp \
     ../store/mobile_store.cpp \
+    ../secure/secure_store.cpp \
+    ../service/chat_service.cpp \
     ../transport/transport.cpp \
+    ../transport/qt_ssl_transport.cpp \
     ../../common/protocol.cpp \
     ../../common/session_protocol.cpp \
     ../../common/group_protocol.cpp \
@@ -20,8 +25,13 @@ HEADERS += \
     fake_transport.h \
     test_session_client.h \
     test_mobile_store.h \
+    test_secure_store.h \
+    test_chat_service.h \
     ../session/session_client.h \
     ../store/mobile_store.h \
-    ../transport/transport.h
+    ../secure/secure_store.h \
+    ../service/chat_service.h \
+    ../transport/transport.h \
+    ../transport/qt_ssl_transport.h
 
 INCLUDEPATH += .. ../.. ../../..

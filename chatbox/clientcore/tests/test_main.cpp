@@ -1,7 +1,9 @@
 #include <QCoreApplication>
 #include <QtTest>
 
+#include "test_chat_service.h"
 #include "test_mobile_store.h"
+#include "test_secure_store.h"
 #include "test_session_client.h"
 
 int main(int argc, char** argv) {
@@ -11,5 +13,9 @@ int main(int argc, char** argv) {
     status |= QTest::qExec(&session_client, argc, argv);
     TestMobileStore mobile_store;
     status |= QTest::qExec(&mobile_store, argc, argv);
+    TestSecureStore secure_store;
+    status |= QTest::qExec(&secure_store, argc, argv);
+    TestChatService chat_service;
+    status |= QTest::qExec(&chat_service, argc, argv);
     return status;
 }
