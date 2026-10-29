@@ -1120,19 +1120,31 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 history_store_.saveMessage(message);
             }
             if (sender_id == user_id_) {
-                break;
+                // The sending device already has this message from its own ack;
+                // other devices of the same account still need it. Dedupe only
+                // against the open conversation by message id.
+                if (context_type_ == ContextType::Room &&
+                    room_id == static_cast<uint32_t>(current_room_id_) &&
+                    message_store_.findMessage(message_id) != nullptr) {
+                    break;
+                }
             }
-            if (!nickname_.isEmpty() &&
-                (content.contains("@" + nickname_) || content.contains("@所有人"))) {
-                showMentionNotification(nickname, content);
+            if (sender_id != user_id_) {
+                if (!nickname_.isEmpty() &&
+                    (content.contains("@" + nickname_) ||
+                     content.contains("@所有人"))) {
+                    showMentionNotification(nickname, content);
+                }
+                peer_names_.insert(sender_id, nickname);
             }
-            peer_names_.insert(sender_id, nickname);
             if (context_type_ == ContextType::Room &&
                 room_id == static_cast<uint32_t>(current_room_id_)) {
                 addIncomingMessage(message);
             } else if (chatbox::client::GroupInfo* group =
                            group_store_.find(static_cast<quint64>(room_id))) {
-                ++group->unread;
+                if (sender_id != user_id_) {
+                    ++group->unread;
+                }
                 refreshGroupListView();
             }
             break;
@@ -1213,6 +1225,11 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 QListWidgetItem* item = findConversationItem(event.target_id);
                 if (item != nullptr) {
                     item->setData(Qt::UserRole + 2, static_cast<int>(event.unread));
+                }
+                const auto view_it = friend_views_.find(event.target_id);
+                if (view_it != friend_views_.end()) {
+                    view_it->unread = static_cast<int>(event.unread);
+                    refreshFriendListView();
                 }
             } else if (event.kind == 1) {
                 group_store_.setUnread(event.target_id, static_cast<int>(event.unread));
@@ -2111,7 +2128,7 @@ void MainWindow::handleError(quint16 code, const QString& message, quint32 seq) 
         }
     }
 
-    if (code == 1002 || code == 1009 || code == 1010) {
+    if (code == 1002 || code == 1009 || code == 1010 || code == 1011) {
         clearSession();
         setStatus(QString("会话失效 (%1): %2").arg(code).arg(text), true);
         login_page_->setStatus(QString("会话失效: %1").arg(text), true);

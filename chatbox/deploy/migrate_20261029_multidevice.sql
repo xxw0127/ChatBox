@@ -73,7 +73,7 @@ BEGIN
           AND COLUMN_NAME = 'last_seen_at'
     ) THEN
         ALTER TABLE sessions
-            ADD COLUMN last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER caps;
+            ADD COLUMN last_seen_at DATETIME NULL AFTER caps;
     END IF;
 
     UPDATE sessions
@@ -81,7 +81,19 @@ BEGIN
     WHERE session_id IS NULL OR session_id = '';
 
     UPDATE sessions
-    SET last_seen_at = created_at;
+    SET last_seen_at = created_at
+    WHERE last_seen_at IS NULL;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'sessions'
+          AND COLUMN_NAME = 'last_seen_at'
+          AND IS_NULLABLE = 'YES'
+    ) THEN
+        ALTER TABLE sessions
+            MODIFY COLUMN last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP;
+    END IF;
 
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.STATISTICS

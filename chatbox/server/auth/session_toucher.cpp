@@ -3,12 +3,15 @@
 #include <chrono>
 #include <ctime>
 #include <string>
+#include <vector>
 
 #include "server/util/logging.h"
 
 namespace chatbox {
 
 namespace {
+
+constexpr int kTokenTtlDays = 30;
 
 std::string utcPlusDays(int days) {
     const std::time_t target = std::time(nullptr) + static_cast<std::time_t>(days) * 86400;
@@ -21,8 +24,10 @@ std::string utcPlusDays(int days) {
 
 }  // namespace
 
-SessionToucher::SessionToucher(DbConfig config, int interval_seconds)
+SessionToucher::SessionToucher(DbConfig config, const SessionManager& sessions,
+                               int interval_seconds)
     : config_(std::move(config)),
+      sessions_(sessions),
       interval_seconds_(interval_seconds > 0 ? interval_seconds : 600) {}
 
 SessionToucher::~SessionToucher() {
@@ -59,11 +64,17 @@ void SessionToucher::loop() {
             }
         }
         if (connected) {
-            std::string error;
-            if (!database.touchActiveSessions(utcPlusDays(30), error)) {
-                logMessage(LogLevel::kWarn, "session", "touch sessions failed: " + error);
-                database.close();
-                connected = false;
+            const std::vector<std::string> token_hashes =
+                sessions_.activeTokenHashes();
+            if (!token_hashes.empty()) {
+                std::string error;
+                if (!database.touchSessions(token_hashes, utcPlusDays(kTokenTtlDays),
+                                            error)) {
+                    logMessage(LogLevel::kWarn, "session",
+                               "touch sessions failed: " + error);
+                    database.close();
+                    connected = false;
+                }
             }
         }
 

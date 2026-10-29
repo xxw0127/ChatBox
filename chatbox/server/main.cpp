@@ -88,7 +88,8 @@ void broadcastPresence(const chatbox::SessionManager& sessions,
     const std::vector<chatbox::SessionTarget> targets = sessions.targets();
     std::unordered_map<int, std::vector<uint64_t>> groups;
     for (const chatbox::SessionTarget& target : targets) {
-        if (target.connection_id == exclude_connection_id) {
+        if (target.connection_id == exclude_connection_id ||
+            target.user_id == entry.user_id) {
             continue;
         }
         if (target.io_thread_id < 0 ||
@@ -377,6 +378,7 @@ int main(int argc, char** argv) {
                     binding.peer_ip = connection->peerIp();
                     binding.connection = connection;
                     binding.session_id = connection->sessionId();
+                    binding.token_hash = connection->tokenHash();
                     binding.device_id = connection->deviceId();
                     binding.caps = connection->caps();
 
@@ -755,7 +757,7 @@ int main(int argc, char** argv) {
     touch_config.user = config.db_user;
     touch_config.password = config.db_password;
     touch_config.database = config.db_name;
-    chatbox::SessionToucher session_toucher(touch_config, 600);
+    chatbox::SessionToucher session_toucher(touch_config, sessions, 600);
     session_toucher.start();
     chatbox::logMessage(LogLevel::kInfo, "main",
                          "server ready on port " + std::to_string(acceptor.port()));

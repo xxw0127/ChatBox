@@ -83,7 +83,8 @@ Frame SyncService::handle(const Frame& request, const RoomMember& caller) {
     }
 
     ByteWriter writer;
-    writer.putU16(static_cast<uint16_t>(cursors.size()));
+    const std::size_t count_offset = writer.data().size();
+    writer.putU16(0);
     const std::size_t next_index_offset = writer.data().size();
     writer.putU16(start_index);
     const std::size_t has_more_offset = writer.data().size();
@@ -97,6 +98,7 @@ Frame SyncService::handle(const Frame& request, const RoomMember& caller) {
         HistoryPage page;
         std::string error;
         uint64_t after_id = cursor.last_message_id;
+        bool stale = false;
 
         if (cursor.kind == 1) {
             if (cursor.target_id == 0 ||
@@ -111,29 +113,39 @@ Frame SyncService::handle(const Frame& request, const RoomMember& caller) {
                 return makeError(request.header.seq, 2001, "internal error");
             }
             if (!member) {
-                return makeError(request.header.seq, 1007, "not in room");
+                // The user left or was removed; return an empty conversation so
+                // one stale cursor does not block the rest of the batch.
+                logMessage(LogLevel::kInfo, "sync",
+                           "skip stale room cursor room=" + std::to_string(room_id) +
+                               " user=" + std::to_string(caller.user_id));
+                stale = true;
             }
             GroupInfo group;
             bool group_found = false;
-            if (!database_.findGroupById(cursor.target_id, group, group_found, error)) {
+            if (!stale &&
+                !database_.findGroupById(cursor.target_id, group, group_found, error)) {
                 logMessage(LogLevel::kError, "sync", "room status failed: " + error);
                 return makeError(request.header.seq, 2001, "internal error");
             }
-            if (!group_found || group.status != GroupStatus::kActive) {
-                return makeError(request.header.seq, 1006, "room not found");
+            if (!stale && (!group_found || group.status != GroupStatus::kActive)) {
+                logMessage(LogLevel::kInfo, "sync",
+                           "skip inactive room cursor room=" + std::to_string(room_id));
+                stale = true;
             }
-            uint64_t join_cursor = 0;
-            if (!database_.roomJoinMessageId(room_id, caller.user_id, join_cursor,
-                                             error)) {
-                logMessage(LogLevel::kError, "sync", "join cursor failed: " + error);
-                return makeError(request.header.seq, 2001, "internal error");
-            }
-            after_id = std::max(after_id, join_cursor);
-            if (!database_.listRoomHistoryAfter(room_id, after_id,
-                                                kMaxConversationMessages, page,
-                                                error)) {
-                logMessage(LogLevel::kError, "sync", "room sync failed: " + error);
-                return makeError(request.header.seq, 2001, "internal error");
+            if (!stale) {
+                uint64_t join_cursor = 0;
+                if (!database_.roomJoinMessageId(room_id, caller.user_id, join_cursor,
+                                                 error)) {
+                    logMessage(LogLevel::kError, "sync", "join cursor failed: " + error);
+                    return makeError(request.header.seq, 2001, "internal error");
+                }
+                after_id = std::max(after_id, join_cursor);
+                if (!database_.listRoomHistoryAfter(room_id, after_id,
+                                                    kMaxConversationMessages, page,
+                                                    error)) {
+                    logMessage(LogLevel::kError, "sync", "room sync failed: " + error);
+                    return makeError(request.header.seq, 2001, "internal error");
+                }
             }
         } else {
             if (cursor.target_id == 0 || cursor.target_id == caller.user_id) {
@@ -146,6 +158,24 @@ Frame SyncService::handle(const Frame& request, const RoomMember& caller) {
                 logMessage(LogLevel::kError, "sync", "private sync failed: " + error);
                 return makeError(request.header.seq, 2001, "internal error");
             }
+        }
+
+        if (stale) {
+            const std::size_t conversation_size = 1 + 8 + 2 + 1 + 8 + 2;
+            if (i > start_index &&
+                writer.data().size() + conversation_size > kMaxSyncBody) {
+                next_index = static_cast<uint16_t>(i);
+                has_more = true;
+                break;
+            }
+            writer.putU8(cursor.kind);
+            writer.putU64(cursor.target_id);
+            writer.putU16(0);
+            writer.putU8(0);
+            writer.putU64(after_id);
+            writer.putU16(0);
+            next_index = static_cast<uint16_t>(i + 1);
+            continue;
         }
 
         std::vector<IndexedFileMeta> metas;
@@ -179,6 +209,10 @@ Frame SyncService::handle(const Frame& request, const RoomMember& caller) {
         has_more = true;
     }
     std::string body = writer.data();
+    const uint16_t written_count =
+        static_cast<uint16_t>(next_index - start_index);
+    body[count_offset] = static_cast<char>((written_count >> 8) & 0xFF);
+    body[count_offset + 1] = static_cast<char>(written_count & 0xFF);
     body[next_index_offset] = static_cast<char>((next_index >> 8) & 0xFF);
     body[next_index_offset + 1] = static_cast<char>(next_index & 0xFF);
     body[has_more_offset] = has_more ? 1 : 0;

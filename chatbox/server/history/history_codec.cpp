@@ -33,6 +33,9 @@ bool encodeHistoryMessages(const std::vector<HistoryMessage>& messages,
     encoded = EncodedHistory{};
     error.clear();
     if (messages.empty()) {
+        ByteWriter writer;
+        writer.putU16(0);
+        encoded.body = writer.data();
         return true;
     }
 

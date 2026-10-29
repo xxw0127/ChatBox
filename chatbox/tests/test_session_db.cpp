@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -193,6 +194,62 @@ int testTouchSessionExtendsExpiry(chatbox::MysqlConnection& db,
     return 0;
 }
 
+int testSetSessionIdBackfillsEmpty(chatbox::MysqlConnection& db,
+                                   uint64_t user_id) {
+    std::string error;
+    chatbox::SessionRecord session = makeSession(user_id, user_id, 12, "device-l",
+                                                 "2026-10-29 10:14:00");
+    session.session_id.clear();
+    CHECK_TRUE(db.insertSession(session, makeToken(user_id, 12), error));
+
+    chatbox::SessionRecord before;
+    bool present = false;
+    CHECK_TRUE(db.findSession(makeToken(user_id, 12), before, present, error));
+    CHECK_TRUE(present);
+    CHECK_TRUE(before.session_id.empty());
+
+    const std::string backfill_id = "backfilled-" + std::to_string(user_id);
+    const bool backfilled =
+        db.setSessionId(makeToken(user_id, 12), backfill_id, error);
+    if (!backfilled) {
+        std::cerr << "setSessionId error: " << error << '\n';
+    }
+    CHECK_TRUE(backfilled);
+    chatbox::SessionRecord after;
+    CHECK_TRUE(db.findSession(makeToken(user_id, 12), after, present, error));
+    CHECK_TRUE(present);
+    CHECK_EQ(after.session_id, backfill_id);
+    return 0;
+}
+
+int testTouchSessionsOnlyListedTokens(chatbox::MysqlConnection& db,
+                                      uint64_t user_id) {
+    std::string error;
+    chatbox::SessionRecord live = makeSession(user_id, user_id, 13, "device-m",
+                                              "2026-10-29 10:15:00");
+    live.expires_at = "2027-01-01 00:00:00";
+    chatbox::SessionRecord stale = makeSession(user_id, user_id, 14, "device-n",
+                                               "2026-10-29 10:16:00");
+    stale.expires_at = "2027-01-01 00:00:00";
+    CHECK_TRUE(db.insertSession(live, makeToken(user_id, 13), error));
+    CHECK_TRUE(db.insertSession(stale, makeToken(user_id, 14), error));
+
+    CHECK_TRUE(db.touchSessions({makeToken(user_id, 13)}, "2031-01-01 00:00:00",
+                                error));
+    chatbox::SessionRecord found;
+    bool present = false;
+    CHECK_TRUE(db.findSession(makeToken(user_id, 13), found, present, error));
+    CHECK_TRUE(present);
+    CHECK_EQ(found.expires_at, std::string("2031-01-01 00:00:00"));
+
+    CHECK_TRUE(db.findSession(makeToken(user_id, 14), found, present, error));
+    CHECK_TRUE(present);
+    CHECK_EQ(found.expires_at, std::string("2027-01-01 00:00:00"));
+
+    CHECK_TRUE(db.touchSessions({}, "2032-01-01 00:00:00", error));
+    return 0;
+}
+
 }  // namespace
 
 int main() {
@@ -217,8 +274,12 @@ int main() {
         return 1;
     }
 
-    const uint64_t user_id =
-        900000000ULL + static_cast<uint64_t>(std::time(nullptr)) % 1000000ULL;
+    const uint64_t base =
+        900000000ULL +
+        static_cast<uint64_t>(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count()) %
+            10000000ULL;
+    const uint64_t user_id = base * 10;
     int failures = 0;
     failures += testInsertAndFind(db, user_id);
     failures += testListOnlyCurrentUser(db, user_id + 10);
@@ -227,6 +288,8 @@ int main() {
     failures += testRevokeLegacyOnly(db, user_id + 40);
     failures += testCountAndEvictOldest(db, user_id + 50);
     failures += testTouchSessionExtendsExpiry(db, user_id + 60);
+    failures += testSetSessionIdBackfillsEmpty(db, user_id + 70);
+    failures += testTouchSessionsOnlyListedTokens(db, user_id + 80);
     if (failures == 0) {
         std::cout << "test_session_db: all checks passed\n";
     }

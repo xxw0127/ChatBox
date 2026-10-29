@@ -173,9 +173,25 @@ std::vector<SessionTarget> SessionManager::targets() const {
                 continue;
             }
             SessionTarget target;
+            target.user_id = user_entry.first;
             target.connection_id = binding_entry.second.connection_id;
             target.io_thread_id = binding_entry.second.io_thread_id;
             result.push_back(target);
+        }
+    }
+    return result;
+}
+
+std::vector<std::string> SessionManager::activeTokenHashes() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> result;
+    for (const auto& user_entry : bindings_) {
+        for (const auto& binding_entry : user_entry.second) {
+            if (binding_entry.second.connection.expired() ||
+                binding_entry.second.token_hash.empty()) {
+                continue;
+            }
+            result.push_back(binding_entry.second.token_hash);
         }
     }
     return result;

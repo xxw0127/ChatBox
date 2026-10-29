@@ -6,16 +6,19 @@
 #include <mutex>
 #include <thread>
 
+#include "server/auth/session_manager.h"
 #include "server/db/mysql_connection.h"
 
 namespace chatbox {
 
-// Periodically refreshes last_seen_at / expires_at for online sessions so a
-// long-lived connection does not expire and so device eviction sees fresh
-// activity. It owns its own MySQL connection (one per thread).
+// Periodically refreshes last_seen_at / expires_at for sessions that still
+// have a live connection. Rows left behind by closed connections are not
+// touched, so they expire on schedule. It owns its own MySQL connection (one
+// per thread).
 class SessionToucher {
 public:
-    SessionToucher(DbConfig config, int interval_seconds = 600);
+    SessionToucher(DbConfig config, const SessionManager& sessions,
+                   int interval_seconds = 600);
     ~SessionToucher();
 
     SessionToucher(const SessionToucher&) = delete;
@@ -28,6 +31,7 @@ private:
     void loop();
 
     DbConfig config_;
+    const SessionManager& sessions_;
     int interval_seconds_;
     std::atomic<bool> running_{false};
     std::thread thread_;

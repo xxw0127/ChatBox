@@ -556,8 +556,8 @@ FileResult FileService::handleUploadCommit(const Frame& request,
         result.broadcast_frame = buildRoomPush(
             cache->state, message_id, entry.file_id, created_at, push_meta,
             caller);
-        rooms_.snapshot(static_cast<int>(cache->state.target_id),
-                        result.targets);
+        rooms_.targets(static_cast<int>(cache->state.target_id),
+                       result.targets);
         if (cache->fd >= 0) {
             ::close(cache->fd);
             cache->fd = -1;
@@ -899,7 +899,7 @@ FileResult FileService::handleDelete(const Frame& request,
         result.broadcast = true;
         result.broadcast_frame = buildFileDeletedFrame(
             file_id, access.message_id, access.kind, access.room_id);
-        rooms_.snapshot(static_cast<int>(access.room_id), result.targets);
+        rooms_.targets(static_cast<int>(access.room_id), result.targets);
     } else {
         FileNotice to_sender;
         to_sender.user_id = access.private_sender_id;

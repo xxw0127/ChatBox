@@ -65,13 +65,13 @@ Frame makePush(uint8_t event, uint32_t room_id, uint64_t user_id,
 
 void addRoomBroadcast(GroupResult& result, RoomManager& rooms, int room_id,
                       const Frame& push) {
-    std::vector<RoomMember> members;
-    if (!rooms.snapshot(room_id, members)) {
+    std::vector<RoomMember> targets;
+    if (!rooms.targets(room_id, targets)) {
         return;
     }
     result.broadcast = true;
     result.broadcast_frame = encodeFrame(push);
-    result.targets = std::move(members);
+    result.targets = std::move(targets);
 }
 
 void addNotice(GroupResult& result, uint64_t user_id, const Frame& push) {

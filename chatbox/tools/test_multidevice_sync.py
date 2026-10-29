@@ -100,6 +100,15 @@ def sync_pull(sock, seq: int, kind: int, target: int, last_message_id: int):
     return read_sync(response)
 
 
+def sync_pull_multi(sock, seq: int, cursors):
+    body = struct.pack("!HH", len(cursors), 0)
+    for kind, target, last_message_id in cursors:
+        body += struct.pack("!BQQ", kind, target, last_message_id)
+    send(sock, CMD_SYNC_PULL, seq, body)
+    response = wait_for_command(sock, CMD_SYNC_RESP, "multi sync response")
+    return read_sync(response)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
@@ -171,6 +180,29 @@ def main() -> int:
         if group_ids != sorted(group_ids) or len(set(group_ids)) != len(group_ids):
             raise AssertionError("group sync order/duplicates invalid")
         print("PASS group sync 50 + 10, ordered and deduplicated")
+
+        # An up-to-date cursor must still return a well-formed empty
+        # conversation (mandatory trailing file-meta count must be present).
+        up_to_date = sync_pull(a, 22, 2, b_id, ids[-1])
+        if up_to_date["conversations"][0]["ids"]:
+            raise AssertionError(f"up-to-date sync returned messages: {up_to_date}")
+        print("PASS up-to-date cursor returns an empty conversation")
+
+        # Mixed batch: one up-to-date cursor, one stale room the user is not in,
+        # and one more up-to-date cursor. The stale cursor must not abort the
+        # batch, and all three entries must be parseable.
+        mixed = sync_pull_multi(a, 23, [
+            (2, b_id, ids[-1]),
+            (1, 999999, 0),
+            (2, b_id, ids[-1]),
+        ])
+        if mixed["count"] != 3 or len(mixed["conversations"]) != 3:
+            raise AssertionError(f"mixed sync entry count invalid: {mixed}")
+        if mixed["has_more"] or mixed["next_index"] != 3:
+            raise AssertionError(f"mixed sync pagination invalid: {mixed}")
+        if mixed["conversations"][1]["ids"]:
+            raise AssertionError(f"stale room returned messages: {mixed}")
+        print("PASS stale room cursor does not abort the batch")
 
         print("ALL SYNC CHECKS PASSED")
         return 0

@@ -19,11 +19,13 @@ struct SessionBinding {
     std::string peer_ip;
     std::weak_ptr<Connection> connection;
     std::string session_id;
+    std::string token_hash;
     std::string device_id;
     uint32_t caps = 0;
 };
 
 struct SessionTarget {
+    uint64_t user_id = 0;
     uint64_t connection_id = 0;
     int io_thread_id = -1;
 };
@@ -52,6 +54,8 @@ public:
     bool isOnline(uint64_t user_id) const;
     // All live (non-expired) bindings, for fan-out without holding the lock.
     std::vector<SessionTarget> targets() const;
+    // Token hashes of live sessions, for the periodic expiry refresh.
+    std::vector<std::string> activeTokenHashes() const;
 
     // Legacy single-session wrappers kept until AuthService is migrated.
     bool bind(uint64_t user_id, const SessionBinding& binding,

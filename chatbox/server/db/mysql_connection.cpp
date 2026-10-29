@@ -701,31 +701,6 @@ bool MysqlConnection::revokeSessionsForUser(uint64_t user_id, int reason, std::s
     return execute(stmt.get(), error);
 }
 
-bool MysqlConnection::insertSession(const std::string& token_hash, uint64_t user_id,
-                                    const std::string& expires_at, std::string& error) {
-    if (!ensureConnected(error)) {
-        return false;
-    }
-
-    Stmt stmt(mysql_,
-              "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)", error);
-    if (stmt.get() == nullptr) {
-        return false;
-    }
-    unsigned long token_length = 0;
-    unsigned long expires_length = 0;
-    uint64_t id_value = user_id;
-    MYSQL_BIND params[3] = {};
-    bindString(params[0], token_hash, token_length);
-    bindU64(params[1], id_value);
-    bindString(params[2], expires_at, expires_length);
-    if (mysql_stmt_bind_param(stmt.get(), params) != 0) {
-        error = mysql_stmt_error(stmt.get());
-        return false;
-    }
-    return execute(stmt.get(), error);
-}
-
 bool MysqlConnection::insertSession(const SessionRecord& session,
                                     const std::string& token_hash,
                                     std::string& error) {
@@ -760,7 +735,11 @@ bool MysqlConnection::insertSession(const SessionRecord& session,
 
     MYSQL_BIND params[10] = {};
     bindString(params[0], token_hash, token_length);
-    bindString(params[1], session.session_id, session_id_length);
+    if (session.session_id.empty()) {
+        params[1].buffer_type = MYSQL_TYPE_NULL;
+    } else {
+        bindString(params[1], session.session_id, session_id_length);
+    }
     bindString(params[2], session.device_id, device_id_length);
     bindString(params[3], session.device_name, device_name_length);
     bindString(params[4], session.platform, platform_length);
@@ -963,6 +942,36 @@ bool MysqlConnection::findSession(const std::string& token_hash, SessionRecord& 
         session.token_hash = token_hash;
     }
     return true;
+}
+
+bool MysqlConnection::setSessionId(const std::string& token_hash,
+                                   const std::string& session_id,
+                                   std::string& error) {
+    if (!ensureConnected(error)) {
+        return false;
+    }
+    if (session_id.empty()) {
+        error = "empty session id";
+        return false;
+    }
+
+    Stmt stmt(mysql_,
+              "UPDATE sessions SET session_id = ? WHERE token_hash = ? "
+              "AND (session_id IS NULL OR session_id = '')",
+              error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+    unsigned long session_id_length = 0;
+    unsigned long token_length = 0;
+    MYSQL_BIND params[2] = {};
+    bindString(params[0], session_id, session_id_length);
+    bindString(params[1], token_hash, token_length);
+    if (mysql_stmt_bind_param(stmt.get(), params) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    return execute(stmt.get(), error);
 }
 
 bool MysqlConnection::revokeSession(const std::string& token_hash, int reason,
@@ -1311,27 +1320,51 @@ bool MysqlConnection::touchSession(const std::string& token_hash,
     return execute(stmt.get(), error);
 }
 
-bool MysqlConnection::touchActiveSessions(const std::string& expires_at,
-                                          std::string& error) {
+bool MysqlConnection::touchSessions(const std::vector<std::string>& token_hashes,
+                                    const std::string& expires_at,
+                                    std::string& error) {
     if (!ensureConnected(error)) {
         return false;
     }
+    if (token_hashes.empty()) {
+        return true;
+    }
 
-    Stmt stmt(mysql_,
-              "UPDATE sessions SET last_seen_at = UTC_TIMESTAMP(), expires_at = ? "
-              "WHERE revoked = 0 AND expires_at > UTC_TIMESTAMP()",
-              error);
-    if (stmt.get() == nullptr) {
-        return false;
+    constexpr std::size_t kChunkSize = 200;
+    for (std::size_t offset = 0; offset < token_hashes.size();
+         offset += kChunkSize) {
+        const std::size_t count =
+            std::min(kChunkSize, token_hashes.size() - offset);
+        std::string sql =
+            "UPDATE sessions SET last_seen_at = UTC_TIMESTAMP(), expires_at = ? "
+            "WHERE revoked = 0 AND token_hash IN (";
+        for (std::size_t i = 0; i < count; ++i) {
+            if (i != 0) {
+                sql += ',';
+            }
+            sql += '?';
+        }
+        sql += ')';
+
+        Stmt stmt(mysql_, sql.c_str(), error);
+        if (stmt.get() == nullptr) {
+            return false;
+        }
+        std::vector<unsigned long> lengths(count + 1, 0);
+        std::vector<MYSQL_BIND> params(count + 1);
+        bindString(params[0], expires_at, lengths[0]);
+        for (std::size_t i = 0; i < count; ++i) {
+            bindString(params[i + 1], token_hashes[offset + i], lengths[i + 1]);
+        }
+        if (mysql_stmt_bind_param(stmt.get(), params.data()) != 0) {
+            error = mysql_stmt_error(stmt.get());
+            return false;
+        }
+        if (!execute(stmt.get(), error)) {
+            return false;
+        }
     }
-    unsigned long expires_length = 0;
-    MYSQL_BIND param = {};
-    bindString(param, expires_at, expires_length);
-    if (mysql_stmt_bind_param(stmt.get(), &param) != 0) {
-        error = mysql_stmt_error(stmt.get());
-        return false;
-    }
-    return execute(stmt.get(), error);
+    return true;
 }
 
 bool MysqlConnection::listRooms(std::vector<RoomRow>& rooms, std::string& error) {

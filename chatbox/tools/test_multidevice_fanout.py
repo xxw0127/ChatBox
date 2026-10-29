@@ -106,6 +106,11 @@ def main() -> int:
         wait_for_command(a1, CMD_CHAT_PUSH, "A device1 group push")
         wait_for_command(a2, CMD_CHAT_PUSH, "A device2 group push")
         print("PASS group push reaches both A devices")
+        # The sender's own devices must also receive the fan-out so a message
+        # typed on the phone shows up on the desktop immediately.
+        wait_for_command(b1, CMD_CHAT_PUSH, "B device1 self group push")
+        wait_for_command(b2, CMD_CHAT_PUSH, "B device2 self group push")
+        print("PASS group push reaches both sender devices")
 
         # Friend request reaches both A devices.
         send(b1, CMD_FRIEND_REQUEST, 22, struct.pack("!Q", a_id))

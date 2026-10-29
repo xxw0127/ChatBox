@@ -28,6 +28,16 @@ struct SessionInfo {
     bool current = false;
 };
 
+// One pull cursor per conversation. SYNC_RESP replies with:
+//   u16 conversation_count (entries in this response, not the request size)
+//   u16 next_index (resume position when has_more is set)
+//   u8  has_more
+//   conversation_count * { u8 kind, u64 target_id, u16 message_count,
+//                           u8 has_more_messages, u64 next_after,
+//                           message_count * message, u16 file_meta_count,
+//                           file_meta_count * { u16 index, FileMeta } }
+// A conversation with nothing new (or a cursor for a room the user has left)
+// is returned with message_count=0 so one stale cursor never aborts a batch.
 struct SyncCursor {
     uint8_t kind = 0;
     uint64_t target_id = 0;

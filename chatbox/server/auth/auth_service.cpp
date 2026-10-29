@@ -342,21 +342,30 @@ AuthResult AuthService::handleLogin(const Frame& request,
         result.device_id = device.device_id;
         result.caps = device.caps;
     } else {
-        // Legacy clients keep single-session semantics among themselves.
+        // Legacy clients keep single-session semantics among themselves, but
+        // still get a durable session id for revoke/current-device tracking.
         if (!database_.revokeLegacySessions(user.id, 1, error)) {
             logMessage(LogLevel::kError, "auth", "revoke legacy sessions failed: " + error);
             return AuthResult{makeError(request.header.seq, 2001, "internal error")};
         }
-        if (!database_.insertSession(token_hash, user.id, expires_at, error)) {
+        SessionRecord legacy;
+        legacy.user_id = user.id;
+        legacy.session_id = session_id;
+        legacy.created_at = now;
+        legacy.last_seen_at = now;
+        legacy.expires_at = expires_at;
+        if (!database_.insertSession(legacy, token_hash, error)) {
             logMessage(LogLevel::kError, "auth", "insert legacy session failed: " + error);
             return AuthResult{makeError(request.header.seq, 2001, "internal error")};
         }
+        result.session_id = session_id;
         result.close_code = 1010;
         result.close_message = "kicked by new login";
     }
 
     SessionBinding session_binding = binding;
     session_binding.session_id = session_id;
+    session_binding.token_hash = token_hash;
     session_binding.device_id = has_device ? device.device_id : std::string();
     session_binding.caps = has_device ? device.caps : 0;
     const SessionChange change = sessions_.add(user.id, session_binding);
@@ -476,6 +485,18 @@ AuthResult AuthService::handleResume(const Frame& request,
     }
 
     const std::string expires_at = utcPlusDays(kTokenTtlDays);
+    if (current_session.session_id.empty()) {
+        const std::string generated = generateSessionId();
+        if (generated.empty()) {
+            logMessage(LogLevel::kError, "auth", "session id generation failed");
+            return AuthResult{makeError(request.header.seq, 2001, "internal error")};
+        }
+        if (!database_.setSessionId(token_hash, generated, error)) {
+            logMessage(LogLevel::kError, "auth", "set session id failed: " + error);
+            return AuthResult{makeError(request.header.seq, 2001, "internal error")};
+        }
+        current_session.session_id = generated;
+    }
     if (has_device) {
         if (current_session.device_id.empty() || !device.device_id.empty()) {
             if (!database_.upgradeSessionDevice(token_hash, device, expires_at, error)) {
@@ -495,6 +516,7 @@ AuthResult AuthService::handleResume(const Frame& request,
 
     SessionBinding session_binding = binding;
     session_binding.session_id = current_session.session_id;
+    session_binding.token_hash = token_hash;
     session_binding.device_id = current_session.device_id;
     session_binding.caps = current_session.caps;
     const SessionChange change = sessions_.add(user.id, session_binding);

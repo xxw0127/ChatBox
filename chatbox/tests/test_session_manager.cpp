@@ -24,6 +24,7 @@ chatbox::SessionBinding makeBinding(
     binding.peer_ip = "127.0.0.1";
     binding.connection = connection;
     binding.session_id = session_id;
+    binding.token_hash = "hash-" + session_id;
     binding.device_id = device_id;
     binding.caps = chatbox::kCapMultiDevice;
     return binding;
@@ -144,6 +145,31 @@ int testExpiredConnectionIsOffline() {
     return 0;
 }
 
+int testActiveTokenHashesSkipExpired() {
+    chatbox::SessionManager sessions;
+    auto first = makeConnection(1, 0);
+    auto second = makeConnection(2, 1);
+    sessions.add(7, makeBinding(1, "session-1", "device-1", first));
+    sessions.add(7, makeBinding(2, "session-2", "device-2", second));
+    chatbox::SessionBinding expired;
+    expired.connection_id = 3;
+    expired.session_id = "session-3";
+    expired.token_hash = "hash-session-3";
+    sessions.add(8, expired);
+
+    const std::vector<std::string> hashes = sessions.activeTokenHashes();
+    CHECK_EQ(hashes.size(), static_cast<std::size_t>(2));
+    bool found_first = false;
+    bool found_second = false;
+    for (const std::string& hash : hashes) {
+        found_first = found_first || hash == "hash-session-1";
+        found_second = found_second || hash == "hash-session-2";
+    }
+    CHECK_TRUE(found_first);
+    CHECK_TRUE(found_second);
+    return 0;
+}
+
 }  // namespace
 
 int main() {
@@ -155,6 +181,7 @@ int main() {
     failures += testRemoveSessionOnlyRemovesTarget();
     failures += testDuplicateConnectionReplacesBinding();
     failures += testExpiredConnectionIsOffline();
+    failures += testActiveTokenHashesSkipExpired();
     if (failures == 0) {
         std::cout << "test_session_manager: all checks passed\n";
     }

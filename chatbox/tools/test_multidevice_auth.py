@@ -261,7 +261,12 @@ def main() -> int:
             raise AssertionError("revoked device1 still listed")
         if not any(item["device_id"] == "device-2" for item in sessions):
             raise AssertionError("device2 missing after legacy login")
+        if not any(item["device_id"] == "" for item in sessions):
+            raise AssertionError("legacy session missing after legacy login")
+        if any(not item["session_id"] for item in sessions):
+            raise AssertionError("session list contains empty session_id")
         print("PASS legacy login does not kick new device")
+        print("PASS legacy session has a durable session_id")
 
         # Cap: six new devices on a fresh account, oldest is evicted with 1011.
         cap_sockets = []

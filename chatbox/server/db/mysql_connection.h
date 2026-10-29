@@ -140,12 +140,13 @@ public:
     bool findUserById(uint64_t user_id, UserRecord& user, bool& found, std::string& error);
     bool updateLastLogin(uint64_t user_id, std::string& error);
     bool revokeSessionsForUser(uint64_t user_id, int reason, std::string& error);
-    bool insertSession(const std::string& token_hash, uint64_t user_id,
-                       const std::string& expires_at, std::string& error);
     bool insertSession(const SessionRecord& session, const std::string& token_hash,
                        std::string& error);
     bool findSession(const std::string& token_hash, SessionRecord& session, bool& found,
                      std::string& error);
+    // Backfills session_id for sessions created before the column existed.
+    bool setSessionId(const std::string& token_hash, const std::string& session_id,
+                      std::string& error);
     bool revokeSession(const std::string& token_hash, int reason, std::string& error);
     bool listSessions(uint64_t user_id, std::vector<SessionRecord>& sessions,
                       std::string& error);
@@ -165,7 +166,10 @@ public:
                               std::string& error);
     bool touchSession(const std::string& token_hash, const std::string& expires_at,
                       std::string& error);
-    bool touchActiveSessions(const std::string& expires_at, std::string& error);
+    // Refreshes only the given live session tokens, so rows left behind by
+    // closed connections expire on schedule instead of being revived forever.
+    bool touchSessions(const std::vector<std::string>& token_hashes,
+                       const std::string& expires_at, std::string& error);
     bool listRooms(std::vector<RoomRow>& rooms, std::string& error);
     bool insertMessage(int room_id, uint64_t sender_id, const std::string& client_msg_id,
                        const std::string& content, uint64_t reply_to_id,
