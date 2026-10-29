@@ -3087,7 +3087,7 @@ void TestClientCore::updatePromptRestoresHiddenWindow() {
     QVERIFY(window.contains(QStringLiteral("checkPreviousUpdateInterrupted")));
     QVERIFY(window.contains(QStringLiteral("QTimer::singleShot(10000")));
     QVERIFY(update.contains(QStringLiteral("checkPreviousUpdateInterrupted")));
-    QVERIFY(main.contains(QStringLiteral("setApplicationVersion(\"0.4.0\")")));
+    QVERIFY(main.contains(QStringLiteral("setApplicationVersion(\"0.4.1\")")));
 }
 
 void TestClientCore::updateManifestParsesValid() {
