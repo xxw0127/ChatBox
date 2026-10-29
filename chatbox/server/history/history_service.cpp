@@ -53,15 +53,34 @@ Frame makeSuccess(uint16_t command, uint32_t seq) {
 HistoryService::HistoryService(MysqlConnection& database, RoomManager& rooms)
     : database_(database), rooms_(rooms) {}
 
-Frame HistoryService::handle(const Frame& request, const RoomMember& caller) {
+HistoryResult HistoryService::handle(const Frame& request,
+                                      const RoomMember& caller) {
+    HistoryResult result;
     if (caller.user_id == 0) {
-        return makeError(request.header.seq, 1002, "not authenticated");
+        result.response = makeError(request.header.seq, 1002, "not authenticated");
+        return result;
     }
     if (request.header.cmd == kCmdMessageSearch) {
-        return handleSearch(request, caller);
+        result.response = handleSearch(request, caller);
+        return result;
     }
     if (request.header.cmd != kCmdHistory) {
-        return makeError(request.header.seq, 1001, "unknown command");
+        result.response = makeError(request.header.seq, 1001, "unknown command");
+        return result;
+    }
+    result.response = handleHistory(request, caller, result.notify_self,
+                                    result.read_state);
+    return result;
+}
+
+Frame HistoryService::handleHistory(const Frame& request,
+                                    const RoomMember& caller,
+                                    bool& notify_self,
+                                    ReadStateEvent& read_state) {
+    notify_self = false;
+    read_state = ReadStateEvent{};
+    if (caller.user_id == 0) {
+        return makeError(request.header.seq, 1002, "not authenticated");
     }
 
     ByteReader reader(request.body.data(), request.body.size());
@@ -133,6 +152,12 @@ Frame HistoryService::handle(const Frame& request, const RoomMember& caller) {
                                            page.messages.back().id, read_error)) {
                 logMessage(LogLevel::kWarn, "history",
                            "mark private read failed: " + read_error);
+            } else {
+                notify_self = true;
+                read_state.kind = 2;
+                read_state.target_id = target_id;
+                read_state.last_read_message_id = page.messages.back().id;
+                read_state.unread = 0;
             }
         }
     }

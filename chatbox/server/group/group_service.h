@@ -7,6 +7,7 @@
 
 #include "common/group_types.h"
 #include "common/protocol.h"
+#include "common/session_protocol.h"
 #include "server/db/mysql_connection.h"
 #include "server/room/room_manager.h"
 
@@ -23,6 +24,8 @@ struct GroupResult {
     std::string broadcast_frame;
     std::vector<RoomMember> targets;
     std::vector<GroupNotice> notices;
+    bool notify_self = false;
+    ReadStateEvent read_state;
 };
 
 class GroupService {

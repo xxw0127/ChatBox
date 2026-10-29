@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "common/protocol.h"
+#include "common/session_protocol.h"
 #include "server/auth/session_manager.h"
 #include "server/business/worker_pool.h"
 #include "server/config.h"
@@ -108,7 +109,8 @@ void broadcastPresence(const chatbox::SessionManager& sessions,
 void postToUserSessions(const chatbox::SessionManager& sessions,
                         const std::vector<chatbox::IoThread*>& io_threads,
                         uint64_t user_id, const std::string& encoded,
-                        uint64_t exclude_connection_id = 0) {
+                        uint64_t exclude_connection_id = 0,
+                        uint32_t required_caps = 0) {
     std::vector<chatbox::SessionBinding> bindings;
     if (user_id == 0 || encoded.empty() ||
         !sessions.findAll(user_id, bindings)) {
@@ -121,11 +123,32 @@ void postToUserSessions(const chatbox::SessionManager& sessions,
             binding.io_thread_id >= static_cast<int>(io_threads.size())) {
             continue;
         }
+        if (required_caps != 0 && (binding.caps & required_caps) == 0) {
+            continue;
+        }
         groups[binding.io_thread_id].push_back(binding.connection_id);
     }
     for (const auto& group : groups) {
         io_threads[group.first]->postMulticast(group.second, encoded);
     }
+}
+
+void postReadState(const chatbox::SessionManager& sessions,
+                   const std::vector<chatbox::IoThread*>& io_threads,
+                   uint64_t user_id, const chatbox::ReadStateEvent& state,
+                   uint64_t exclude_connection_id) {
+    if (!state.kind || state.target_id == 0) {
+        return;
+    }
+    chatbox::Frame frame;
+    frame.header.cmd = chatbox::kCmdReadStatePush;
+    frame.header.seq = 0;
+    chatbox::ByteWriter writer;
+    chatbox::appendReadState(writer, state);
+    frame.body = writer.data();
+    postToUserSessions(sessions, io_threads, user_id,
+                       chatbox::encodeFrame(frame), exclude_connection_id,
+                       chatbox::kCapReadStatePush);
 }
 
 }  // namespace
@@ -566,6 +589,10 @@ int main(int argc, char** argv) {
                         postToUserSessions(sessions, io_thread_refs, notice.user_id,
                                            notice.frame);
                     }
+                    if (result.notify_self) {
+                        postReadState(sessions, io_thread_refs, user_id,
+                                      result.read_state, connection_id);
+                    }
 
                     if (io_thread_id < 0 ||
                         io_thread_id >= static_cast<int>(io_thread_refs.size())) {
@@ -590,6 +617,15 @@ int main(int argc, char** argv) {
                                            result.target_user_id,
                                            result.push_frame);
                     }
+                    if (result.notify_self) {
+                        postReadState(sessions, io_thread_refs, user_id,
+                                      result.read_state, connection_id);
+                    }
+                    if (!result.echo_frame.empty()) {
+                        postToUserSessions(sessions, io_thread_refs, user_id,
+                                           result.echo_frame, connection_id,
+                                           chatbox::kCapMessageEcho);
+                    }
 
                     if (io_thread_id < 0 ||
                         io_thread_id >= static_cast<int>(io_thread_refs.size())) {
@@ -605,13 +641,19 @@ int main(int argc, char** argv) {
                     return;
                 }
 
-                Frame history_response = context.history.handle(frame, caller);
+                chatbox::HistoryResult history_result =
+                    context.history.handle(frame, caller);
+                if (history_result.notify_self) {
+                    postReadState(sessions, io_thread_refs, user_id,
+                                  history_result.read_state, connection_id);
+                }
                 if (io_thread_id < 0 ||
                     io_thread_id >= static_cast<int>(io_thread_refs.size())) {
                     return;
                 }
                 chatbox::IoThread* owner = io_thread_refs[io_thread_id];
-                owner->post([connection, response = std::move(history_response), owner] {
+                owner->post([connection,
+                             response = std::move(history_result.response), owner] {
                     if (connection->closed()) {
                         return;
                     }

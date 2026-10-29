@@ -154,6 +154,28 @@ PrivateResult PrivateService::handlePrivateSend(const Frame& request,
         return result;
     }
 
+    std::string origin_device_id;
+    if (auto connection = caller.connection.lock()) {
+        origin_device_id = connection->deviceId();
+    }
+    Frame echo;
+    echo.header.cmd = kCmdMessageEchoPush;
+    echo.header.seq = 0;
+    ByteWriter echo_writer;
+    echo_writer.putU8(2);
+    echo_writer.putU64(receiver_id);
+    echo_writer.putU64(message_id);
+    echo_writer.putU64(caller.user_id);
+    echo_writer.putString(caller.nickname);
+    echo_writer.putString(content);
+    echo_writer.putString(created_at);
+    echo_writer.putU64(reply_to_id);
+    echo_writer.putString(reply_sender_name);
+    echo_writer.putString(reply_content);
+    echo_writer.putString(origin_device_id);
+    echo.body = echo_writer.data();
+    result.echo_frame = encodeFrame(echo);
+
     if (!sessions_.isOnline(receiver_id)) {
         return result;
     }
@@ -225,6 +247,11 @@ PrivateResult PrivateService::handleMarkRead(const Frame& request,
     }
     PrivateResult result;
     result.response = makeSuccess(kCmdPrivateMarkRead, request.header.seq);
+    result.notify_self = true;
+    result.read_state.kind = 2;
+    result.read_state.target_id = peer_id;
+    result.read_state.last_read_message_id = message_id;
+    result.read_state.unread = 0;
     return result;
 }
 

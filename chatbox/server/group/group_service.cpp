@@ -757,7 +757,13 @@ GroupResult GroupService::handleMarkRead(const Frame& request,
     if (!database_.markRoomRead(room_id, caller.user_id, message_id, error)) {
         return errorResult(request, kGroupConflict, error);
     }
-    return responseResult(request);
+    GroupResult result = responseResult(request);
+    result.notify_self = true;
+    result.read_state.kind = 1;
+    result.read_state.target_id = room_id;
+    result.read_state.last_read_message_id = message_id;
+    result.read_state.unread = 0;
+    return result;
 }
 
 void GroupService::cleanupRoomFiles(uint64_t room_id) {
