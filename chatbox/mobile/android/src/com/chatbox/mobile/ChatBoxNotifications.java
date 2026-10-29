@@ -90,7 +90,25 @@ public final class ChatBoxNotifications {
         manager.notify(id, notification);
     }
 
+    public static void cancel(Context context, int id) {
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.cancel(id);
+        }
+    }
+
+    public static void setForegroundState(Context context, String text) {
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.notify(FOREGROUND_ID, buildForeground(context, text));
+        }
+    }
+
     private static Notification buildForeground(Context context) {
+        return buildForeground(context, "正在保持连接");
+    }
+
+    private static Notification buildForeground(Context context, String text) {
         Intent intent = new Intent(context, QtActivity.class);
         intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pending = PendingIntent.getActivity(context, 0, intent,
@@ -98,7 +116,7 @@ public final class ChatBoxNotifications {
         return new Notification.Builder(context, CHANNEL_SERVICE)
                 .setSmallIcon(android.R.drawable.stat_notify_chat)
                 .setContentTitle("ChatBox")
-                .setContentText("正在保持连接")
+                .setContentText(text)
                 .setOngoing(true)
                 .setContentIntent(pending)
                 .build();

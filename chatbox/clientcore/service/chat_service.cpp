@@ -176,6 +176,10 @@ bool ChatService::start(const ServiceConfig& config, QString* error) {
             &ChatService::onFrame);
     connect(session_, &SessionClient::requestFailed, this,
             &ChatService::onRequestFailed);
+    connect(session_, &SessionClient::sessionListReceived, this,
+            &ChatService::sessionListReceived);
+    connect(session_, &SessionClient::sessionRevoked, this,
+            &ChatService::sessionRevoked);
     connect(transport_, &Transport::connected, this,
             &ChatService::onTransportConnected);
     connect(transport_, &Transport::disconnected, this,
@@ -1081,6 +1085,18 @@ void ChatService::setActiveConversation(int kind, quint64 target_id) {
     active_kind_ = kind;
     active_target_id_ = target_id;
     emitSnapshot();
+}
+
+void ChatService::requestSessionList() {
+    if (session_ != nullptr) {
+        session_->requestSessionList();
+    }
+}
+
+void ChatService::revokeSession(const QString& session_id) {
+    if (session_ != nullptr) {
+        session_->revokeSession(session_id);
+    }
 }
 
 QJsonObject ChatService::messageToJson(const MessageRow& message) const {

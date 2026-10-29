@@ -43,12 +43,16 @@ public:
     void sendText(int kind, quint64 target_id, const QString& content);
     void markRead(int kind, quint64 target_id, quint64 message_id);
     void setActiveConversation(int kind, quint64 target_id);
+    void requestSessionList();
+    void revokeSession(const QString& session_id);
     QJsonObject snapshot() const;
 
 signals:
     void stateChanged(const QString& state, const QString& detail);
     void snapshotChanged(const QJsonObject& snapshot);
     void eventReceived(const QJsonObject& event);
+    void sessionListReceived(const QVector<chatbox::SessionInfo>& sessions);
+    void sessionRevoked(const QString& session_id);
 
 private:
     struct PendingSend {

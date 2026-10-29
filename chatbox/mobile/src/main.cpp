@@ -20,7 +20,9 @@ int main(int argc, char* argv[]) {
 #ifdef Q_OS_ANDROID
     if (argc > 1 && std::strcmp(argv[1], "-service") == 0) {
         QAndroidService app(argc, argv);
+        QCoreApplication::setOrganizationName(QStringLiteral("ChatBox"));
         QCoreApplication::setApplicationName(QStringLiteral("ChatBox"));
+        QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
         ServiceApp service;
         QString error;
         if (!service.start(&error)) {
@@ -32,6 +34,7 @@ int main(int argc, char* argv[]) {
 #endif
 
     QGuiApplication app(argc, argv);
+    QCoreApplication::setOrganizationName(QStringLiteral("ChatBox"));
     QCoreApplication::setApplicationName(QStringLiteral("ChatBox"));
     QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
     QQuickStyle::setStyle(QStringLiteral("Basic"));

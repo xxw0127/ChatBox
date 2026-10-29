@@ -20,6 +20,7 @@ add_library(chatbox_clientcore STATIC
     store/mobile_store.cpp
     secure/secure_store.cpp
     service/chat_service.cpp
+    notify/notification_sink.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/protocol.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/session_protocol.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/group_protocol.cpp

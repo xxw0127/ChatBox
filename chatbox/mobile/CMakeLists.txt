@@ -23,6 +23,10 @@ qt_add_executable(chatbox_mobile
     src/ipc_probe.cpp
     src/service_app.h
     src/service_app.cpp
+    src/android_notification_sink.h
+    src/android_notification_sink.cpp
+    src/android_secure_store.h
+    src/android_secure_store.cpp
 )
 
 qt_add_resources(chatbox_mobile "mobile_ca"
