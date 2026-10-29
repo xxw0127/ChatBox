@@ -12,6 +12,8 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS Core Network)
 add_library(chatbox_clientcore STATIC
     transport/transport.cpp
     transport/qt_ssl_transport.cpp
+    ipc/ipc_frame.cpp
+    ipc/ipc_server.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/protocol.cpp
 )
 

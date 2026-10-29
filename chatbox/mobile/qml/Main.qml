@@ -41,6 +41,19 @@ ApplicationWindow {
             Layout.fillWidth: true
         }
 
+        Button {
+            text: "IPC ping"
+            Layout.fillWidth: true
+            onClicked: ipcProbe.ping()
+        }
+
+        Label {
+            text: ipcProbe.status
+            wrapMode: Text.Wrap
+            horizontalAlignment: Text.AlignHCenter
+            Layout.fillWidth: true
+        }
+
         Label {
             text: "F0 工具链验证"
             font.pixelSize: 13

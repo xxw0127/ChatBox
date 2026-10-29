@@ -19,6 +19,10 @@ qt_add_executable(chatbox_mobile
     src/main.cpp
     src/connection_tester.h
     src/connection_tester.cpp
+    src/ipc_probe.h
+    src/ipc_probe.cpp
+    src/service_app.h
+    src/service_app.cpp
 )
 
 qt_add_resources(chatbox_mobile "mobile_ca"
@@ -52,6 +56,7 @@ qt_add_qml_module(chatbox_mobile
 
 target_link_libraries(chatbox_mobile PRIVATE
     Qt6::Core
+    Qt6::CorePrivate
     Qt6::Gui
     Qt6::Quick
     Qt6::QuickControls2

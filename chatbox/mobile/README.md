@@ -67,6 +67,14 @@ TLS 冒烟可以自动跑：
 
 脚本会启动 app、点“连接测试”、读 UI 层级并断言出现 `PONG received`。手机需要保持解锁并允许安装/调试。
 
+service/IPC/通知冒烟：
+
+```powershell
+.\tools\verify_service_smoke.ps1
+```
+
+脚本会授予通知权限、重启 app、检查 `ChatBoxService` 在 `:qt_service` 前台运行、通知 1000/1001 存在，并点 “IPC ping” 断言 `service: pong`。测试会 `force-stop` 自己的包，不影响其他应用。
+
 OpenSSL 预编译库来源和校验见 `android/libs/README.md`；不要依赖 Android 系统自带的 OpenSSL。
 
 ## 已知限制
