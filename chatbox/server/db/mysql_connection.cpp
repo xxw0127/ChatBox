@@ -721,16 +721,217 @@ bool MysqlConnection::insertSession(const std::string& token_hash, uint64_t user
     return execute(stmt.get(), error);
 }
 
-bool MysqlConnection::findSession(const std::string& token_hash, SessionRecord& session,
-                                  bool& found, std::string& error) {
-    found = false;
+bool MysqlConnection::insertSession(const SessionRecord& session,
+                                    const std::string& token_hash,
+                                    std::string& error) {
     if (!ensureConnected(error)) {
         return false;
     }
 
     Stmt stmt(mysql_,
-              "SELECT user_id, revoked, (expires_at > UTC_TIMESTAMP()) FROM sessions WHERE "
-              "token_hash = ? LIMIT 1",
+              "INSERT INTO sessions (token_hash, session_id, device_id, device_name, "
+              "platform, app_version, caps, last_seen_at, user_id, expires_at) "
+              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+
+    const std::string last_seen =
+        !session.last_seen_at.empty() ? session.last_seen_at
+                                      : (!session.created_at.empty()
+                                             ? session.created_at
+                                             : std::string("1970-01-01 00:00:00"));
+    unsigned long token_length = 0;
+    unsigned long session_id_length = 0;
+    unsigned long device_id_length = 0;
+    unsigned long device_name_length = 0;
+    unsigned long platform_length = 0;
+    unsigned long app_version_length = 0;
+    unsigned long last_seen_length = 0;
+    unsigned long expires_length = 0;
+    uint64_t user_id_value = session.user_id;
+    int caps_value = static_cast<int>(session.caps);
+
+    MYSQL_BIND params[10] = {};
+    bindString(params[0], token_hash, token_length);
+    bindString(params[1], session.session_id, session_id_length);
+    bindString(params[2], session.device_id, device_id_length);
+    bindString(params[3], session.device_name, device_name_length);
+    bindString(params[4], session.platform, platform_length);
+    bindString(params[5], session.app_version, app_version_length);
+    bindInt(params[6], caps_value);
+    bindString(params[7], last_seen, last_seen_length);
+    bindU64(params[8], user_id_value);
+    bindString(params[9], session.expires_at, expires_length);
+    if (mysql_stmt_bind_param(stmt.get(), params) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    return execute(stmt.get(), error);
+}
+
+namespace {
+
+bool readSessionRecord(MYSQL_STMT* stmt, SessionRecord& session, bool& found,
+                       std::string& error) {
+    char session_id_buffer[37] = {0};
+    char device_id_buffer[37] = {0};
+    char device_name_buffer[65] = {0};
+    char platform_buffer[17] = {0};
+    char app_version_buffer[33] = {0};
+    char created_buffer[32] = {0};
+    char last_seen_buffer[32] = {0};
+    char expires_buffer[32] = {0};
+    uint32_t caps = 0;
+    uint64_t user_id = 0;
+    int revoked = 0;
+    int valid = 0;
+
+    unsigned long session_id_length = 0;
+    unsigned long device_id_length = 0;
+    unsigned long device_name_length = 0;
+    unsigned long platform_length = 0;
+    unsigned long app_version_length = 0;
+    unsigned long created_length = 0;
+    unsigned long last_seen_length = 0;
+    unsigned long expires_length = 0;
+    unsigned long caps_length = 0;
+    unsigned long user_id_length = 0;
+    unsigned long revoked_length = 0;
+    unsigned long valid_length = 0;
+    bool session_id_null = false;
+    bool device_id_null = false;
+    bool device_name_null = false;
+    bool platform_null = false;
+    bool app_version_null = false;
+    bool created_null = false;
+    bool last_seen_null = false;
+    bool expires_null = false;
+    bool caps_null = false;
+    bool user_id_null = false;
+    bool revoked_null = false;
+    bool valid_null = false;
+
+    MYSQL_BIND results[12] = {};
+    results[0].buffer_type = MYSQL_TYPE_STRING;
+    results[0].buffer = session_id_buffer;
+    results[0].buffer_length = sizeof(session_id_buffer);
+    results[0].length = &session_id_length;
+    results[0].is_null = &session_id_null;
+    results[1].buffer_type = MYSQL_TYPE_STRING;
+    results[1].buffer = device_id_buffer;
+    results[1].buffer_length = sizeof(device_id_buffer);
+    results[1].length = &device_id_length;
+    results[1].is_null = &device_id_null;
+    results[2].buffer_type = MYSQL_TYPE_STRING;
+    results[2].buffer = device_name_buffer;
+    results[2].buffer_length = sizeof(device_name_buffer);
+    results[2].length = &device_name_length;
+    results[2].is_null = &device_name_null;
+    results[3].buffer_type = MYSQL_TYPE_STRING;
+    results[3].buffer = platform_buffer;
+    results[3].buffer_length = sizeof(platform_buffer);
+    results[3].length = &platform_length;
+    results[3].is_null = &platform_null;
+    results[4].buffer_type = MYSQL_TYPE_STRING;
+    results[4].buffer = app_version_buffer;
+    results[4].buffer_length = sizeof(app_version_buffer);
+    results[4].length = &app_version_length;
+    results[4].is_null = &app_version_null;
+    results[5].buffer_type = MYSQL_TYPE_LONG;
+    results[5].buffer = &caps;
+    results[5].buffer_length = sizeof(caps);
+    results[5].is_unsigned = true;
+    results[5].length = &caps_length;
+    results[5].is_null = &caps_null;
+    results[6].buffer_type = MYSQL_TYPE_STRING;
+    results[6].buffer = created_buffer;
+    results[6].buffer_length = sizeof(created_buffer);
+    results[6].length = &created_length;
+    results[6].is_null = &created_null;
+    results[7].buffer_type = MYSQL_TYPE_STRING;
+    results[7].buffer = last_seen_buffer;
+    results[7].buffer_length = sizeof(last_seen_buffer);
+    results[7].length = &last_seen_length;
+    results[7].is_null = &last_seen_null;
+    results[8].buffer_type = MYSQL_TYPE_STRING;
+    results[8].buffer = expires_buffer;
+    results[8].buffer_length = sizeof(expires_buffer);
+    results[8].length = &expires_length;
+    results[8].is_null = &expires_null;
+    results[9].buffer_type = MYSQL_TYPE_LONGLONG;
+    results[9].buffer = &user_id;
+    results[9].buffer_length = sizeof(user_id);
+    results[9].is_unsigned = true;
+    results[9].length = &user_id_length;
+    results[9].is_null = &user_id_null;
+    results[10].buffer_type = MYSQL_TYPE_LONG;
+    results[10].buffer = &revoked;
+    results[10].buffer_length = sizeof(revoked);
+    results[10].length = &revoked_length;
+    results[10].is_null = &revoked_null;
+    results[11].buffer_type = MYSQL_TYPE_LONG;
+    results[11].buffer = &valid;
+    results[11].buffer_length = sizeof(valid);
+    results[11].length = &valid_length;
+    results[11].is_null = &valid_null;
+
+    if (mysql_stmt_bind_result(stmt, results) != 0) {
+        error = mysql_stmt_error(stmt);
+        return false;
+    }
+
+    const int fetch_result = mysql_stmt_fetch(stmt);
+    if (fetch_result == MYSQL_NO_DATA) {
+        found = false;
+        return true;
+    }
+    if (fetch_result != 0 && fetch_result != MYSQL_DATA_TRUNCATED) {
+        error = mysql_stmt_error(stmt);
+        return false;
+    }
+
+    found = !user_id_null;
+    session.session_id = stringResult(session_id_buffer, session_id_length,
+                                      session_id_null, sizeof(session_id_buffer) - 1);
+    session.device_id = stringResult(device_id_buffer, device_id_length,
+                                     device_id_null, sizeof(device_id_buffer) - 1);
+    session.device_name = stringResult(device_name_buffer, device_name_length,
+                                       device_name_null, sizeof(device_name_buffer) - 1);
+    session.platform = stringResult(platform_buffer, platform_length,
+                                    platform_null, sizeof(platform_buffer) - 1);
+    session.app_version = stringResult(app_version_buffer, app_version_length,
+                                       app_version_null, sizeof(app_version_buffer) - 1);
+    session.caps = caps_null ? 0 : caps;
+    session.created_at = stringResult(created_buffer, created_length, created_null,
+                                      sizeof(created_buffer) - 1);
+    session.last_seen_at = stringResult(last_seen_buffer, last_seen_length,
+                                        last_seen_null, sizeof(last_seen_buffer) - 1);
+    session.expires_at = stringResult(expires_buffer, expires_length, expires_null,
+                                      sizeof(expires_buffer) - 1);
+    session.user_id = user_id;
+    session.revoked = revoked_null ? 0 : revoked;
+    session.valid = !valid_null && valid != 0;
+    return true;
+}
+
+}  // namespace
+
+bool MysqlConnection::findSession(const std::string& token_hash, SessionRecord& session,
+                                  bool& found, std::string& error) {
+    found = false;
+    session = SessionRecord{};
+    if (!ensureConnected(error)) {
+        return false;
+    }
+
+    Stmt stmt(mysql_,
+              "SELECT session_id, device_id, device_name, platform, app_version, caps, "
+              "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), "
+              "DATE_FORMAT(last_seen_at, '%Y-%m-%d %H:%i:%s'), "
+              "DATE_FORMAT(expires_at, '%Y-%m-%d %H:%i:%s'), user_id, revoked, "
+              "(expires_at > UTC_TIMESTAMP()) FROM sessions WHERE token_hash = ? LIMIT 1",
               error);
     if (stmt.get() == nullptr) {
         return false;
@@ -750,55 +951,12 @@ bool MysqlConnection::findSession(const std::string& token_hash, SessionRecord& 
         error = mysql_stmt_error(stmt.get());
         return false;
     }
-
-    uint64_t user_id = 0;
-    int revoked = 0;
-    int valid = 0;
-    unsigned long user_id_length = 0;
-    unsigned long revoked_length = 0;
-    unsigned long valid_length = 0;
-    bool user_id_null = false;
-    bool revoked_null = false;
-    bool valid_null = false;
-
-    MYSQL_BIND results[3] = {};
-    results[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    results[0].buffer = &user_id;
-    results[0].buffer_length = sizeof(user_id);
-    results[0].is_unsigned = true;
-    results[0].length = &user_id_length;
-    results[0].is_null = &user_id_null;
-    results[1].buffer_type = MYSQL_TYPE_LONG;
-    results[1].buffer = &revoked;
-    results[1].buffer_length = sizeof(revoked);
-    results[1].length = &revoked_length;
-    results[1].is_null = &revoked_null;
-    results[2].buffer_type = MYSQL_TYPE_LONG;
-    results[2].buffer = &valid;
-    results[2].buffer_length = sizeof(valid);
-    results[2].length = &valid_length;
-    results[2].is_null = &valid_null;
-
-    if (mysql_stmt_bind_result(stmt.get(), results) != 0) {
-        error = mysql_stmt_error(stmt.get());
+    if (!readSessionRecord(stmt.get(), session, found, error)) {
         return false;
     }
-
-    const int fetch_result = mysql_stmt_fetch(stmt.get());
-    if (fetch_result == MYSQL_NO_DATA) {
-        error.clear();
-        return true;
+    if (found) {
+        session.token_hash = token_hash;
     }
-    if (fetch_result != 0) {
-        error = mysql_stmt_error(stmt.get());
-        return false;
-    }
-
-    session.user_id = user_id;
-    session.revoked = revoked_null ? 0 : revoked;
-    session.valid = !valid_null && valid != 0;
-    found = !user_id_null;
-    error.clear();
     return true;
 }
 
@@ -819,6 +977,352 @@ bool MysqlConnection::revokeSession(const std::string& token_hash, int reason,
     bindInt(params[0], reason_value);
     bindString(params[1], token_hash, token_length);
     if (mysql_stmt_bind_param(stmt.get(), params) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    return execute(stmt.get(), error);
+}
+
+bool MysqlConnection::listSessions(uint64_t user_id,
+                                   std::vector<SessionRecord>& sessions,
+                                   std::string& error) {
+    sessions.clear();
+    if (!ensureConnected(error)) {
+        return false;
+    }
+
+    Stmt stmt(mysql_,
+              "SELECT session_id, device_id, device_name, platform, app_version, caps, "
+              "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), "
+              "DATE_FORMAT(last_seen_at, '%Y-%m-%d %H:%i:%s'), "
+              "DATE_FORMAT(expires_at, '%Y-%m-%d %H:%i:%s'), user_id, revoked, "
+              "(expires_at > UTC_TIMESTAMP()) FROM sessions "
+              "WHERE user_id = ? AND revoked = 0 AND expires_at > UTC_TIMESTAMP() "
+              "ORDER BY last_seen_at DESC",
+              error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+
+    uint64_t id_value = user_id;
+    MYSQL_BIND param = {};
+    bindU64(param, id_value);
+    if (mysql_stmt_bind_param(stmt.get(), &param) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    if (!execute(stmt.get(), error)) {
+        return false;
+    }
+    if (mysql_stmt_store_result(stmt.get()) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+
+    bool found = false;
+    do {
+        SessionRecord session;
+        if (!readSessionRecord(stmt.get(), session, found, error)) {
+            return false;
+        }
+        if (!found) {
+            break;
+        }
+        sessions.push_back(std::move(session));
+    } while (true);
+    return true;
+}
+
+bool MysqlConnection::revokeSessionById(uint64_t user_id,
+                                        const std::string& session_id, int reason,
+                                        std::string& error) {
+    if (!ensureConnected(error)) {
+        return false;
+    }
+
+    Stmt stmt(mysql_,
+              "UPDATE sessions SET revoked = ? WHERE user_id = ? AND session_id = ? "
+              "AND revoked = 0",
+              error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+    int reason_value = reason;
+    uint64_t id_value = user_id;
+    unsigned long session_id_length = 0;
+    MYSQL_BIND params[3] = {};
+    bindInt(params[0], reason_value);
+    bindU64(params[1], id_value);
+    bindString(params[2], session_id, session_id_length);
+    if (mysql_stmt_bind_param(stmt.get(), params) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    if (!execute(stmt.get(), error)) {
+        return false;
+    }
+    if (mysql_stmt_affected_rows(stmt.get()) == 0) {
+        error = "session not found";
+        return false;
+    }
+    return true;
+}
+
+bool MysqlConnection::revokeSessionsForDevice(uint64_t user_id,
+                                              const std::string& device_id,
+                                              int reason, std::string& error) {
+    if (!ensureConnected(error)) {
+        return false;
+    }
+
+    Stmt stmt(mysql_,
+              "UPDATE sessions SET revoked = ? WHERE user_id = ? AND device_id = ? "
+              "AND revoked = 0",
+              error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+    int reason_value = reason;
+    uint64_t id_value = user_id;
+    unsigned long device_length = 0;
+    MYSQL_BIND params[3] = {};
+    bindInt(params[0], reason_value);
+    bindU64(params[1], id_value);
+    bindString(params[2], device_id, device_length);
+    if (mysql_stmt_bind_param(stmt.get(), params) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    return execute(stmt.get(), error);
+}
+
+bool MysqlConnection::revokeLegacySessions(uint64_t user_id, int reason,
+                                           std::string& error) {
+    if (!ensureConnected(error)) {
+        return false;
+    }
+
+    Stmt stmt(mysql_,
+              "UPDATE sessions SET revoked = ? WHERE user_id = ? AND device_id = '' "
+              "AND revoked = 0",
+              error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+    int reason_value = reason;
+    uint64_t id_value = user_id;
+    MYSQL_BIND params[2] = {};
+    bindInt(params[0], reason_value);
+    bindU64(params[1], id_value);
+    if (mysql_stmt_bind_param(stmt.get(), params) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    return execute(stmt.get(), error);
+}
+
+bool MysqlConnection::countActiveNewSessions(uint64_t user_id, uint32_t& count,
+                                             std::string& error) {
+    count = 0;
+    if (!ensureConnected(error)) {
+        return false;
+    }
+
+    Stmt stmt(mysql_,
+              "SELECT COUNT(*) FROM sessions WHERE user_id = ? AND device_id <> '' "
+              "AND revoked = 0 AND expires_at > UTC_TIMESTAMP()",
+              error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+    uint64_t id_value = user_id;
+    MYSQL_BIND param = {};
+    bindU64(param, id_value);
+    if (mysql_stmt_bind_param(stmt.get(), &param) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    if (!execute(stmt.get(), error)) {
+        return false;
+    }
+    if (mysql_stmt_store_result(stmt.get()) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+
+    uint64_t count_value = 0;
+    unsigned long count_length = 0;
+    bool count_null = false;
+    MYSQL_BIND result = {};
+    result.buffer_type = MYSQL_TYPE_LONGLONG;
+    result.buffer = &count_value;
+    result.buffer_length = sizeof(count_value);
+    result.is_unsigned = true;
+    result.length = &count_length;
+    result.is_null = &count_null;
+    if (mysql_stmt_bind_result(stmt.get(), &result) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    const int fetch_result = mysql_stmt_fetch(stmt.get());
+    if (fetch_result == MYSQL_NO_DATA) {
+        return true;
+    }
+    if (fetch_result != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    if (!count_null) {
+        count = static_cast<uint32_t>(
+            std::min<uint64_t>(count_value, std::numeric_limits<uint32_t>::max()));
+    }
+    return true;
+}
+
+bool MysqlConnection::revokeOldestNewSession(uint64_t user_id, int reason,
+                                             std::string& revoked_session_id,
+                                             std::string& error) {
+    revoked_session_id.clear();
+    if (!ensureConnected(error)) {
+        return false;
+    }
+
+    Stmt stmt(mysql_,
+              "SELECT session_id FROM sessions WHERE user_id = ? AND device_id <> '' "
+              "AND revoked = 0 AND expires_at > UTC_TIMESTAMP() "
+              "ORDER BY last_seen_at ASC, created_at ASC LIMIT 1",
+              error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+    uint64_t id_value = user_id;
+    MYSQL_BIND param = {};
+    bindU64(param, id_value);
+    if (mysql_stmt_bind_param(stmt.get(), &param) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    if (!execute(stmt.get(), error)) {
+        return false;
+    }
+    if (mysql_stmt_store_result(stmt.get()) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+
+    char session_id_buffer[37] = {0};
+    unsigned long session_id_length = 0;
+    bool session_id_null = false;
+    MYSQL_BIND result = {};
+    result.buffer_type = MYSQL_TYPE_STRING;
+    result.buffer = session_id_buffer;
+    result.buffer_length = sizeof(session_id_buffer);
+    result.length = &session_id_length;
+    result.is_null = &session_id_null;
+    if (mysql_stmt_bind_result(stmt.get(), &result) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    const int fetch_result = mysql_stmt_fetch(stmt.get());
+    if (fetch_result == MYSQL_NO_DATA) {
+        return true;
+    }
+    if (fetch_result != 0 && fetch_result != MYSQL_DATA_TRUNCATED) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    if (session_id_null) {
+        return true;
+    }
+    revoked_session_id = stringResult(session_id_buffer, session_id_length,
+                                      session_id_null, sizeof(session_id_buffer) - 1);
+    if (revoked_session_id.empty()) {
+        return true;
+    }
+    return revokeSessionById(user_id, revoked_session_id, reason, error);
+}
+
+bool MysqlConnection::upgradeSessionDevice(const std::string& token_hash,
+                                           const DeviceInfo& info,
+                                           const std::string& expires_at,
+                                           std::string& error) {
+    if (!ensureConnected(error)) {
+        return false;
+    }
+
+    Stmt stmt(mysql_,
+              "UPDATE sessions SET device_id = ?, device_name = ?, platform = ?, "
+              "app_version = ?, caps = ?, last_seen_at = UTC_TIMESTAMP(), expires_at = ? "
+              "WHERE token_hash = ? AND revoked = 0",
+              error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+    int caps_value = static_cast<int>(info.caps);
+    unsigned long device_id_length = 0;
+    unsigned long device_name_length = 0;
+    unsigned long platform_length = 0;
+    unsigned long app_version_length = 0;
+    unsigned long expires_length = 0;
+    unsigned long token_length = 0;
+    MYSQL_BIND params[7] = {};
+    bindString(params[0], info.device_id, device_id_length);
+    bindString(params[1], info.device_name, device_name_length);
+    bindString(params[2], info.platform, platform_length);
+    bindString(params[3], info.app_version, app_version_length);
+    bindInt(params[4], caps_value);
+    bindString(params[5], expires_at, expires_length);
+    bindString(params[6], token_hash, token_length);
+    if (mysql_stmt_bind_param(stmt.get(), params) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    return execute(stmt.get(), error);
+}
+
+bool MysqlConnection::touchSession(const std::string& token_hash,
+                                   const std::string& expires_at,
+                                   std::string& error) {
+    if (!ensureConnected(error)) {
+        return false;
+    }
+
+    Stmt stmt(mysql_,
+              "UPDATE sessions SET last_seen_at = UTC_TIMESTAMP(), expires_at = ? "
+              "WHERE token_hash = ? AND revoked = 0",
+              error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+    unsigned long expires_length = 0;
+    unsigned long token_length = 0;
+    MYSQL_BIND params[2] = {};
+    bindString(params[0], expires_at, expires_length);
+    bindString(params[1], token_hash, token_length);
+    if (mysql_stmt_bind_param(stmt.get(), params) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    return execute(stmt.get(), error);
+}
+
+bool MysqlConnection::touchActiveSessions(const std::string& expires_at,
+                                          std::string& error) {
+    if (!ensureConnected(error)) {
+        return false;
+    }
+
+    Stmt stmt(mysql_,
+              "UPDATE sessions SET last_seen_at = UTC_TIMESTAMP(), expires_at = ? "
+              "WHERE revoked = 0 AND expires_at > UTC_TIMESTAMP()",
+              error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+    unsigned long expires_length = 0;
+    MYSQL_BIND param = {};
+    bindString(param, expires_at, expires_length);
+    if (mysql_stmt_bind_param(stmt.get(), &param) != 0) {
         error = mysql_stmt_error(stmt.get());
         return false;
     }

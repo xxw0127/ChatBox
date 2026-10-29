@@ -90,6 +90,19 @@ add_executable(test_session_protocol tests/test_session_protocol.cpp)
 target_link_libraries(test_session_protocol PRIVATE chatbox_common)
 add_test(NAME session_protocol COMMAND test_session_protocol)
 
+add_executable(test_session_db
+    tests/test_session_db.cpp
+    server/db/mysql_connection.cpp)
+target_include_directories(test_session_db PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${MYSQL_INCLUDE_DIR})
+target_link_libraries(test_session_db PRIVATE
+    chatbox_metrics
+    ${MYSQL_LIBRARY}
+    Threads::Threads)
+add_test(NAME session_db COMMAND test_session_db)
+set_tests_properties(session_db PROPERTIES SKIP_RETURN_CODE 77)
+
 add_executable(test_presence tests/test_presence.cpp server/presence/presence_service.cpp)
 target_link_libraries(test_presence PRIVATE chatbox_common)
 add_test(NAME presence COMMAND test_presence)

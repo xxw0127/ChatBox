@@ -21,12 +21,22 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS sessions (
     token_hash  CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    session_id  CHAR(36) NULL,
+    device_id   VARCHAR(36) NOT NULL DEFAULT '',
+    device_name VARCHAR(64) NOT NULL DEFAULT '',
+    platform    VARCHAR(16) NOT NULL DEFAULT '',
+    app_version VARCHAR(32) NOT NULL DEFAULT '',
+    caps        INT UNSIGNED NOT NULL DEFAULT 0,
+    last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     user_id     BIGINT UNSIGNED NOT NULL,
     expires_at  DATETIME        NOT NULL,
     created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    revoked     TINYINT         NOT NULL DEFAULT 0 COMMENT '0有效 1被新登录撤销 2主动登出',
+    revoked     TINYINT         NOT NULL DEFAULT 0 COMMENT '0有效 1被新登录撤销 2主动登出 3同设备替换 4被其他设备注销 5超限淘汰',
     PRIMARY KEY (token_hash),
+    UNIQUE KEY uk_session_id (session_id),
     KEY idx_user_id (user_id),
+    KEY idx_user_device (user_id, device_id),
+    KEY idx_user_seen (user_id, last_seen_at),
     KEY idx_user_revoked (user_id, revoked),
     KEY idx_expires_at (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

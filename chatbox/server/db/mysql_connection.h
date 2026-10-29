@@ -9,6 +9,7 @@
 
 #include "common/file_types.h"
 #include "common/group_types.h"
+#include "common/session_protocol.h"
 #include "server/file/file_types.h"
 
 namespace chatbox {
@@ -40,6 +41,16 @@ struct UserProfile {
 
 struct SessionRecord {
     uint64_t user_id = 0;
+    std::string session_id;
+    std::string token_hash;
+    std::string device_id;
+    std::string device_name;
+    std::string platform;
+    std::string app_version;
+    uint32_t caps = 0;
+    std::string created_at;
+    std::string last_seen_at;
+    std::string expires_at;
     int revoked = 0;
     bool valid = false;
 };
@@ -131,9 +142,30 @@ public:
     bool revokeSessionsForUser(uint64_t user_id, int reason, std::string& error);
     bool insertSession(const std::string& token_hash, uint64_t user_id,
                        const std::string& expires_at, std::string& error);
+    bool insertSession(const SessionRecord& session, const std::string& token_hash,
+                       std::string& error);
     bool findSession(const std::string& token_hash, SessionRecord& session, bool& found,
                      std::string& error);
     bool revokeSession(const std::string& token_hash, int reason, std::string& error);
+    bool listSessions(uint64_t user_id, std::vector<SessionRecord>& sessions,
+                      std::string& error);
+    bool revokeSessionById(uint64_t user_id, const std::string& session_id,
+                           int reason, std::string& error);
+    bool revokeSessionsForDevice(uint64_t user_id, const std::string& device_id,
+                                 int reason, std::string& error);
+    bool revokeLegacySessions(uint64_t user_id, int reason, std::string& error);
+    bool countActiveNewSessions(uint64_t user_id, uint32_t& count,
+                                std::string& error);
+    bool revokeOldestNewSession(uint64_t user_id, int reason,
+                                std::string& revoked_session_id,
+                                std::string& error);
+    bool upgradeSessionDevice(const std::string& token_hash,
+                              const DeviceInfo& info,
+                              const std::string& expires_at,
+                              std::string& error);
+    bool touchSession(const std::string& token_hash, const std::string& expires_at,
+                      std::string& error);
+    bool touchActiveSessions(const std::string& expires_at, std::string& error);
     bool listRooms(std::vector<RoomRow>& rooms, std::string& error);
     bool insertMessage(int room_id, uint64_t sender_id, const std::string& client_msg_id,
                        const std::string& content, uint64_t reply_to_id,
