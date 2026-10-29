@@ -2,3 +2,4 @@ build-android-*/
 .gradle/
 local.properties
 *.apk
+!android/libs/**/*.so
