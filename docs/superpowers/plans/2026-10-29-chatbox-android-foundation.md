@@ -15,7 +15,7 @@
 ## Global Constraints
 
 - C++17；4 空格缩进，禁止 Tab；K&R 大括号；头文件 `#ifndef/#define/#endif`。
-- Qt 6.8 LTS，锁定具体 6.8.x 补丁；`minSdk 26`、`targetSdk 35`、`compileSdk 35`；release 只出 `arm64-v8a`。
+- Qt 6.8 LTS，锁定具体 6.8.x 补丁；`minSdk 28`（Qt 6.8 要求）、`targetSdk 35`、`compileSdk 35`；release 只出 `arm64-v8a`。
 - 协议帧、命令值、能力位以 `chatbox/common/protocol.h` 和 `session_protocol.h` 为准；客户端不得自定义第二套协议。
 - service 进程是唯一持有服务端连接的进程；UI 进程不得直接创建 `QSslSocket`。
 - 所有 Android 敏感数据（token、device_id）走 Keystore；日志不得打印 token、密码、消息正文。
@@ -211,7 +211,7 @@ git commit -m "feat(android): add TLS transport and ping smoke"
 
 - [ ] **Step 2: 实现 Java service 和通知**
 
-用平台 `NotificationChannel`/`Notification.Builder`（minSdk 26，不依赖 AndroidX）。`ChatBoxService.onCreate` 创建 `chatbox_service`（低优先级常驻）和 `chatbox_messages`（高优先级）渠道；`startForeground` 用低优先级通知。`ChatBoxBootReceiver` 用 `startForegroundService` 并 catch `ForegroundServiceStartNotAllowedException`（API 31+）。
+用平台 `NotificationChannel`/`Notification.Builder`（minSdk 28，不依赖 AndroidX）。`ChatBoxService.onCreate` 创建 `chatbox_service`（低优先级常驻）和 `chatbox_messages`（高优先级）渠道；`startForeground` 用低优先级通知。`ChatBoxBootReceiver` 用 `startForegroundService` 并 catch `ForegroundServiceStartNotAllowedException`（API 31+）。
 
 - [ ] **Step 3: 实现 C++ service 分支**
 

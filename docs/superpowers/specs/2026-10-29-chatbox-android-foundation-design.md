@@ -420,7 +420,7 @@ chatbox/
 #### 构建
 
 - Qt 6.8 LTS（锁定具体 6.8.x 补丁）、JDK 17、NDK r26、Android SDK 35、build-tools 35。
-- `minSdk 26`（Android 8.0），`targetSdk 35`；release 只出 `arm64-v8a`，debug 加 `x86_64` 供模拟器。
+- `minSdk 28`（Android 9.0；Qt 6.8 要求），`targetSdk 35`；release 只出 `arm64-v8a`，debug 加 `x86_64` 供模拟器。
 - `build_android.ps1` 负责：检查 Qt/JDK/NDK/SDK 环境 → `qt-cmake` 配置 → `cmake --build` → `androiddeployqt` 生成 APK → `apksigner` 签名 → 输出 SHA-256。
 - 签名 keystore 放仓库外；release 构建从环境变量或本地配置文件读取密码，不提交仓库。
 - 构建脚本必须能在干净机器上按 README 复现；Gradle 依赖版本锁定，避免每次构建漂移。
@@ -704,7 +704,7 @@ LOGIN response:
 3. Android 采用 service/UI 双进程；service 用 `QtService`，IPC 用 `QLocalSocket + 长度前缀 JSON`；服务端只看到 service 这一条连接。
 4. 不做全量事件日志；消息按会话游标同步，控制状态重连重拉，撤回/删除只保证最近一页的离线校正。
 5. 私聊发 echo，群聊靠群广播；不额外做群 echo。
-6. Qt 6.8 LTS、minSdk 26、targetSdk 35、release 只出 arm64-v8a。
+6. Qt 6.8 LTS、minSdk 28、targetSdk 35、release 只出 arm64-v8a。
 7. 包名 `com.chatbox.mobile`，应用名 `ChatBox`；签名 key 后续生成并离线备份。
 8. 通知默认显示内容预览；常驻通知单独低优先级。
 9. 登出只清 token，不自动清本地聊天记录；“清空本机记录”是单独操作。
