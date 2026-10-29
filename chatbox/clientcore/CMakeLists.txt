@@ -14,7 +14,11 @@ add_library(chatbox_clientcore STATIC
     transport/qt_ssl_transport.cpp
     ipc/ipc_frame.cpp
     ipc/ipc_server.cpp
+    session/session_client.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/protocol.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/session_protocol.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/group_protocol.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/file_protocol.cpp
 )
 
 target_include_directories(chatbox_clientcore PUBLIC
