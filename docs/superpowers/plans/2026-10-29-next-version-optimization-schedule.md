@@ -18,10 +18,15 @@
 4. **更新证书兜底**
    - CA 证书嵌入 qrc；`certs/ca.crt` 缺失时使用内置证书。
    - 更新失败日志记录版本、证书路径和 Qt TLS 状态，便于定位。
-5. **高 DPI / 深色主题**
+5. **更新弹窗文字裁切**
+   - 现象：“发现新版本”弹窗的标题、正文和按钮文字上下像被切掉一截。
+   - 重点排查：全局 QSS 的 `font-family: "Segoe UI", "Microsoft YaHei UI"` 中文 fallback 度量；`AA_EnableHighDpiScaling` + `PassThrough` 在 125%/150% 下的取整；QLabel 固定高度/内边距。
+   - 修复方向：字体族把 `Microsoft YaHei UI` 放首位或给弹窗显式字体；QLabel 最小高度按 `fontMetrics` 计算；按钮补 `min-height`/上下 padding；100%/125%/150% 三档截图验收。
+   - 顺手清理 `QLabel#AccountMenuHint` 遗留的 18px 字体和 `padding-right: 4px`，避免新的 16px 三条杠被裁。
+6. **高 DPI / 深色主题**
    - 125%/150% 缩放下检查新图标、按钮、标题和右侧栏宽度。
    - 深色主题下三条杠、侧栏状态图标、未读角标对比度检查。
-6. **生产构建树修复**
+7. **生产构建树修复**
    - 当前生产 `/home/ubuntu/chatbox` 源码树缺 `server/file`，这次是临时用完整源码构建的。
    - 部署改为从仓库完整源码构建，避免再次出现“构建产物少模块”的风险。
 
