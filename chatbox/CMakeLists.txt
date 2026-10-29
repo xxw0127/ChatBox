@@ -68,6 +68,8 @@ add_executable(chatbox_server
     server/room/room_service.cpp
     server/private/private_service.cpp
     server/history/history_service.cpp
+    server/history/history_codec.cpp
+    server/sync/sync_service.cpp
     server/friend/friend_service.cpp
     server/profile/profile_service.cpp
     server/presence/presence_service.cpp

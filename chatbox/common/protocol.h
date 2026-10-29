@@ -129,6 +129,7 @@ public:
     void putU32(uint32_t value);
     void putU64(uint64_t value);
     void putString(const std::string& value);
+    void putRaw(const std::string& value);
     const std::string& data() const;
 
 private:

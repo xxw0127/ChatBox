@@ -111,7 +111,8 @@ std::string stringResult(const char* buffer, unsigned long length, bool is_null,
     return std::string(buffer, safe_length);
 }
 
-bool readHistoryPage(MYSQL_STMT* stmt, int limit, HistoryPage& page, std::string& error) {
+bool readHistoryPage(MYSQL_STMT* stmt, int limit, HistoryPage& page,
+                     std::string& error, bool ascending = false) {
     page = HistoryPage{};
     uint64_t id = 0;
     uint64_t sender_id = 0;
@@ -241,7 +242,11 @@ bool readHistoryPage(MYSQL_STMT* stmt, int limit, HistoryPage& page, std::string
         page.has_more = true;
         rows.pop_back();
     }
-    std::reverse(rows.begin(), rows.end());
+    if (!ascending) {
+        std::reverse(rows.begin(), rows.end());
+    } else {
+        page.next_before_id = 0;
+    }
     page.messages = std::move(rows);
     page.next_before_id = page.messages.empty() ? 0 : page.messages.front().id;
     error.clear();
@@ -1619,6 +1624,100 @@ bool MysqlConnection::listPrivateHistory(uint64_t user_id, uint64_t peer_id,
         return false;
     }
     return readHistoryPage(stmt.get(), limit, page, error);
+}
+
+bool MysqlConnection::listRoomHistoryAfter(int room_id, uint64_t after_id,
+                                           int limit, HistoryPage& page,
+                                           std::string& error) {
+    if (!ensureConnected(error)) {
+        return false;
+    }
+    if (limit <= 0) {
+        limit = 1;
+    }
+    const int fetch_limit = limit + 1;
+    Stmt stmt(mysql_,
+              "SELECT m.id, m.sender_id, u.nickname, m.content, "
+              "DATE_FORMAT(m.created_at, '%Y-%m-%d %H:%i:%s'), "
+              "m.reply_to_id, m.reply_sender_name, m.reply_content, m.recalled, "
+              "m.msg_type, m.file_id "
+              "FROM messages m JOIN users u ON u.id = m.sender_id "
+              "WHERE m.room_id = ? AND m.id > ? "
+              "ORDER BY m.id ASC LIMIT ?",
+              error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+    int room_value = room_id;
+    uint64_t after_value = after_id;
+    int limit_value = fetch_limit;
+    MYSQL_BIND params[3] = {};
+    bindInt(params[0], room_value);
+    bindU64(params[1], after_value);
+    bindInt(params[2], limit_value);
+    if (mysql_stmt_bind_param(stmt.get(), params) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    if (!execute(stmt.get(), error)) {
+        return false;
+    }
+    if (mysql_stmt_store_result(stmt.get()) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    return readHistoryPage(stmt.get(), limit, page, error, true);
+}
+
+bool MysqlConnection::listPrivateHistoryAfter(uint64_t user_id, uint64_t peer_id,
+                                              uint64_t after_id, int limit,
+                                              HistoryPage& page,
+                                              std::string& error) {
+    if (!ensureConnected(error)) {
+        return false;
+    }
+    if (limit <= 0) {
+        limit = 1;
+    }
+    const int fetch_limit = limit + 1;
+    Stmt stmt(mysql_,
+              "SELECT m.id, m.sender_id, u.nickname, m.content, "
+              "DATE_FORMAT(m.created_at, '%Y-%m-%d %H:%i:%s'), "
+              "m.reply_to_id, m.reply_sender_name, m.reply_content, m.recalled, "
+              "m.msg_type, m.file_id "
+              "FROM private_messages m JOIN users u ON u.id = m.sender_id "
+              "WHERE ((m.sender_id = ? AND m.receiver_id = ?) OR "
+              "(m.sender_id = ? AND m.receiver_id = ?)) AND m.id > ? "
+              "ORDER BY m.id ASC LIMIT ?",
+              error);
+    if (stmt.get() == nullptr) {
+        return false;
+    }
+    uint64_t user_a = user_id;
+    uint64_t peer_a = peer_id;
+    uint64_t user_b = user_id;
+    uint64_t peer_b = peer_id;
+    uint64_t after_value = after_id;
+    int limit_value = fetch_limit;
+    MYSQL_BIND params[6] = {};
+    bindU64(params[0], user_a);
+    bindU64(params[1], peer_a);
+    bindU64(params[2], peer_b);
+    bindU64(params[3], user_b);
+    bindU64(params[4], after_value);
+    bindInt(params[5], limit_value);
+    if (mysql_stmt_bind_param(stmt.get(), params) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    if (!execute(stmt.get(), error)) {
+        return false;
+    }
+    if (mysql_stmt_store_result(stmt.get()) != 0) {
+        error = mysql_stmt_error(stmt.get());
+        return false;
+    }
+    return readHistoryPage(stmt.get(), limit, page, error, true);
 }
 
 bool MysqlConnection::listConversations(uint64_t user_id,

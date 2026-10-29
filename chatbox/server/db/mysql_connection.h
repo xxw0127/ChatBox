@@ -181,6 +181,11 @@ public:
                          int limit, HistoryPage& page, std::string& error);
     bool listPrivateHistory(uint64_t user_id, uint64_t peer_id, uint64_t before_id, int limit,
                             HistoryPage& page, std::string& error);
+    bool listRoomHistoryAfter(int room_id, uint64_t after_id, int limit,
+                              HistoryPage& page, std::string& error);
+    bool listPrivateHistoryAfter(uint64_t user_id, uint64_t peer_id,
+                                 uint64_t after_id, int limit,
+                                 HistoryPage& page, std::string& error);
     bool searchRoomMessages(int room_id, uint64_t after_id,
                             const std::string& keyword, int limit,
                             std::vector<SearchResultRow>& results, std::string& error);

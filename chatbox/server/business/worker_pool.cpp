@@ -132,6 +132,7 @@ void WorkerPool::workerLoop(std::size_t index) {
     auto group = std::make_unique<GroupService>(*database, rooms_, files_dir_);
     auto file = std::make_unique<FileService>(*database, rooms_, files_dir_,
                                              ffmpeg_path_, ffprobe_path_);
+    auto sync = std::make_unique<SyncService>(*database, rooms_);
     {
         std::lock_guard<std::mutex> lock(startup_mutex_);
         ++ready_count_;
@@ -155,7 +156,7 @@ void WorkerPool::workerLoop(std::size_t index) {
         if (task) {
             WorkerContext context{*database, *auth,        *room, *private_chat,
                                   *history,   *friend_chat, *profile, *group,
-                                  *file};
+                                  *file,      *sync};
             task(context);
         }
     }

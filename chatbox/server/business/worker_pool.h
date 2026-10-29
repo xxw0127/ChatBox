@@ -26,6 +26,7 @@
 #include "server/profile/profile_service.h"
 #include "server/room/room_manager.h"
 #include "server/room/room_service.h"
+#include "server/sync/sync_service.h"
 
 namespace chatbox {
 
@@ -39,6 +40,7 @@ struct WorkerContext {
     ProfileService& profile;
     GroupService& group;
     FileService& file;
+    SyncService& sync;
 };
 
 class WorkerPool {

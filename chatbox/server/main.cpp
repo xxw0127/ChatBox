@@ -310,6 +310,7 @@ int main(int argc, char** argv) {
         const bool session_command =
             command == chatbox::kCmdSessionList ||
             command == chatbox::kCmdSessionRevoke;
+        const bool sync_command = command == chatbox::kCmdSyncPull;
         const bool room_command =
             (command >= chatbox::kCmdRoomList && command <= chatbox::kCmdRoomMembers) ||
             command == chatbox::kCmdChatSend || recall_room;
@@ -331,9 +332,9 @@ int main(int argc, char** argv) {
             command >= chatbox::kCmdGroupList && command <= chatbox::kCmdGroupLeave;
         const bool file_command =
             command >= chatbox::kCmdFileAuth && command <= chatbox::kCmdFileDeleted;
-        if (!auth_command && !session_command && !room_command && !private_command &&
-            !history_command && !friend_command && !profile_command && !group_command &&
-            !file_command) {
+        if (!auth_command && !session_command && !sync_command && !room_command &&
+            !private_command && !history_command && !friend_command &&
+            !profile_command && !group_command && !file_command) {
             const Frame response = makeErrorResponse(frame.header.seq, 1001, "unknown command");
             return connection->enqueue(chatbox::encodeFrame(response));
         }
@@ -357,11 +358,11 @@ int main(int argc, char** argv) {
 
         const bool submitted = worker_pool.submit(
             connection_id,
-            [connection, frame, command, auth_command, session_command, room_command,
-             private_command, history_command, friend_command, profile_command,
-             group_command, file_command, connection_id, io_thread_id, user_id,
-             nickname, token_hash, &io_thread_refs, &room_manager, &sessions](
-                chatbox::WorkerContext& context) {
+            [connection, frame, command, auth_command, session_command, sync_command,
+             room_command, private_command, history_command, friend_command,
+             profile_command, group_command, file_command, connection_id,
+             io_thread_id, user_id, nickname, token_hash, &io_thread_refs,
+             &room_manager, &sessions](chatbox::WorkerContext& context) {
                 if (auth_command || session_command) {
                     chatbox::SessionBinding binding;
                     binding.connection_id = connection_id;
@@ -633,6 +634,22 @@ int main(int argc, char** argv) {
                     }
                     chatbox::IoThread* owner = io_thread_refs[io_thread_id];
                     owner->post([connection, response = std::move(result.response), owner] {
+                        if (connection->closed()) {
+                            return;
+                        }
+                        owner->sendFrame(connection, chatbox::encodeFrame(response));
+                    });
+                    return;
+                }
+
+                if (sync_command) {
+                    Frame response = context.sync.handle(frame, caller);
+                    if (io_thread_id < 0 ||
+                        io_thread_id >= static_cast<int>(io_thread_refs.size())) {
+                        return;
+                    }
+                    chatbox::IoThread* owner = io_thread_refs[io_thread_id];
+                    owner->post([connection, response = std::move(response), owner] {
                         if (connection->closed()) {
                             return;
                         }

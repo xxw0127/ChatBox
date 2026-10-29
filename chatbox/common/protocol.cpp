@@ -41,6 +41,10 @@ void ByteWriter::putString(const std::string& value) {
     data_.append(value.data(), length);
 }
 
+void ByteWriter::putRaw(const std::string& value) {
+    data_.append(value);
+}
+
 const std::string& ByteWriter::data() const {
     return data_;
 }
