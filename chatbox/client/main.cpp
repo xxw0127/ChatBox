@@ -31,7 +31,7 @@ int main(int argc, char** argv) {
     QApplication application(argc, argv);
     QCoreApplication::setOrganizationName("ChatBox");
     QCoreApplication::setApplicationName("ChatBox");
-    QCoreApplication::setApplicationVersion("0.3.0");
+    QCoreApplication::setApplicationVersion("0.3.1");
     new chatbox::client::FocusRingFilter(&application);
 
     // One instance only: two clients would race on the same settings store and

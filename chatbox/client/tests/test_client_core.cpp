@@ -349,6 +349,7 @@ private slots:
     void rightSidebarHasRequiredPanels();
     void scrollLoadsOlderAndJumpsToSearchHit();
     void groupSettingsRespectsRoles();
+    void updatePromptRestoresHiddenWindow();
     void updateManifestParsesValid();
     void updateManifestRejectsInvalid();
     void updateVersionComparison();
@@ -3005,6 +3006,18 @@ void TestClientCore::settingsMigrationCopiesLegacyStore() {
         QSettings legacy(dir.filePath(QStringLiteral("empty-legacy.ini")), QSettings::IniFormat);
         QVERIFY(!chatbox::client::migrateLegacySettings(current, legacy));
     }
+}
+
+void TestClientCore::updatePromptRestoresHiddenWindow() {
+    const QString update =
+        readClientSource(QStringLiteral("ui/main_window_update.cpp"));
+    const QString window = readMainWindowSource();
+    const QString main = readClientSource(QStringLiteral("main.cpp"));
+    QVERIFY(update.contains(QStringLiteral("showNormal();")));
+    QVERIFY(update.contains(QStringLiteral("manualCheckForUpdates")));
+    QVERIFY(window.contains(QStringLiteral("update_check_timer_")));
+    QVERIFY(window.contains(QStringLiteral("manualCheckForUpdates")));
+    QVERIFY(main.contains(QStringLiteral("setApplicationVersion(\"0.3.1\")")));
 }
 
 void TestClientCore::updateManifestParsesValid() {

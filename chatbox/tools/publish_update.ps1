@@ -103,11 +103,12 @@ if ($remoteHash -ne $hash) {
     throw "remote SHA-256 mismatch: expected $hash, got $remoteHash"
 }
 
-$remoteJson = ssh $Server "cat /var/www/chatbox-updates/latest.json"
+$remoteJsonPath = Join-Path $publishDir "published-latest.json"
+scp -q "${Server}:/var/www/chatbox-updates/latest.json" $remoteJsonPath
 if ($LASTEXITCODE -ne 0) {
     throw "remote manifest read-back failed (exit $LASTEXITCODE)"
 }
-$published = ($remoteJson -join "`n") | ConvertFrom-Json
+$published = (Get-Content -Raw -Encoding UTF8 $remoteJsonPath) | ConvertFrom-Json
 if ($published.version -ne $Version -or $published.sha256 -ne $hash) {
     throw "remote manifest does not match the published version/hash"
 }

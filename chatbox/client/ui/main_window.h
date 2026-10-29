@@ -107,6 +107,7 @@ private slots:
     void onMemberDoubleClicked(QListWidgetItem* item);
     void onContactActivated(QListWidgetItem* item);
     void checkForUpdates();
+    void manualCheckForUpdates();
     void showUpdateAvailable(const chatbox::client::UpdateManifest& manifest);
     void onUpdateRequested();
     void onUpdateProgress(qint64 received, qint64 total);
@@ -348,6 +349,9 @@ private:
     QString downloaded_update_zip_;
     bool update_check_started_ = false;
     bool update_download_active_ = false;
+    bool manual_update_check_ = false;
+    QString prompted_update_version_;
+    QTimer* update_check_timer_ = nullptr;
     MessageInput* input_edit_ = nullptr;
     QLabel* message_byte_counter_ = nullptr;
     QPushButton* mention_button_ = nullptr;

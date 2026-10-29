@@ -23,6 +23,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     }
     buildUi();
     QTimer::singleShot(1500, this, &MainWindow::checkForUpdates);
+    update_check_timer_ = new QTimer(this);
+    update_check_timer_->setInterval(6 * 60 * 60 * 1000);
+    connect(update_check_timer_, &QTimer::timeout, this,
+            &MainWindow::checkForUpdates);
+    update_check_timer_->start();
 
     auto* message_search_shortcut =
         new QShortcut(QKeySequence(QStringLiteral("Ctrl+F")), this);
@@ -766,6 +771,8 @@ QWidget* MainWindow::buildChatPage() {
             activateWindow();
         });
         tray_menu->addAction("退出", this, [this] { close(); });
+        tray_menu->addAction("检查更新", this,
+                             &MainWindow::manualCheckForUpdates);
         tray_->setContextMenu(tray_menu);
         connect(tray_, &QSystemTrayIcon::activated, this,
                 [this](QSystemTrayIcon::ActivationReason reason) {

@@ -14,42 +14,84 @@
 using chatbox::client::UpdateService;
 
 void MainWindow::checkForUpdates() {
-    if (update_check_started_) {
-        return;
+    if (!update_check_started_) {
+        update_check_started_ = true;
+        const QString previous_result = chatbox::client::consumeUpdateResult();
+        if (!previous_result.isEmpty()) {
+            QMessageBox::warning(this, QStringLiteral("更新失败"),
+                                 QStringLiteral("上次更新未完成：%1").arg(previous_result));
+        }
+        if (chatbox::client::consumeUpdateInterrupted()) {
+            QMessageBox::warning(
+                this, QStringLiteral("更新被中断"),
+                QStringLiteral("上次更新在替换文件时被中断，当前程序可能不完整。"
+                               "如果启动或登录异常，请重新安装客户端。"));
+        }
     }
-    update_check_started_ = true;
-    const QString previous_result = chatbox::client::consumeUpdateResult();
-    if (!previous_result.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("更新失败"),
-                             QStringLiteral("上次更新未完成：%1").arg(previous_result));
+    if (update_service_ == nullptr) {
+        update_service_ = new UpdateService(this);
+        connect(update_service_, &UpdateService::updateAvailable, this,
+                &MainWindow::showUpdateAvailable);
+        connect(update_service_, &UpdateService::upToDate, this, [this] {
+            if (!manual_update_check_) {
+                return;
+            }
+            manual_update_check_ = false;
+            setStatus(QStringLiteral("当前已是最新版本"));
+            if (tray_ != nullptr) {
+                tray_->showMessage(QStringLiteral("ChatBox 更新"),
+                                   QStringLiteral("当前已是最新版本"),
+                                   QSystemTrayIcon::Information, 3000);
+            }
+        });
+        connect(update_service_, &UpdateService::checkFailed, this,
+                [this](const QString& reason) {
+                    qInfo("update check failed: %s", qPrintable(reason));
+                    if (!manual_update_check_) {
+                        return;
+                    }
+                    manual_update_check_ = false;
+                    setStatus(QStringLiteral("检查更新失败: %1").arg(reason), true);
+                    if (tray_ != nullptr) {
+                        tray_->showMessage(QStringLiteral("ChatBox 更新"),
+                                           QStringLiteral("检查更新失败: %1").arg(reason),
+                                           QSystemTrayIcon::Warning, 4000);
+                    }
+                });
+        connect(update_service_, &UpdateService::downloadProgress, this,
+                &MainWindow::onUpdateProgress);
+        connect(update_service_, &UpdateService::downloadFinished, this,
+                &MainWindow::onUpdateDownloaded);
+        connect(update_service_, &UpdateService::downloadFailed, this,
+                &MainWindow::onUpdateFailed);
     }
-    if (chatbox::client::consumeUpdateInterrupted()) {
-        QMessageBox::warning(
-            this, QStringLiteral("更新被中断"),
-            QStringLiteral("上次更新在替换文件时被中断，当前程序可能不完整。"
-                           "如果启动或登录异常，请重新安装客户端。"));
-    }
-    update_service_ = new UpdateService(this);
-    connect(update_service_, &UpdateService::updateAvailable, this,
-            &MainWindow::showUpdateAvailable);
-    connect(update_service_, &UpdateService::checkFailed, this,
-            [](const QString& reason) { qInfo("update check failed: %s",
-                                              qPrintable(reason)); });
-    connect(update_service_, &UpdateService::downloadProgress, this,
-            &MainWindow::onUpdateProgress);
-    connect(update_service_, &UpdateService::downloadFinished, this,
-            &MainWindow::onUpdateDownloaded);
-    connect(update_service_, &UpdateService::downloadFailed, this,
-            &MainWindow::onUpdateFailed);
     const QString ca_path = QCoreApplication::applicationDirPath() +
                             QStringLiteral("/certs/ca.crt");
     update_service_->checkForUpdates(
         QString::fromLatin1(chatbox::client::kUpdateManifestUrl), ca_path);
 }
 
+void MainWindow::manualCheckForUpdates() {
+    manual_update_check_ = true;
+    checkForUpdates();
+}
+
 void MainWindow::showUpdateAvailable(
     const chatbox::client::UpdateManifest& manifest) {
+    if (!manual_update_check_ &&
+        manifest.version == prompted_update_version_ &&
+        update_dialog_ != nullptr && !update_dialog_->isVisible()) {
+        return;
+    }
+    const bool was_hidden = !isVisible() || isMinimized();
+    if (was_hidden) {
+        showNormal();
+        raise();
+        activateWindow();
+    }
+    manual_update_check_ = false;
     pending_update_ = manifest;
+    prompted_update_version_ = manifest.version;
     if (update_dialog_ == nullptr) {
         update_dialog_ = new UpdateDialog(manifest, this);
         connect(update_dialog_, &UpdateDialog::updateRequested, this,
@@ -62,6 +104,13 @@ void MainWindow::showUpdateAvailable(
     update_dialog_->show();
     update_dialog_->raise();
     update_dialog_->activateWindow();
+    QApplication::alert(this, 3000);
+    if (was_hidden && tray_ != nullptr) {
+        tray_->showMessage(QStringLiteral("ChatBox 更新"),
+                           QStringLiteral("ChatBox %1 可用，点击托盘图标查看")
+                               .arg(manifest.version),
+                           QSystemTrayIcon::Information, 5000);
+    }
 }
 
 void MainWindow::onUpdateRequested() {
