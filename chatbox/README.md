@@ -59,6 +59,16 @@ sudo mysql < deploy/migrate_profiles.sql
 `signature VARCHAR(128)`、`avatar MEDIUMBLOB`、`avatar_version INT UNSIGNED`，
 已有用户默认空签名、无头像、版本 0。生产库已于 2026-10-19 执行并校验。
 
+已有数据库升级到多设备会话版本时：
+
+```bash
+sudo mysql < deploy/migrate_20261029_multidevice.sql
+```
+
+脚本为 `sessions` 增加 `session_id`、设备信息、`caps`、`last_seen_at`，
+回填存量会话并增加索引；可重复执行，不删除已有列。完整上线/回滚步骤见
+[`docs/multidevice-deployment.md`](docs/multidevice-deployment.md)。
+
 创建应用账号（密码换成自己的强密码）：
 
 ```sql
