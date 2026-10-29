@@ -46,12 +46,17 @@ public:
     std::chrono::steady_clock::time_point lastActive() const;
     std::size_t pendingOutputBytes() const;
 
-    void setAuth(uint64_t user_id, std::string nickname, std::string token_hash);
+    void setAuth(uint64_t user_id, std::string nickname, std::string token_hash,
+                 std::string session_id = std::string(),
+                 std::string device_id = std::string(), uint32_t caps = 0);
     void setNickname(std::string nickname);
     void clearAuth();
     uint64_t userId() const;
     const std::string& nickname() const;
     const std::string& tokenHash() const;
+    const std::string& sessionId() const;
+    const std::string& deviceId() const;
+    uint32_t caps() const;
     bool authenticated() const;
 
     void setCloseAfterFlush(bool value);
@@ -76,6 +81,9 @@ private:
     uint64_t user_id_ = 0;
     std::string nickname_;
     std::string token_hash_;
+    std::string session_id_;
+    std::string device_id_;
+    uint32_t caps_ = 0;
     bool close_after_flush_ = false;
     TokenBucket message_bucket_{10.0, 20.0};
 };

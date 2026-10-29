@@ -259,6 +259,9 @@ int main(int argc, char** argv) {
             static_cast<unsigned char>(frame.body[0]) == 1;
         const bool auth_command =
             command >= chatbox::kCmdRegister && command <= chatbox::kCmdResume;
+        const bool session_command =
+            command == chatbox::kCmdSessionList ||
+            command == chatbox::kCmdSessionRevoke;
         const bool room_command =
             (command >= chatbox::kCmdRoomList && command <= chatbox::kCmdRoomMembers) ||
             command == chatbox::kCmdChatSend || recall_room;
@@ -280,8 +283,8 @@ int main(int argc, char** argv) {
             command >= chatbox::kCmdGroupList && command <= chatbox::kCmdGroupLeave;
         const bool file_command =
             command >= chatbox::kCmdFileAuth && command <= chatbox::kCmdFileDeleted;
-        if (!auth_command && !room_command && !private_command && !history_command &&
-            !friend_command && !profile_command && !group_command &&
+        if (!auth_command && !session_command && !room_command && !private_command &&
+            !history_command && !friend_command && !profile_command && !group_command &&
             !file_command) {
             const Frame response = makeErrorResponse(frame.header.seq, 1001, "unknown command");
             return connection->enqueue(chatbox::encodeFrame(response));
@@ -306,17 +309,20 @@ int main(int argc, char** argv) {
 
         const bool submitted = worker_pool.submit(
             connection_id,
-            [connection, frame, command, auth_command, room_command, private_command,
-             history_command, friend_command, profile_command, group_command,
-             file_command, connection_id, io_thread_id, user_id, nickname,
-             token_hash, &io_thread_refs, &room_manager, &sessions](
+            [connection, frame, command, auth_command, session_command, room_command,
+             private_command, history_command, friend_command, profile_command,
+             group_command, file_command, connection_id, io_thread_id, user_id,
+             nickname, token_hash, &io_thread_refs, &room_manager, &sessions](
                 chatbox::WorkerContext& context) {
-                if (auth_command) {
+                if (auth_command || session_command) {
                     chatbox::SessionBinding binding;
                     binding.connection_id = connection_id;
                     binding.io_thread_id = io_thread_id;
                     binding.peer_ip = connection->peerIp();
                     binding.connection = connection;
+                    binding.session_id = connection->sessionId();
+                    binding.device_id = connection->deviceId();
+                    binding.caps = connection->caps();
 
                     chatbox::AuthResult result =
                         context.auth.handle(frame, user_id, token_hash, binding);
@@ -334,18 +340,17 @@ int main(int argc, char** argv) {
                         entry.seq = result.presence_seq;
                         broadcastPresence(sessions, io_thread_refs, entry, connection_id);
                     }
-                    if (result.has_old_binding &&
-                        result.old_binding.connection_id != connection_id &&
-                        result.old_binding.io_thread_id >= 0 &&
-                        result.old_binding.io_thread_id <
-                            static_cast<int>(io_thread_refs.size())) {
-                        const bool resume_takeover = command == chatbox::kCmdResume;
-                        const std::string reason =
-                            resume_takeover ? "resume_takeover" : "kicked_by_new_login";
-                        const std::string message =
-                            resume_takeover ? "session taken over" : "kicked by new login";
-                        io_thread_refs[result.old_binding.io_thread_id]->postErrorAndClose(
-                            result.old_binding.connection_id, 1010, message, reason);
+                    for (const chatbox::SessionBinding& old_binding :
+                         result.close_bindings) {
+                        if (old_binding.connection_id == connection_id ||
+                            old_binding.io_thread_id < 0 ||
+                            old_binding.io_thread_id >=
+                                static_cast<int>(io_thread_refs.size())) {
+                            continue;
+                        }
+                        io_thread_refs[old_binding.io_thread_id]->postErrorAndClose(
+                            old_binding.connection_id, result.close_code,
+                            result.close_message, result.close_message);
                     }
                     if (result.clear_session) {
                         const std::vector<int> changed_rooms =
@@ -368,7 +373,8 @@ int main(int argc, char** argv) {
                         }
                         if (result.bind_session) {
                             connection->setAuth(result.user_id, result.nickname,
-                                                result.token_hash);
+                                                result.token_hash, result.session_id,
+                                                result.device_id, result.caps);
                         }
                         owner->sendFrame(connection, chatbox::encodeFrame(result.response));
                     });

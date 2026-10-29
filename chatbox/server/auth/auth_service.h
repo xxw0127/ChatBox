@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "common/protocol.h"
 #include "server/auth/login_rate_limiter.h"
@@ -21,8 +22,15 @@ struct AuthResult {
     uint64_t user_id = 0;
     std::string nickname;
     std::string token_hash;
-    bool has_old_binding = false;
-    SessionBinding old_binding;
+    std::string session_id;
+    std::string device_id;
+    uint32_t caps = 0;
+    // Bindings displaced by login/resume/revocation. main closes them.
+    std::vector<SessionBinding> close_bindings;
+    uint16_t close_code = 1010;
+    std::string close_message = "session replaced";
+    bool became_online = false;
+    bool went_offline = false;
     // Non-zero when this auth command changed the user's online state; the
     // caller broadcasts it with this sequence number.
     uint64_t presence_seq = 0;
@@ -48,6 +56,10 @@ private:
                             const std::string& current_token_hash,
                             const SessionBinding& binding);
     AuthResult handleResume(const Frame& request, const SessionBinding& binding);
+    AuthResult handleSessionList(const Frame& request, uint64_t current_user_id,
+                                 const SessionBinding& binding);
+    AuthResult handleSessionRevoke(const Frame& request, uint64_t current_user_id,
+                                   const SessionBinding& binding);
 
     MysqlConnection& database_;
     SessionManager& sessions_;

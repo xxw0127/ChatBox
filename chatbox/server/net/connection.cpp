@@ -224,10 +224,15 @@ std::size_t Connection::pendingOutputBytes() const {
     return output_bytes_;
 }
 
-void Connection::setAuth(uint64_t user_id, std::string nickname, std::string token_hash) {
+void Connection::setAuth(uint64_t user_id, std::string nickname,
+                         std::string token_hash, std::string session_id,
+                         std::string device_id, uint32_t caps) {
     user_id_ = user_id;
     setNickname(std::move(nickname));
     token_hash_ = std::move(token_hash);
+    session_id_ = std::move(session_id);
+    device_id_ = std::move(device_id);
+    caps_ = caps;
 }
 
 void Connection::setNickname(std::string nickname) {
@@ -238,6 +243,9 @@ void Connection::clearAuth() {
     user_id_ = 0;
     nickname_.clear();
     token_hash_.clear();
+    session_id_.clear();
+    device_id_.clear();
+    caps_ = 0;
 }
 
 uint64_t Connection::userId() const {
@@ -250,6 +258,18 @@ const std::string& Connection::nickname() const {
 
 const std::string& Connection::tokenHash() const {
     return token_hash_;
+}
+
+const std::string& Connection::sessionId() const {
+    return session_id_;
+}
+
+const std::string& Connection::deviceId() const {
+    return device_id_;
+}
+
+uint32_t Connection::caps() const {
+    return caps_;
 }
 
 bool Connection::authenticated() const {

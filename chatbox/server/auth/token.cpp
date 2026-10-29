@@ -50,6 +50,15 @@ std::string generateToken() {
     return toHex(random_bytes, sizeof(random_bytes));
 }
 
+std::string generateSessionId() {
+    const std::string hex = generateToken();
+    if (hex.size() != 64) {
+        return {};
+    }
+    return hex.substr(0, 8) + "-" + hex.substr(8, 4) + "-" + hex.substr(12, 4) +
+           "-" + hex.substr(16, 4) + "-" + hex.substr(20, 12);
+}
+
 std::string hashToken(const std::string& token) {
     unsigned char digest[EVP_MAX_MD_SIZE] = {0};
     unsigned int digest_length = 0;
