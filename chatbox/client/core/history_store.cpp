@@ -22,7 +22,7 @@ namespace client {
 namespace {
 
 const char* const kDatabaseFileName = "history.sqlite";
-const int kSchemaVersion = 2;
+const int kSchemaVersion = 3;
 
 // 建库语句与设计文档 §5.2 完全一致（注释一并保留，便于逐条比对）。
 const char* const kCreateMessagesTable =
@@ -206,7 +206,8 @@ const char* const kSelectColumns =
     "context, target_id, message_id, sender_id, sender_name, content,"
     " created_at_utc, reply_to_id, reply_sender_name, reply_content,"
     " recalled, outgoing, msg_type, file_id, file_name, file_size, mime,"
-    " thumb_path, local_path, transfer_state, transfer_progress";
+    " thumb_path, width, height, duration_ms, local_path, transfer_state,"
+    " transfer_progress";
 
 // 把一行数据库记录还原成 ChatMessage（列顺序见 kSelectColumns）。
 ChatMessage messageFromRow(const QSqlQuery& query) {
@@ -231,9 +232,12 @@ ChatMessage messageFromRow(const QSqlQuery& query) {
     message.file.size = query.value(15).toULongLong();
     message.file.mime = query.value(16).toString();
     message.file.thumb_available = !query.value(17).toString().isEmpty();
-    message.local_path = query.value(18).toString();
-    message.transfer_state = query.value(19).toString();
-    message.transfer_progress = query.value(20).toULongLong();
+    message.file.width = query.value(18).toUInt();
+    message.file.height = query.value(19).toUInt();
+    message.file.duration_ms = query.value(20).toUInt();
+    message.local_path = query.value(21).toString();
+    message.transfer_state = query.value(22).toString();
+    message.transfer_progress = query.value(23).toULongLong();
     return message;
 }
 
@@ -312,6 +316,9 @@ bool applySchema(QSqlDatabase& db, QString* error) {
         {"file_size", "INTEGER NOT NULL DEFAULT 0"},
         {"mime", "TEXT NOT NULL DEFAULT ''"},
         {"thumb_path", "TEXT NOT NULL DEFAULT ''"},
+        {"width", "INTEGER NOT NULL DEFAULT 0"},
+        {"height", "INTEGER NOT NULL DEFAULT 0"},
+        {"duration_ms", "INTEGER NOT NULL DEFAULT 0"},
         {"local_path", "TEXT NOT NULL DEFAULT ''"},
         {"transfer_state", "TEXT NOT NULL DEFAULT ''"},
         {"transfer_progress", "INTEGER NOT NULL DEFAULT 0"},
@@ -576,8 +583,10 @@ bool HistoryStore::saveMessage(const ChatMessage& message) {
             " sender_id, sender_name, content, created_at_utc, reply_to_id,"
             " reply_sender_name, reply_content, recalled, outgoing,"
             " msg_type, file_id, file_name, file_size, mime, thumb_path,"
-            " local_path, transfer_state, transfer_progress)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " width, height, duration_ms, local_path, transfer_state,"
+            " transfer_progress)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
+            " ?, ?, ?, ?, ?, ?, ?)"
             " ON CONFLICT(user_id, context, target_id, message_id) DO UPDATE SET"
             " sender_id = excluded.sender_id,"
             " sender_name = excluded.sender_name,"
@@ -594,6 +603,9 @@ bool HistoryStore::saveMessage(const ChatMessage& message) {
             " file_size = excluded.file_size,"
             " mime = excluded.mime,"
             " thumb_path = excluded.thumb_path,"
+            " width = excluded.width,"
+            " height = excluded.height,"
+            " duration_ms = excluded.duration_ms,"
             " local_path = excluded.local_path,"
             " transfer_state = excluded.transfer_state,"
             " transfer_progress = excluded.transfer_progress"))) {
@@ -622,6 +634,12 @@ bool HistoryStore::saveMessage(const ChatMessage& message) {
     query.addBindValue(textOrEmpty(message.file.mime));
     query.addBindValue(message.file.thumb_available ? QStringLiteral("thumb")
                                                      : QStringLiteral(""));
+    query.addBindValue(
+        QVariant::fromValue<qulonglong>(message.file.width));
+    query.addBindValue(
+        QVariant::fromValue<qulonglong>(message.file.height));
+    query.addBindValue(
+        QVariant::fromValue<qulonglong>(message.file.duration_ms));
     query.addBindValue(textOrEmpty(message.local_path));
     query.addBindValue(textOrEmpty(message.transfer_state));
     query.addBindValue(QVariant::fromValue<qulonglong>(

@@ -388,6 +388,7 @@ private slots:
     void historyStorePendingUploadRoundTrip();
     void historyStoreFileTaskRoundTrip();
     void historyStoreFileDeleteIsConversationScoped();
+    void historyStorePreservesFileMediaDimensions();
     void messageStoreConfirmsFileUpload();
     void rendererFileCardShowsProgress();
     void rendererShowsLargeImagePreview();
@@ -4036,7 +4037,7 @@ void TestClientCore::historyStoreCreatesSchema() {
         QVERIFY(db.tables().contains(QStringLiteral("pending_uploads")));
         QVERIFY(db.tables().contains(QStringLiteral("files")));
         QVERIFY(db.tables().contains(QStringLiteral("groups")));
-        QCOMPARE(store.schemaVersion(), 2);
+        QCOMPARE(store.schemaVersion(), 3);
         QSqlQuery columns(db);
         QVERIFY(columns.exec(QStringLiteral("PRAGMA table_info(messages)")));
         QStringList column_names;
@@ -4047,7 +4048,7 @@ void TestClientCore::historyStoreCreatesSchema() {
         QVERIFY(column_names.contains(QStringLiteral("transfer_state")));
         QSqlQuery version(db);
         QVERIFY(version.exec(QStringLiteral("PRAGMA user_version")) && version.next());
-        QCOMPARE(version.value(0).toInt(), 2);
+        QCOMPARE(version.value(0).toInt(), 3);
         QSqlQuery indexes(db);
         QVERIFY(indexes.exec(QStringLiteral("PRAGMA index_list(messages)")));
         QStringList index_names;
@@ -4103,7 +4104,7 @@ void TestClientCore::historyStoreMigratesV1() {
     chatbox::client::HistoryStore store;
     QString error;
     QVERIFY2(store.open(dir.path(), 7, &error), qPrintable(error));
-    QCOMPARE(store.schemaVersion(), 2);
+    QCOMPARE(store.schemaVersion(), 3);
     const QVector<chatbox::client::ChatMessage> messages =
         store.recent(chatbox::client::ChatContext::kRoom, 1, 10);
     QCOMPARE(messages.size(), 1);
@@ -4333,6 +4334,45 @@ void TestClientCore::rendererFallsBackToFileCardForVideoWithoutThumbnail() {
     QVERIFY(!html.contains(QStringLiteral("<img")));
     QVERIFY(html.contains(QStringLiteral("movie.mp4")));
     QVERIFY(html.contains(QStringLiteral("file-open:///79")));
+}
+
+void TestClientCore::historyStorePreservesFileMediaDimensions() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    chatbox::client::HistoryStore store;
+    QString error;
+    QVERIFY2(store.open(dir.path(), 1, &error), qPrintable(error));
+
+    chatbox::client::ChatMessage message;
+    message.message_id = 90;
+    message.context = chatbox::client::ChatContext::kRoom;
+    message.target_id = 3;
+    message.sender_id = 2;
+    message.sender_name = "Bob";
+    message.content = "[文件] clip.mp4";
+    message.created_at_utc =
+        chatbox::client::parseServerUtc("2026-10-28 10:00:00");
+    message.type = chatbox::client::MessageType::kFile;
+    message.file.file_id = 44;
+    message.file.name = "clip.mp4";
+    message.file.size = 200000;
+    message.file.mime = "video/mp4";
+    message.file.thumb_available = true;
+    message.file.width = 1080;
+    message.file.height = 1920;
+    message.file.duration_ms = 23000;
+    QVERIFY(store.saveMessage(message));
+    store.close();
+
+    QVERIFY2(store.open(dir.path(), 1, &error), qPrintable(error));
+    const QVector<chatbox::client::ChatMessage> loaded =
+        store.recent(chatbox::client::ChatContext::kRoom, 3, 10);
+    QCOMPARE(loaded.size(), 1);
+    QCOMPARE(loaded.first().file.width, quint32(1080));
+    QCOMPARE(loaded.first().file.height, quint32(1920));
+    QCOMPARE(loaded.first().file.duration_ms, quint32(23000));
+    QVERIFY(loaded.first().file.thumb_available);
+    store.close();
 }
 
 void TestClientCore::historyStoreFileDeleteIsConversationScoped() {
