@@ -3,7 +3,10 @@
 #include <QDebug>
 #include <QLocalSocket>
 
+#include <utility>
+
 #include "ipc/ipc_frame.h"
+#include "ipc/ipc_protocol.h"
 
 namespace chatbox {
 namespace clientcore {
@@ -31,6 +34,11 @@ bool IpcServer::listen(const QString& path, QString* error) {
         error->clear();
     }
     return true;
+}
+
+void IpcServer::setRequestHandler(
+    std::function<QJsonObject(quint64, const QJsonObject&)> handler) {
+    handler_ = std::move(handler);
 }
 
 void IpcServer::sendResponse(QLocalSocket* socket, const QJsonObject& response) {
@@ -100,7 +108,15 @@ void IpcServer::onReadyRead() {
         }
         const quint64 id =
             static_cast<quint64>(request.value(QStringLiteral("id")).toVariant().toULongLong());
-        emit requestReceived(socket, id, request);
+        if (handler_) {
+            QJsonObject response = handler_(id, request);
+            if (response.isEmpty()) {
+                response = ipcError(id, 500, QStringLiteral("internal error"));
+            }
+            sendResponse(socket, response);
+        } else {
+            emit requestReceived(socket, id, request);
+        }
     }
 }
 

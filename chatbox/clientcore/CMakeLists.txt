@@ -13,6 +13,8 @@ add_library(chatbox_clientcore STATIC
     transport/transport.cpp
     transport/qt_ssl_transport.cpp
     ipc/ipc_frame.cpp
+    ipc/ipc_protocol.cpp
+    ipc/ipc_client.cpp
     ipc/ipc_server.cpp
     session/session_client.cpp
     store/mobile_store.cpp

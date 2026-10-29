@@ -7,6 +7,8 @@
 #include <QLocalServer>
 #include <QObject>
 
+#include <functional>
+
 class QLocalSocket;
 
 namespace chatbox {
@@ -19,6 +21,10 @@ public:
     explicit IpcServer(QObject* parent = nullptr);
 
     bool listen(const QString& path, QString* error);
+    // When set, requests are answered synchronously by this handler and the
+    // requestReceived signal is not emitted.
+    void setRequestHandler(
+        std::function<QJsonObject(quint64, const QJsonObject&)> handler);
     void sendResponse(QLocalSocket* socket, const QJsonObject& response);
     void sendEvent(const QJsonObject& event);
 
@@ -33,6 +39,7 @@ private slots:
 private:
     QLocalServer server_;
     QHash<QLocalSocket*, QByteArray> buffers_;
+    std::function<QJsonObject(quint64, const QJsonObject&)> handler_;
 };
 
 }  // namespace clientcore
