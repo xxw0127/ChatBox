@@ -6,6 +6,7 @@
 #include "common/session_protocol.h"
 #include "fake_transport.h"
 #include "session/session_client.h"
+#include "test_session_client.h"
 
 using chatbox::clientcore::LoginResult;
 using chatbox::clientcore::SessionClient;
@@ -69,22 +70,6 @@ chatbox::Frame makeSessionListResponse(
 }
 
 }  // namespace
-
-class TestSessionClient : public QObject {
-    Q_OBJECT
-
-private slots:
-    void initTestCase();
-    void loginSendsDeviceInfoAndCaps();
-    void resumeSendsTokenAndDeviceInfo();
-    void parsesAuthExtras();
-    void legacyAuthResponseLeavesCapsZero();
-    void loginErrorEmitsLoginFailed();
-    void sessionListRoundTrip();
-    void revokeSendsSessionId();
-    void revokeFailureEmitsRequestFailed();
-    void unhandledFrameIsForwarded();
-};
 
 void TestSessionClient::initTestCase() {
     qRegisterMetaType<LoginResult>("chatbox::clientcore::LoginResult");
@@ -291,6 +276,3 @@ void TestSessionClient::unhandledFrameIsForwarded() {
                                   static_cast<std::size_t>(raw.size()), header));
     QCOMPARE(header.cmd, static_cast<uint16_t>(chatbox::kCmdChatPush));
 }
-
-QTEST_MAIN(TestSessionClient)
-#include "test_session_client.moc"

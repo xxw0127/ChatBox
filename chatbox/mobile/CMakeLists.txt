@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Quick QuickControls2)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network Sql)
 
 qt_standard_project_setup()
 qt_policy(SET QTP0001 NEW)
@@ -61,5 +61,6 @@ target_link_libraries(chatbox_mobile PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::Network
+    Qt6::Sql
     chatbox_clientcore
 )
