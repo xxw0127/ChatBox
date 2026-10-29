@@ -1,4 +1,5 @@
 build-android-*/
+release/
 .gradle/
 local.properties
 *.apk

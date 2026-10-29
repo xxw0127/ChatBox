@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$QtRoot = "D:\Qt",
     [string]$QtVersion = "6.8.3",
     [ValidateSet("arm64-v8a", "x86_64")]
@@ -100,8 +100,8 @@ if (Test-Path $wrapper) {
 & $cmakeExe --build $buildDir --target apk -j 8
 if ($LASTEXITCODE -ne 0) { throw "APK build failed" }
 
-$apkDir = Join-Path $buildDir "android-build\build\outputs\apk"
-$apk = Get-ChildItem $apkDir -Recurse -Filter *.apk -ErrorAction SilentlyContinue |
+$apkDir = Join-Path $buildDir ("android-build\build\outputs\apk\" + $BuildType.ToLower())
+$apk = Get-ChildItem -LiteralPath $apkDir -Filter *.apk -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if (-not $apk) { throw "APK not found under $apkDir" }
 
@@ -116,5 +116,6 @@ if ($Install) {
     $adbExe = if ($adb -is [string]) { $adb } else { $adb.Source }
     & $adbExe install -r $apk.FullName
     if ($LASTEXITCODE -ne 0) { throw "adb install failed" }
-    & $adbExe shell am start -n com.chatbox.mobile/org.qtproject.qt.android.bindings.QtActivity
+    & $adbExe shell am start -n com.chatbox.mobile/.ChatBoxActivity
 }
+

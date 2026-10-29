@@ -35,6 +35,7 @@ public final class ChatBoxNotifications {
         NotificationChannel messageChannel = new NotificationChannel(
                 CHANNEL_MESSAGES, "ChatBox 消息", NotificationManager.IMPORTANCE_HIGH);
         messageChannel.setDescription("新消息提醒");
+        messageChannel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         manager.createNotificationChannel(messageChannel);
     }
 
@@ -84,6 +85,8 @@ public final class ChatBoxNotifications {
                 .setContentTitle(title)
                 .setContentText(body)
                 .setAutoCancel(true)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setCategory(Notification.CATEGORY_MESSAGE)
                 .setContentIntent(pending)
                 .build();
         manager.notify(id, notification);

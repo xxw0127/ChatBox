@@ -106,7 +106,17 @@ ApplicationWindow {
         target: Qt.application
         function onStateChanged() {
             if (Qt.application.state === Qt.ApplicationActive) {
+                if (window.pageName === "ChatPage" && pageLoader.item) {
+                    ipc.request("set_active", {
+                        kind: pageLoader.item.kind,
+                        target_id: pageLoader.item.targetId
+                    })
+                }
                 window.checkPendingConversation()
+            } else {
+                // Backgrounded or locked: stop suppressing notifications for the
+                // conversation that happened to be open.
+                ipc.request("set_active", {kind: 0, target_id: 0})
             }
         }
     }

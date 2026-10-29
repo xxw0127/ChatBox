@@ -1,10 +1,10 @@
-param(
+﻿param(
     [string]$Adb = "D:\Android\Sdk\platform-tools\adb.exe"
 )
 
 $ErrorActionPreference = "Continue"
 $package = "com.chatbox.mobile"
-$activity = "com.chatbox.mobile/org.qtproject.qt.android.bindings.QtActivity"
+$activity = "com.chatbox.mobile/.ChatBoxActivity"
 $remote = "/sdcard/chatbox-ui.xml"
 $local = Join-Path $env:TEMP "chatbox-ui.xml"
 
@@ -71,3 +71,4 @@ for ($i = 0; $i -lt 10; ++$i) {
     }
 }
 throw "service smoke failed: IPC pong not observed within 10 seconds"
+

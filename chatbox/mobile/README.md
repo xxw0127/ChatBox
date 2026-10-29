@@ -1,6 +1,6 @@
-# ChatBox Android（F0）
+# ChatBox Android
 
-Android 客户端的底座工程。当前阶段只验证工具链、TLS、service/IPC 和通知，不包含完整聊天 UI。
+Android 客户端（F0-F3）。包含登录、会话列表、1:1 文本聊天、前台 service、本地 SQLite、Keystore、通知和自动重连。
 
 ## 版本
 
@@ -18,67 +18,60 @@ Android 客户端的底座工程。当前阶段只验证工具链、TLS、servic
 ## 环境变量
 
 ```powershell
-$env:JAVA_HOME = "C:\Program Files\Java\latest\jdk-17"
-$env:ANDROID_SDK_ROOT = "$env:LOCALAPPDATA\Android\Sdk"
+$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-17"
+$env:ANDROID_SDK_ROOT = "D:\Android\Sdk"
 $env:ANDROID_HOME = $env:ANDROID_SDK_ROOT
 $env:ANDROID_NDK_ROOT = "$env:ANDROID_SDK_ROOT\ndk\26.1.10909125"
+$env:PATH = "D:\Qt\Tools\CMake_64\bin;D:\Qt\Tools\Ninja;D:\Qt\6.8.3\mingw_64\bin;$env:PATH"
 ```
 
-## 构建
+## 构建与安装
 
 ```powershell
 cd chatbox\mobile
-.\build_android.ps1
-```
-
-Release：
-
-```powershell
+.\build_android.ps1              # Debug APK
 .\build_android.ps1 -BuildType Release
+.\build_android.ps1 -Install     # 安装并启动，手机会弹安装确认
 ```
 
-模拟器（x86_64）：
+APK 输出在 `build-android-<abi>\android-build\build\outputs\apk\<debug|release>`。
+
+## 签名发布
+
+`package_apk.ps1` 读取以下环境变量（不要把 keystore 或密码写进仓库）：
 
 ```powershell
-.\build_android.ps1 -Abi x86_64
+$env:CHATBOX_ANDROID_KEYSTORE = "D:\keys\chatbox-release.jks"
+$env:CHATBOX_ANDROID_KEY_ALIAS = "chatbox"
+$env:CHATBOX_ANDROID_KEYSTORE_PASSWORD = "..."
+$env:CHATBOX_ANDROID_KEY_PASSWORD = "..."   # 可选，默认与 keystore 密码相同
+.\package_apk.ps1 -BuildType Release
 ```
 
-安装到已连接的手机：
+输出 `release/chatbox-<version>-<abi>.apk`、同名 `.sha256`，并打印 `apksigner verify --print-certs` 的证书 SHA-256。生成 keystore、备份和轮换步骤见 `docs/release-signing.md`。
 
-```powershell
-.\build_android.ps1 -Install
+## 测试
+
+`clientcore` 单元测试（Qt 6，Linux 或带 Qt 6.8 桌面 kit 的 Windows）：
+
+```bash
+cd chatbox/clientcore/tests
+qmake6 clientcore_tests.pro && make -j4
+QT_QPA_PLATFORM=offscreen ./clientcore_tests
 ```
 
-APK 输出在 `build-android-<abi>` 下，脚本会打印完整路径。
+覆盖 SessionClient、MobileStore、SecureStore、IPC 和 ChatService（42 项检查）。真机验收步骤和结果见 `docs/acceptance.md`。
 
-## F0 验收
+## 结构
 
-1. APK 能安装并显示“ChatBox Android”。
-2. TLS 能连上 `121.5.168.189:9443`，发送 PING 收到 PONG。
-3. service 在 `:qt_service` 进程常驻，通知栏有常驻通知。
-4. UI 进程能通过 `QLocalSocket` 和 service 双向通信。
-5. 锁屏、划掉任务、重启手机的行为记录在 `docs/f0-device-matrix.md`。
-
-TLS 冒烟可以自动跑：
-
-```powershell
-.\tools\verify_tls_smoke.ps1
-```
-
-脚本会启动 app、点“连接测试”、读 UI 层级并断言出现 `PONG received`。手机需要保持解锁并允许安装/调试。
-
-service/IPC/通知冒烟：
-
-```powershell
-.\tools\verify_service_smoke.ps1
-```
-
-脚本会授予通知权限、重启 app、检查 `ChatBoxService` 在 `:qt_service` 前台运行、通知 1000/1001 存在，并点 “IPC ping” 断言 `service: pong`。测试会 `force-stop` 自己的包，不影响其他应用。
-
-OpenSSL 预编译库来源和校验见 `android/libs/README.md`；不要依赖 Android 系统自带的 OpenSSL。
+- `clientcore/`：跨平台共享核心（transport、session、SQLite、service 编排、IPC），同时用于 Android 和桌面测试。
+- `src/`：Android 入口、service 组合、QML 桥、Keystore/通知 JNI 实现。
+- `qml/`：登录、会话列表、1:1 聊天、设置。
+- `android/`：Manifest、QtService、前台通知、通知点击入口、Keystore、运行时权限。
 
 ## 已知限制
 
 - 自建服务端 + 国内 ROM 没有系统级推送；锁屏通知依赖前台服务保活。
-- 开机自启受 Android 15 和厂商 ROM 限制，按“尽力而为”处理。
-- 本阶段不做完整手机 UI、群管理、文件、搜索、资料页和应用内更新。
+- 小米 HyperOS 从最近任务划掉 App 会杀整个 UID，`START_STICKY` 在 30 秒内不会拉起；开机自启需要用户在系统设置里允许“自启动”。详见 `docs/f0-device-matrix.md`。
+- 当前只做登录、会话列表、1:1 文本聊天；群管理、文件、搜索、资料页和应用内更新不在本阶段。
+- 生产服务端尚未部署多设备版本时，新手机登录会按旧服务端的单会话规则踢掉桌面；服务端上线步骤见 `../docs/multidevice-deployment.md`。
