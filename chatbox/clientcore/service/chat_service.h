@@ -102,6 +102,7 @@ private:
     bool owns_transport_ = false;
     SessionClient* session_ = nullptr;
     QTimer* reconnect_timer_ = nullptr;
+    QTimer* heartbeat_timer_ = nullptr;
     MobileStore store_;
     ServiceConfig config_;
     SecureStore* secure_ = nullptr;
@@ -120,6 +121,7 @@ private:
     bool logged_out_ = false;
     int active_kind_ = 0;
     quint64 active_target_id_ = 0;
+    quint32 sync_seq_ = 0;
     QHash<quint32, PendingSend> pending_sends_;
 };
 

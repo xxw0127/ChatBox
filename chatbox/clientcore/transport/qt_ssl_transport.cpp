@@ -34,6 +34,8 @@ public slots:
         const QList<QSslCertificate> ca_certificates =
             QSslCertificate::fromData(config.ca_pem.toUtf8(), QSsl::Pem);
         if (ca_certificates.isEmpty()) {
+            qWarning() << "QtSslTransport: CA certificate is empty or invalid, bytes="
+                       << config.ca_pem.size();
             emit disconnected(QStringLiteral("CA certificate is empty or invalid"));
             return;
         }
@@ -88,6 +90,7 @@ signals:
 private slots:
     void onEncrypted() {
         connected_ = true;
+        qInfo() << "QtSslTransport: connected";
         emit connected();
     }
 
@@ -130,6 +133,7 @@ private slots:
     void onError(QAbstractSocket::SocketError) {
         if (socket_ != nullptr) {
             connected_ = false;
+            qWarning() << "QtSslTransport: socket error" << socket_->errorString();
             emit disconnected(socket_->errorString());
         }
     }
@@ -140,6 +144,7 @@ private slots:
             messages.append(error.errorString());
         }
         connected_ = false;
+        qWarning() << "QtSslTransport: TLS verification failed" << messages;
         emit disconnected(messages.isEmpty() ? QStringLiteral("TLS verification failed")
                                              : messages.join(QStringLiteral("; ")));
         if (socket_ != nullptr) {

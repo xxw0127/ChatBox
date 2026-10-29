@@ -522,3 +522,44 @@ void TestChatService::syncPullAppliesAfterCursor() {
              QStringLiteral("online"));
 }
 
+
+void TestChatService::syncErrorFallsBackToOnline() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath("chatbox.db");
+    {
+        MobileStore seed;
+        QString error;
+        QVERIFY2(seed.open(path, &error), qPrintable(error));
+        ConversationRow row;
+        row.kind = 2;
+        row.target_id = 9;
+        row.title = QStringLiteral("Bob");
+        row.last_message_id = 4;
+        seed.upsertConversation(row, &error);
+    }
+
+    FakeTransport transport;
+    MemorySecureStore secure;
+    ChatService service(&transport);
+    QString error;
+    QVERIFY2(service.start(makeConfig(path, secure), &error), qPrintable(error));
+    QVERIFY(loginAndSucceed(service, transport, 42, QStringLiteral("Alice"),
+                            makeToken()));
+
+    const int sync_index = findFrame(transport, chatbox::kCmdSyncPull);
+    QVERIFY(sync_index >= 0);
+    const chatbox::Frame request = transport.sentFrame(sync_index);
+    chatbox::Frame error_frame;
+    error_frame.header.flags = chatbox::kFlagResponse | chatbox::kFlagError;
+    error_frame.header.cmd = chatbox::kCmdError;
+    error_frame.header.seq = request.header.seq;
+    chatbox::ByteWriter writer;
+    writer.putU16(1001);
+    writer.putString("unknown command");
+    error_frame.body = writer.data();
+    transport.deliver(error_frame);
+
+    QCOMPARE(service.snapshot().value(QStringLiteral("state")).toString(),
+             QStringLiteral("online"));
+}

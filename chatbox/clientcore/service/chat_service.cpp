@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <QDateTime>
+#include <QDebug>
 #include <QJsonArray>
 #include <QJsonValue>
 #include <QTimer>
@@ -111,6 +112,15 @@ ChatService::ChatService(Transport* transport, QObject* parent)
             scheduleReconnect();
         }
     });
+    heartbeat_timer_ = new QTimer(this);
+    heartbeat_timer_->setInterval(30000);
+    connect(heartbeat_timer_, &QTimer::timeout, this, [this]() {
+        if (!running_ || shutting_down_ || logged_out_ || session_ == nullptr ||
+            transport_ == nullptr || !transport_->isConnected()) {
+            return;
+        }
+        session_->sendRequest(chatbox::kCmdPing, std::string());
+    });
 }
 
 ChatService::~ChatService() {
@@ -202,6 +212,9 @@ bool ChatService::start(const ServiceConfig& config, QString* error) {
         }
         return false;
     }
+    if (heartbeat_timer_ != nullptr) {
+        heartbeat_timer_->start();
+    }
     return true;
 }
 
@@ -212,6 +225,9 @@ void ChatService::stop() {
     shutting_down_ = true;
     if (reconnect_timer_ != nullptr) {
         reconnect_timer_->stop();
+    }
+    if (heartbeat_timer_ != nullptr) {
+        heartbeat_timer_->stop();
     }
     if (session_ != nullptr) {
         delete session_;
@@ -228,6 +244,7 @@ void ChatService::stop() {
 
 void ChatService::setState(const QString& state, const QString& detail) {
     state_ = state;
+    qInfo() << "ChatService state" << state_ << detail;
     emit stateChanged(state_, detail);
     emitSnapshot();
 }
@@ -243,6 +260,9 @@ void ChatService::emitEvent(QJsonObject event) {
 void ChatService::onTransportConnected() {
     if (!running_ || shutting_down_ || logged_out_) {
         return;
+    }
+    if (heartbeat_timer_ != nullptr) {
+        heartbeat_timer_->start();
     }
     if (!resume_token_.isEmpty()) {
         setState(QStringLiteral("authenticating"));
@@ -293,6 +313,9 @@ void ChatService::handleTerminal(int code, const QString& message) {
     }
     if (reconnect_timer_ != nullptr) {
         reconnect_timer_->stop();
+    }
+    if (heartbeat_timer_ != nullptr) {
+        heartbeat_timer_->stop();
     }
     setState(QStringLiteral("logged_out"), message);
     QJsonObject event;
@@ -354,6 +377,16 @@ void ChatService::login(const QString& username, const QString& password) {
         setState(QStringLiteral("authenticating"));
         session_->login(username_, password_);
         return;
+    }
+    if (reconnect_timer_ != nullptr) {
+        reconnect_timer_->stop();
+    }
+    if (transport_ != nullptr) {
+        QString error;
+        if (!transport_->start(config_.session.transport, &error)) {
+            setState(QStringLiteral("disconnected"), error);
+            return;
+        }
     }
     setState(QStringLiteral("connecting"));
 }
@@ -418,7 +451,8 @@ void ChatService::beginSync() {
     }
     chatbox::ByteWriter writer;
     chatbox::appendSyncPull(writer, cursors, 0);
-    if (session_->sendRequest(chatbox::kCmdSyncPull, writer.data()) == 0) {
+    sync_seq_ = session_->sendRequest(chatbox::kCmdSyncPull, writer.data());
+    if (sync_seq_ == 0) {
         finishSync();
         return;
     }
@@ -525,6 +559,14 @@ void ChatService::handleErrorFrame(const chatbox::Frame& frame) {
     const int code = static_cast<int>(wire_code);
     if (isTerminalCode(code)) {
         handleTerminal(code, message);
+        return;
+    }
+
+    if (sync_seq_ != 0 && frame.header.seq == sync_seq_) {
+        // Older servers do not implement SYNC_PULL; stay usable without it.
+        sync_seq_ = 0;
+        qWarning() << "sync pull rejected, falling back to online:" << message;
+        finishSync();
         return;
     }
 
@@ -792,6 +834,7 @@ void ChatService::handleSendResponse(const chatbox::Frame& frame,
 }
 
 void ChatService::handleSyncResponse(const chatbox::Frame& frame) {
+    sync_seq_ = 0;
     chatbox::ByteReader reader(frame.body.data(), frame.body.size());
     uint16_t conversation_count = 0;
     uint16_t next_index = 0;

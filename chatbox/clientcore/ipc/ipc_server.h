@@ -19,6 +19,7 @@ class IpcServer : public QObject {
 
 public:
     explicit IpcServer(QObject* parent = nullptr);
+    ~IpcServer() override;
 
     bool listen(const QString& path, QString* error);
     // When set, requests are answered synchronously by this handler and the

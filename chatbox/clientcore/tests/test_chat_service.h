@@ -15,6 +15,7 @@ private slots:
     void sendAckMarksOutboxSent();
     void readStatePushUpdatesUnread();
     void syncPullAppliesAfterCursor();
+    void syncErrorFallsBackToOnline();
 };
 
 #endif  // CHATBOX_CLIENTCORE_TESTS_TEST_CHAT_SERVICE_H

@@ -15,6 +15,18 @@ IpcServer::IpcServer(QObject* parent) : QObject(parent) {
     connect(&server_, &QLocalServer::newConnection, this, &IpcServer::onNewConnection);
 }
 
+IpcServer::~IpcServer() {
+    // QObject::~QObject deletes accepted sockets (children of server_) after
+    // this object's members are gone; disconnect now so their destructor does
+    // not call back into onDisconnected() with a destroyed buffers_ hash.
+    for (auto it = buffers_.begin(); it != buffers_.end(); ++it) {
+        if (it.key() != nullptr) {
+            it.key()->disconnect(this);
+        }
+    }
+    buffers_.clear();
+}
+
 bool IpcServer::listen(const QString& path, QString* error) {
     if (path.isEmpty()) {
         if (error != nullptr) {
