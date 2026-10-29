@@ -57,6 +57,7 @@ add_executable(chatbox_server
     server/auth/login_rate_limiter.cpp
     server/auth/registration_rate_limiter.cpp
     server/auth/session_manager.cpp
+    server/auth/session_toucher.cpp
     server/auth/auth_service.cpp
     server/business/worker_pool.cpp
     server/group/group_rules.cpp

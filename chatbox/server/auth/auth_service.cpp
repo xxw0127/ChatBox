@@ -531,6 +531,10 @@ AuthResult AuthService::handleSessionList(const Frame& request,
     if (current_user_id == 0) {
         return AuthResult{makeError(request.header.seq, 1002, "not authenticated")};
     }
+    if ((binding.caps & kCapSessionManage) == 0) {
+        return AuthResult{makeError(request.header.seq, 1001,
+                                    "session management not supported")};
+    }
     std::vector<SessionRecord> records;
     std::string error;
     if (!database_.listSessions(current_user_id, records, error)) {
@@ -566,6 +570,10 @@ AuthResult AuthService::handleSessionRevoke(const Frame& request,
                                             const SessionBinding& binding) {
     if (current_user_id == 0) {
         return AuthResult{makeError(request.header.seq, 1002, "not authenticated")};
+    }
+    if ((binding.caps & kCapSessionManage) == 0) {
+        return AuthResult{makeError(request.header.seq, 1001,
+                                    "session management not supported")};
     }
     ByteReader reader(request.body.data(), request.body.size());
     std::string session_id;

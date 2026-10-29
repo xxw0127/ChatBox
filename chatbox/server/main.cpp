@@ -12,6 +12,7 @@
 #include "common/protocol.h"
 #include "common/session_protocol.h"
 #include "server/auth/session_manager.h"
+#include "server/auth/session_toucher.h"
 #include "server/business/worker_pool.h"
 #include "server/config.h"
 #include "server/db/mysql_connection.h"
@@ -345,6 +346,12 @@ int main(int argc, char** argv) {
             chatbox::metrics().rate_limited.fetch_add(1, std::memory_order_relaxed);
             const Frame response =
                 makeErrorResponse(frame.header.seq, 1005, "too many messages");
+            return connection->enqueue(chatbox::encodeFrame(response));
+        }
+        if (sync_command &&
+            (connection->caps() & chatbox::kCapSyncPull) == 0) {
+            const Frame response =
+                makeErrorResponse(frame.header.seq, 1001, "sync not supported");
             return connection->enqueue(chatbox::encodeFrame(response));
         }
 
@@ -742,6 +749,14 @@ int main(int argc, char** argv) {
     }
 
     chatbox::startStatsReporter();
+    chatbox::DbConfig touch_config;
+    touch_config.host = config.db_host;
+    touch_config.port = static_cast<unsigned int>(config.db_port);
+    touch_config.user = config.db_user;
+    touch_config.password = config.db_password;
+    touch_config.database = config.db_name;
+    chatbox::SessionToucher session_toucher(touch_config, 600);
+    session_toucher.start();
     chatbox::logMessage(LogLevel::kInfo, "main",
                          "server ready on port " + std::to_string(acceptor.port()));
 
@@ -759,6 +774,7 @@ int main(int argc, char** argv) {
                          "received signal " + std::to_string(signal_number) + ", shutting down");
 
     chatbox::stopStatsReporter();
+    session_toucher.stop();
     acceptor.stop();
     worker_pool.stop();
     for (auto& io_thread : io_threads) {
