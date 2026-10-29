@@ -51,6 +51,9 @@ try {
     Set-Content -Path $marker -Value '1' -Encoding ASCII
 
     Copy-Mirror $SourceDir $TargetDir
+    # Replacement is complete. Clear the in-progress marker before starting
+    # the new client: the new process checks this marker during startup.
+    Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
     $new_process = Start-Process -FilePath $Executable -WorkingDirectory $TargetDir -PassThru
     Start-Sleep -Seconds 5
     if ($new_process.HasExited) {

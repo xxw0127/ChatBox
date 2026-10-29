@@ -21,12 +21,6 @@ void MainWindow::checkForUpdates() {
             QMessageBox::warning(this, QStringLiteral("更新失败"),
                                  QStringLiteral("上次更新未完成：%1").arg(previous_result));
         }
-        if (chatbox::client::consumeUpdateInterrupted()) {
-            QMessageBox::warning(
-                this, QStringLiteral("更新被中断"),
-                QStringLiteral("上次更新在替换文件时被中断，当前程序可能不完整。"
-                               "如果启动或登录异常，请重新安装客户端。"));
-        }
     }
     if (update_service_ == nullptr) {
         update_service_ = new UpdateService(this);
@@ -74,6 +68,19 @@ void MainWindow::checkForUpdates() {
 void MainWindow::manualCheckForUpdates() {
     manual_update_check_ = true;
     checkForUpdates();
+}
+
+void MainWindow::checkPreviousUpdateInterrupted() {
+    // Older helpers removed this marker five seconds after starting the new
+    // client. Checking at startup raced with them and reported a false
+    // interruption on every successful update, so wait past that window.
+    if (!chatbox::client::consumeUpdateInterrupted()) {
+        return;
+    }
+    QMessageBox::warning(
+        this, QStringLiteral("更新被中断"),
+        QStringLiteral("上次更新在替换文件时被中断，当前程序可能不完整。"
+                       "如果启动或登录异常，请重新安装客户端。"));
 }
 
 void MainWindow::showUpdateAvailable(

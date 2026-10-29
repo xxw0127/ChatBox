@@ -108,6 +108,7 @@ private slots:
     void onContactActivated(QListWidgetItem* item);
     void checkForUpdates();
     void manualCheckForUpdates();
+    void checkPreviousUpdateInterrupted();
     void showUpdateAvailable(const chatbox::client::UpdateManifest& manifest);
     void onUpdateRequested();
     void onUpdateProgress(qint64 received, qint64 total);

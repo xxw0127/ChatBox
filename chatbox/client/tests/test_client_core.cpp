@@ -414,6 +414,7 @@ private slots:
     void emptyStatesAreWired();
     void messageInputHandlesKeyboardAndPlainPaste();
     void settingsDialogOffersSignOut();
+    void settingsDialogOffersUpdateCheck();
     void accountSwitcherBuildsList();
     void messageInputHidesEmptyScrollbar();
     void messageComposerUsesByteCounter();
@@ -3017,7 +3018,12 @@ void TestClientCore::updatePromptRestoresHiddenWindow() {
     QVERIFY(update.contains(QStringLiteral("manualCheckForUpdates")));
     QVERIFY(window.contains(QStringLiteral("update_check_timer_")));
     QVERIFY(window.contains(QStringLiteral("manualCheckForUpdates")));
-    QVERIFY(main.contains(QStringLiteral("setApplicationVersion(\"0.3.1\")")));
+    // Old helpers clear the marker at five seconds; checking earlier would
+    // report a false interruption after every successful update.
+    QVERIFY(window.contains(QStringLiteral("checkPreviousUpdateInterrupted")));
+    QVERIFY(window.contains(QStringLiteral("QTimer::singleShot(10000")));
+    QVERIFY(update.contains(QStringLiteral("checkPreviousUpdateInterrupted")));
+    QVERIFY(main.contains(QStringLiteral("setApplicationVersion(\"0.3.2\")")));
 }
 
 void TestClientCore::updateManifestParsesValid() {
@@ -3429,6 +3435,15 @@ void TestClientCore::updateHelperHasRollbackSafety() {
     QVERIFY(helper.contains(QStringLiteral("robocopy")));
     QVERIFY(helper.contains(QStringLiteral("backup-")));
     QVERIFY(helper.contains(QStringLiteral("backup_complete")));
+    // The replacement marker must disappear before the new client starts:
+    // otherwise the fresh process sees it during startup and reports a
+    // false "update was interrupted" warning on every successful update.
+    const int marker_removal =
+        helper.indexOf(QStringLiteral("Remove-Item -LiteralPath $marker"));
+    const int start_process = helper.indexOf(
+        QStringLiteral("Start-Process -FilePath $Executable"));
+    QVERIFY2(marker_removal >= 0 && start_process > marker_removal,
+             "clear update-in-progress before starting the new client");
     for (const QChar ch : helper) {
         QVERIFY2(ch.unicode() < 128,
                  "update_helper.ps1 must stay ASCII for PowerShell 5.1");
@@ -4967,6 +4982,15 @@ void TestClientCore::settingsDialogExposesHistoryActions() {
     const QString window = readMainWindowSource();
     QVERIFY(window.contains(QStringLiteral("settings/history/path")));
     QVERIFY(window.contains(QStringLiteral("moveTo(")));
+}
+
+// 设置页必须提供检查更新入口，不能只藏在托盘菜单里。
+void TestClientCore::settingsDialogOffersUpdateCheck() {
+    SettingsDialog dialog(QStringLiteral("U00001001"), QString(), 0, false);
+    auto* check = dialog.findChild<QPushButton*>(
+        QStringLiteral("CheckUpdateButton"));
+    QVERIFY2(check != nullptr, "settings must expose a check-update action");
+    QVERIFY(check->text().contains(QStringLiteral("检查更新")));
 }
 
 // 账号级操作搬到设置后，右栏不再承载导航；这里守住「设置里能退出」这一入口。

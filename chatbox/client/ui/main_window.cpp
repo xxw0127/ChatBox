@@ -23,6 +23,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     }
     buildUi();
     QTimer::singleShot(1500, this, &MainWindow::checkForUpdates);
+    QTimer::singleShot(10000, this, &MainWindow::checkPreviousUpdateInterrupted);
     update_check_timer_ = new QTimer(this);
     update_check_timer_->setInterval(6 * 60 * 60 * 1000);
     connect(update_check_timer_, &QTimer::timeout, this,
@@ -842,6 +843,10 @@ void MainWindow::openSettings() {
                           history_store_.directory(),
                           history_store_.sizeBytes(),
                           history_store_.isOpen(), this);
+    connect(&dialog, &SettingsDialog::updateCheckRequested, this, [this, &dialog] {
+        dialog.accept();
+        manualCheckForUpdates();
+    });
     connect(&dialog, &SettingsDialog::appearanceChanged, this, [this] {
         refreshThemeDependentIcons();
         if (chat_view_ != nullptr) {

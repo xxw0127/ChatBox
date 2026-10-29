@@ -28,6 +28,7 @@ public:
 signals:
     void settingsSaved(bool notifications, bool system_popup, bool autostart);
     void appearanceChanged();
+    void updateCheckRequested();
     // 用户在设置里选择退出当前账号；真正的断开由 MainWindow 执行。
     void logoutRequested();
     // 请求把本地聊天记录换到新目录；migrate 为真表示复制现有记录。
@@ -57,6 +58,7 @@ private:
     QPushButton* change_history_dir_button_ = nullptr;
     QPushButton* open_history_dir_button_ = nullptr;
     QPushButton* clear_history_button_ = nullptr;
+    QPushButton* check_update_button_ = nullptr;
     QString history_directory_;
     QString file_save_dir_;
     QLabel* file_save_dir_label_ = nullptr;

@@ -173,6 +173,15 @@ SettingsDialog::SettingsDialog(const QString& public_id, const QString& history_
     version->setObjectName("SettingsVersion");
     layout->addWidget(version);
 
+    auto* update_row = new QHBoxLayout();
+    check_update_button_ = new QPushButton("检查更新", this);
+    check_update_button_->setObjectName("CheckUpdateButton");
+    update_row->addWidget(check_update_button_);
+    update_row->addStretch(1);
+    layout->addLayout(update_row);
+    connect(check_update_button_, &QPushButton::clicked, this,
+            &SettingsDialog::updateCheckRequested);
+
     // 账号级操作放在设置里，右侧成员栏不再承载导航职责。
     auto* signout_row = new QHBoxLayout();
     auto* signout_button = new QPushButton("退出当前账号", this);
