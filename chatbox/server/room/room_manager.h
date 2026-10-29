@@ -41,7 +41,11 @@ public:
     bool join(int room_id, const RoomMember& member, std::string& error);
     bool leave(int room_id, uint64_t user_id);
     bool isMember(int room_id, uint64_t user_id) const;
+    // One entry per user, for member-list frames.
     bool snapshot(int room_id, std::vector<RoomMember>& members) const;
+    // One entry per connection, for broadcasting to every device.
+    bool targets(int room_id, std::vector<RoomMember>& members) const;
+    // Number of distinct users, not connections.
     int onlineCount(int room_id) const;
     void updateNickname(uint64_t user_id, const std::string& nickname);
     // Removes every room membership for the connection and returns the room
@@ -51,10 +55,11 @@ public:
 private:
     struct RoomState {
         RoomInfo info;
-        std::unordered_map<uint64_t, RoomMember> members;
+        std::unordered_map<uint64_t, RoomMember> members;  // connection_id -> member
     };
 
     void removeRoomFromConnection(uint64_t connection_id, int room_id);
+    int distinctUserCount(const RoomState& room) const;
 
     mutable std::mutex mutex_;
     std::unordered_map<int, RoomState> rooms_;

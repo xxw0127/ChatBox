@@ -175,9 +175,10 @@ RoomResult RoomService::handleJoinRoom(const Frame& request, const RoomMember& c
     RoomResult result;
     result.response = makeSuccess(kCmdJoinRoom, request.header.seq);
     std::vector<RoomMember> members;
-    if (rooms_.snapshot(room_id, members)) {
+    std::vector<RoomMember> targets;
+    if (rooms_.snapshot(room_id, members) && rooms_.targets(room_id, targets)) {
         result.broadcast = true;
-        result.targets = members;
+        result.targets = std::move(targets);
         result.broadcast_frame = encodeFrame(makeRoomMembersFrame(room_id, members));
     }
     return result;
@@ -196,9 +197,11 @@ RoomResult RoomService::handleLeaveRoom(const Frame& request, const RoomMember& 
     RoomResult result;
     result.response = makeSuccess(kCmdLeaveRoom, request.header.seq);
     std::vector<RoomMember> members;
-    if (rooms_.snapshot(room_id, members) && !members.empty()) {
+    std::vector<RoomMember> targets;
+    if (rooms_.snapshot(room_id, members) && rooms_.targets(room_id, targets) &&
+        !members.empty()) {
         result.broadcast = true;
-        result.targets = members;
+        result.targets = std::move(targets);
         result.broadcast_frame = encodeFrame(makeRoomMembersFrame(room_id, members));
     }
     return result;

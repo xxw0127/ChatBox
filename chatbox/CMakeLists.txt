@@ -114,6 +114,13 @@ target_include_directories(test_session_manager PRIVATE ${CMAKE_CURRENT_SOURCE_D
 target_link_libraries(test_session_manager PRIVATE chatbox_net chatbox_metrics Threads::Threads)
 add_test(NAME session_manager COMMAND test_session_manager)
 
+add_executable(test_room_manager
+    tests/test_room_manager.cpp
+    server/room/room_manager.cpp)
+target_include_directories(test_room_manager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_room_manager PRIVATE Threads::Threads)
+add_test(NAME room_manager COMMAND test_room_manager)
+
 add_executable(test_text_utils tests/test_text_utils.cpp)
 target_link_libraries(test_text_utils PRIVATE chatbox_common)
 add_test(NAME text_utils COMMAND test_text_utils)

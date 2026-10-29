@@ -52,16 +52,18 @@ void broadcastChangedRoomMembers(
     const std::vector<int>& room_ids) {
     for (const int room_id : room_ids) {
         std::vector<chatbox::RoomMember> members;
-        if (!rooms.snapshot(room_id, members) || members.empty()) {
+        std::vector<chatbox::RoomMember> targets;
+        if (!rooms.snapshot(room_id, members) ||
+            !rooms.targets(room_id, targets) || members.empty()) {
             continue;
         }
         const Frame frame = chatbox::makeRoomMembersFrame(room_id, members);
         const std::string encoded = chatbox::encodeFrame(frame);
         std::unordered_map<int, std::vector<uint64_t>> groups;
-        for (const chatbox::RoomMember& member : members) {
-            if (member.io_thread_id >= 0 &&
-                member.io_thread_id < static_cast<int>(io_threads.size())) {
-                groups[member.io_thread_id].push_back(member.connection_id);
+        for (const chatbox::RoomMember& target : targets) {
+            if (target.io_thread_id >= 0 &&
+                target.io_thread_id < static_cast<int>(io_threads.size())) {
+                groups[target.io_thread_id].push_back(target.connection_id);
             }
         }
         for (const auto& group : groups) {

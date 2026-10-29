@@ -1,6 +1,7 @@
 #include "server/room/room_manager.h"
 
 #include <algorithm>
+#include <unordered_set>
 #include <utility>
 
 namespace chatbox {
@@ -18,7 +19,7 @@ std::vector<RoomView> RoomManager::list() const {
     for (const auto& entry : rooms_) {
         RoomView view;
         view.info = entry.second.info;
-        view.online = static_cast<int>(entry.second.members.size());
+        view.online = distinctUserCount(entry.second);
         result.push_back(std::move(view));
     }
     std::sort(result.begin(), result.end(),
@@ -60,30 +61,31 @@ bool RoomManager::join(int room_id, const RoomMember& member, std::string& error
         return false;
     }
 
-    auto member_it = room_it->second.members.find(member.user_id);
-    if (member_it != room_it->second.members.end()) {
-        const uint64_t old_connection = member_it->second.connection_id;
-        member_it->second = member;
-        if (old_connection != member.connection_id) {
-            removeRoomFromConnection(old_connection, room_id);
-            auto& room_ids = connection_rooms_[member.connection_id];
-            if (std::find(room_ids.begin(), room_ids.end(), room_id) == room_ids.end()) {
-                room_ids.push_back(room_id);
-            }
-        }
+    auto existing = room_it->second.members.find(member.connection_id);
+    if (existing != room_it->second.members.end()) {
+        existing->second = member;
         error.clear();
         return true;
     }
 
-    if (room_it->second.info.max_members > 0 &&
-        static_cast<int>(room_it->second.members.size()) >=
-            room_it->second.info.max_members) {
+    bool already_member = false;
+    for (const auto& entry : room_it->second.members) {
+        if (entry.second.user_id == member.user_id) {
+            already_member = true;
+            break;
+        }
+    }
+    if (!already_member && room_it->second.info.max_members > 0 &&
+        distinctUserCount(room_it->second) >= room_it->second.info.max_members) {
         error = "room full";
         return false;
     }
 
-    room_it->second.members.emplace(member.user_id, member);
-    connection_rooms_[member.connection_id].push_back(room_id);
+    room_it->second.members.emplace(member.connection_id, member);
+    auto& room_ids = connection_rooms_[member.connection_id];
+    if (std::find(room_ids.begin(), room_ids.end(), room_id) == room_ids.end()) {
+        room_ids.push_back(room_id);
+    }
     error.clear();
     return true;
 }
@@ -94,14 +96,18 @@ bool RoomManager::leave(int room_id, uint64_t user_id) {
     if (room_it == rooms_.end()) {
         return false;
     }
-    auto member_it = room_it->second.members.find(user_id);
-    if (member_it == room_it->second.members.end()) {
-        return false;
+    bool removed = false;
+    for (auto it = room_it->second.members.begin();
+         it != room_it->second.members.end();) {
+        if (it->second.user_id != user_id) {
+            ++it;
+            continue;
+        }
+        removeRoomFromConnection(it->second.connection_id, room_id);
+        it = room_it->second.members.erase(it);
+        removed = true;
     }
-    const uint64_t connection_id = member_it->second.connection_id;
-    room_it->second.members.erase(member_it);
-    removeRoomFromConnection(connection_id, room_id);
-    return true;
+    return removed;
 }
 
 bool RoomManager::isMember(int room_id, uint64_t user_id) const {
@@ -110,10 +116,33 @@ bool RoomManager::isMember(int room_id, uint64_t user_id) const {
     if (room_it == rooms_.end()) {
         return false;
     }
-    return room_it->second.members.find(user_id) != room_it->second.members.end();
+    for (const auto& entry : room_it->second.members) {
+        if (entry.second.user_id == user_id) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool RoomManager::snapshot(int room_id, std::vector<RoomMember>& members) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    members.clear();
+    auto room_it = rooms_.find(room_id);
+    if (room_it == rooms_.end()) {
+        return false;
+    }
+    std::unordered_set<uint64_t> seen;
+    members.reserve(room_it->second.members.size());
+    for (const auto& entry : room_it->second.members) {
+        if (!seen.insert(entry.second.user_id).second) {
+            continue;
+        }
+        members.push_back(entry.second);
+    }
+    return true;
+}
+
+bool RoomManager::targets(int room_id, std::vector<RoomMember>& members) const {
     std::lock_guard<std::mutex> lock(mutex_);
     members.clear();
     auto room_it = rooms_.find(room_id);
@@ -133,15 +162,16 @@ int RoomManager::onlineCount(int room_id) const {
     if (room_it == rooms_.end()) {
         return 0;
     }
-    return static_cast<int>(room_it->second.members.size());
+    return distinctUserCount(room_it->second);
 }
 
 void RoomManager::updateNickname(uint64_t user_id, const std::string& nickname) {
     std::lock_guard<std::mutex> lock(mutex_);
     for (auto& room : rooms_) {
-        auto member_it = room.second.members.find(user_id);
-        if (member_it != room.second.members.end()) {
-            member_it->second.nickname = nickname;
+        for (auto& entry : room.second.members) {
+            if (entry.second.user_id == user_id) {
+                entry.second.nickname = nickname;
+            }
         }
     }
 }
@@ -160,14 +190,7 @@ std::vector<int> RoomManager::removeConnection(uint64_t connection_id) {
         if (room_it == rooms_.end()) {
             continue;
         }
-        for (auto member_it = room_it->second.members.begin();
-             member_it != room_it->second.members.end();) {
-            if (member_it->second.connection_id == connection_id) {
-                member_it = room_it->second.members.erase(member_it);
-            } else {
-                ++member_it;
-            }
-        }
+        room_it->second.members.erase(connection_id);
     }
     return changed_rooms;
 }
@@ -182,6 +205,15 @@ void RoomManager::removeRoomFromConnection(uint64_t connection_id, int room_id) 
     if (room_ids.empty()) {
         connection_rooms_.erase(index_it);
     }
+}
+
+int RoomManager::distinctUserCount(const RoomState& room) const {
+    std::unordered_set<uint64_t> users;
+    users.reserve(room.members.size());
+    for (const auto& entry : room.members) {
+        users.insert(entry.second.user_id);
+    }
+    return static_cast<int>(users.size());
 }
 
 }  // namespace chatbox
