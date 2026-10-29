@@ -314,9 +314,11 @@ QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
                   "\" width=\"36\" height=\"36\"></td>";
     // A grouped continuation keeps the avatar column empty so its bubble stays
     // aligned with the first message in the run.
-    const QString avatar_spacer = avatar_src.isEmpty()
-                                      ? QString()
-                                      : QStringLiteral("<td width=\"36\" valign=\"top\"></td>");
+    const QString avatar_spacer =
+        avatar_src.isEmpty()
+            ? QString()
+            : QStringLiteral(
+                  "<td width=\"44\" valign=\"top\">&nbsp;</td>");
 
     const int top_margin = show_sender_name ? 12 : 4;
     html += "<div style=\"margin-top: " + QString::number(top_margin) + "px;\">";

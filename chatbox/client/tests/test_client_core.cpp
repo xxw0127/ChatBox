@@ -389,6 +389,7 @@ private slots:
     void historyStoreFileTaskRoundTrip();
     void historyStoreFileDeleteIsConversationScoped();
     void historyStorePreservesFileMediaDimensions();
+    void rendererGroupedBubblesAlign();
     void messageStoreConfirmsFileUpload();
     void rendererFileCardShowsProgress();
     void rendererShowsLargeImagePreview();
@@ -1227,7 +1228,7 @@ void TestClientCore::rendererHidesAvatarForConsecutiveMessages() {
 
     QCOMPARE(html.count(QStringLiteral("chatbox-avatar://11?v=2")), 1);
     QCOMPARE(html.count(QStringLiteral("OnlyOnceName")), 1);
-    QVERIFY(html.contains(QStringLiteral("td width=\"36\"")));
+    QVERIFY(html.contains(QStringLiteral("td width=\"44\"")));
 }
 
 void TestClientCore::messageGroupingUsesPreviousMessage() {
@@ -4334,6 +4335,42 @@ void TestClientCore::rendererFallsBackToFileCardForVideoWithoutThumbnail() {
     QVERIFY(!html.contains(QStringLiteral("<img")));
     QVERIFY(html.contains(QStringLiteral("movie.mp4")));
     QVERIFY(html.contains(QStringLiteral("file-open:///79")));
+}
+
+void TestClientCore::rendererGroupedBubblesAlign() {
+    const QDateTime created = chatbox::client::parseServerUtc("2026-10-18 12:00:00");
+    chatbox::client::ChatMessage first;
+    first.message_id = 1;
+    first.sender_id = 2;
+    first.sender_name = "Bob";
+    first.content = "first";
+    first.created_at_utc = created;
+    chatbox::client::ChatMessage second = first;
+    second.message_id = 2;
+    second.content = "a much longer continuation body";
+    second.created_at_utc = created.addSecs(30);
+
+    chatbox::client::AvatarSrcMap srcs;
+    srcs.insert(2, QStringLiteral("chatbox-avatar://2?v=1"));
+    QHash<QString, QImage> images;
+    QImage avatar(36, 36, QImage::Format_ARGB32);
+    avatar.fill(Qt::green);
+    images.insert(QStringLiteral("chatbox-avatar://2?v=1"), avatar);
+
+    QVector<chatbox::client::MessageKey> keys;
+    const QString html =
+        chatbox::client::renderConversationHtml({first, second}, 99, &keys, srcs);
+    ChatView view;
+    view.resize(640, 400);
+    view.show();
+    QTest::qWait(30);
+    view.setConversationHtml(html, keys, images);
+
+    const QRect first_bubble = view.messageBubbleRect(1);
+    const QRect second_bubble = view.messageBubbleRect(2);
+    QVERIFY(!first_bubble.isNull());
+    QVERIFY(!second_bubble.isNull());
+    QCOMPARE(second_bubble.left(), first_bubble.left());
 }
 
 void TestClientCore::historyStorePreservesFileMediaDimensions() {
