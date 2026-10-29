@@ -1,4 +1,4 @@
-#include "server/private/private_service.h"
+﻿#include "server/private/private_service.h"
 
 #include <cctype>
 #include <ctime>
@@ -112,7 +112,7 @@ PrivateResult PrivateService::handlePrivateSend(const Frame& request,
         return PrivateResult{makeError(request.header.seq, 1001, "invalid client_msg_id")};
     }
     if (content.empty() || content.size() > 2000) {
-        return PrivateResult{makeError(request.header.seq, 1011, "message length invalid")};
+        return PrivateResult{makeError(request.header.seq, 1018, "message length invalid")};
     }
     if (chatbox::utf8CodePointCount(reply_sender_name) > 32 ||
         reply_content.size() > 2000) {
@@ -330,3 +330,4 @@ PrivateResult PrivateService::handleRecall(const Frame& request,
 }
 
 }  // namespace chatbox
+

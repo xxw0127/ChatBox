@@ -122,6 +122,8 @@ inline QString errorText(quint16 code, const QString& message) {
             return "账号已在其他连接登录";
         case 1011:
             return "设备数量已达上限，最久未用的设备已被下线";
+        case 1018:
+            return "消息长度不合法";
         case 1012:
             return "你们已经是好友";
         case 1013:

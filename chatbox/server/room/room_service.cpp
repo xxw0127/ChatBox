@@ -1,4 +1,4 @@
-#include "server/room/room_service.h"
+﻿#include "server/room/room_service.h"
 
 #include "server/group/group_rules.h"
 
@@ -269,7 +269,7 @@ RoomResult RoomService::handleChatSend(const Frame& request, const RoomMember& c
         return RoomResult{makeError(request.header.seq, 1001, "invalid client_msg_id")};
     }
     if (content.empty() || content.size() > 2000) {
-        return RoomResult{makeError(request.header.seq, 1011, "message length invalid")};
+        return RoomResult{makeError(request.header.seq, 1018, "message length invalid")};
     }
     if (chatbox::utf8CodePointCount(reply_sender_name) > 32 ||
         reply_content.size() > 2000) {
@@ -402,3 +402,4 @@ RoomResult RoomService::handleRecall(const Frame& request, const RoomMember& cal
 }
 
 }  // namespace chatbox
+
