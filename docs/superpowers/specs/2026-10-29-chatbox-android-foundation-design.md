@@ -1,7 +1,7 @@
 # ChatBox Android 底座设计（多设备会话 / 离线同步 / 前台推送 / Qt 6 工程）
 
 日期：2026-10-29
-状态：待评审
+状态：已通过（2026-10-29）
 
 ## 1. 背景与目标
 
@@ -670,6 +670,11 @@ LOGIN response:
 | 后续 M2 | 完整手机 UI 对齐桌面 | 另立设计/计划 |
 
 工作量粗估：F0 2-3 天，F1 3-5 天，F2 3-5 天，F3 5-8 天，F4 2-3 天；真机兼容测试是主要不确定项。
+
+实施计划拆成两份：
+
+- 服务端多设备/同步/桌面适配：`docs/superpowers/plans/2026-10-29-chatbox-multidevice-server.md`
+- Android 底座：`docs/superpowers/plans/2026-10-29-chatbox-android-foundation.md`
 
 ## 12. 后续 app 功能映射（确保底座够用）
 
