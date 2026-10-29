@@ -1259,6 +1259,7 @@ void MainWindow::addIncomingMessage(const chatbox::client::ChatMessage& message)
                 grouping.separator_label, grouping.show_sender_name, avatars.srcs),
             key, avatars.images);
         requestMissingMessageAvatars({message});
+        requestMissingThumbnails();
         bar->setValue(bar->maximum());
         updateChatEmptyState();
         return;

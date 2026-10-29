@@ -4,6 +4,8 @@
 #include "core/file_types.h"
 
 #include <QFile>
+#include <QImageReader>
+#include <QSize>
 #include <QStringList>
 #include <QUrl>
 
@@ -21,6 +23,51 @@ QString senderLabel(const ChatMessage& message) {
         return message.sender_name;
     }
     return QString::number(message.sender_id);
+}
+
+bool isVideoMime(const QString& mime) {
+    return mime.startsWith(QStringLiteral("video/"));
+}
+
+bool isImageMime(const QString& mime) {
+    return mime.startsWith(QStringLiteral("image/"));
+}
+
+QString formatDuration(quint32 duration_ms) {
+    if (duration_ms == 0) {
+        return QString();
+    }
+    const quint32 total_seconds = duration_ms / 1000;
+    const quint32 hours = total_seconds / 3600;
+    const quint32 minutes = (total_seconds % 3600) / 60;
+    const quint32 seconds = total_seconds % 60;
+    if (hours > 0) {
+        return QStringLiteral("%1:%2:%3")
+            .arg(hours)
+            .arg(minutes, 2, 10, QLatin1Char('0'))
+            .arg(seconds, 2, 10, QLatin1Char('0'));
+    }
+    return QStringLiteral("%1:%2")
+        .arg(minutes, 2, 10, QLatin1Char('0'))
+        .arg(seconds, 2, 10, QLatin1Char('0'));
+}
+
+QSize mediaDisplaySize(const ChatMessage& message, const QString& thumb_path) {
+    QSize source = QImageReader(thumb_path).size();
+    if (!source.isValid() || source.isEmpty()) {
+        source = QSize(static_cast<int>(message.file.width),
+                       static_cast<int>(message.file.height));
+    }
+    if (!source.isValid() || source.isEmpty()) {
+        source = QSize(320, 180);
+    }
+    constexpr int kMaxPreviewWidth = 360;
+    constexpr int kMaxPreviewHeight = 480;
+    if (source.width() > kMaxPreviewWidth ||
+        source.height() > kMaxPreviewHeight) {
+        source.scale(kMaxPreviewWidth, kMaxPreviewHeight, Qt::KeepAspectRatio);
+    }
+    return source;
 }
 
 int visualTextUnits(const QString& text) {
@@ -169,7 +216,8 @@ QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
     const bool outgoing =
         message.outgoing || (message.sender_id != 0 && message.sender_id == self_user_id);
     const QString alignment = outgoing ? "right" : "left";
-    const QString background = messageBubbleColor(message, self_user_id);
+    QString background = messageBubbleColor(message, self_user_id);
+    int bubble_padding = 12;
     const QString quote_background = QString::fromLatin1(theme::kQuoteBg);
 
     QString content;
@@ -178,46 +226,79 @@ QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
         const QString name = message.file.name.isEmpty()
                                  ? message.content
                                  : message.file.name;
-        QString status = formatFileSize(message.file.size);
-        const quint64 total = message.file.size;
-        const quint64 sent = message.transfer_progress;
-        const int percent = total == 0 ? 0 : static_cast<int>(sent * 100 / total);
-        if (message.transfer_state == "queued") {
-            status = QStringLiteral("排队中 · %1").arg(status);
-        } else if (message.transfer_state == "uploading") {
-            status = QStringLiteral("上传中 %1% · %2 / %3")
-                         .arg(percent)
-                         .arg(formatFileSize(sent), formatFileSize(total));
-        } else if (message.transfer_state == "paused") {
-            status = QStringLiteral("已暂停 · %1%").arg(percent);
-        } else if (message.transfer_state == "failed") {
-            status = QStringLiteral("上传失败");
-        }
-        const QString title =
-            message.file.file_id != 0 && message.message_id != 0
-                ? QString("<a href=\"file-open:///%1\" style=\"color:%2; "
-                          "text-decoration:none;\">&#128196; %3</a>")
-                      .arg(message.message_id)
-                      .arg(QString::fromLatin1(theme::kAccent),
-                           name.toHtmlEscaped())
-                : QString("<span style=\"color:%1;\">&#128196; %2</span>")
-                      .arg(QString::fromLatin1(theme::kAccent),
-                           name.toHtmlEscaped());
-        QString preview;
-        if (message.file.thumb_available &&
-            message.file.mime.startsWith(QStringLiteral("image/")) &&
-            message.file.file_id != 0) {
-            const QString thumb =
-                chatbox::client::thumbnailCachePath(message.file.file_id);
-            if (QFile::exists(thumb)) {
-                preview = QStringLiteral("<img src=\"%1\" width=\"220\"><br>")
-                              .arg(QUrl::fromLocalFile(thumb).toString());
+        const bool video = isVideoMime(message.file.mime);
+        const bool image = isImageMime(message.file.mime);
+        const QString thumb =
+            message.file.file_id == 0
+                ? QString()
+                : chatbox::client::thumbnailCachePath(message.file.file_id);
+        const bool media_preview =
+            (image || video) && message.file.thumb_available &&
+            !thumb.isEmpty() && QFile::exists(thumb);
+
+        if (media_preview) {
+            const QSize preview_size = mediaDisplaySize(message, thumb);
+            QString image_tag =
+                QStringLiteral("<img src=\"%1\" width=\"%2\" height=\"%3\">")
+                    .arg(QUrl::fromLocalFile(thumb).toString())
+                    .arg(preview_size.width())
+                    .arg(preview_size.height());
+            if (message.message_id != 0) {
+                image_tag = QStringLiteral("<a href=\"file-open:///%1\">%2</a>")
+                                .arg(message.message_id)
+                                .arg(image_tag);
             }
+            QString caption = name.toHtmlEscaped() + QStringLiteral(" · ") +
+                              formatFileSize(message.file.size);
+            if (video) {
+                const QString duration =
+                    formatDuration(message.file.duration_ms);
+                if (!duration.isEmpty()) {
+                    caption = QStringLiteral("▶ ") + duration +
+                              QStringLiteral(" · ") + caption;
+                }
+            }
+            content = image_tag +
+                      "<div style=\"color:" +
+                      QString::fromLatin1(theme::kBubbleMeta) +
+                      "; font-size:12px; margin-top:4px;\">" + caption +
+                      "</div>";
+            // Media is framed by a neutral surface instead of the green
+            // outgoing bubble; the image itself carries the message.
+            background = QString::fromLatin1(theme::kSurfaceStrong);
+            bubble_padding = 4;
+        } else {
+            QString status = formatFileSize(message.file.size);
+            const quint64 total = message.file.size;
+            const quint64 sent = message.transfer_progress;
+            const int percent =
+                total == 0 ? 0 : static_cast<int>(sent * 100 / total);
+            if (message.transfer_state == "queued") {
+                status = QStringLiteral("排队中 · %1").arg(status);
+            } else if (message.transfer_state == "uploading") {
+                status = QStringLiteral("上传中 %1% · %2 / %3")
+                             .arg(percent)
+                             .arg(formatFileSize(sent), formatFileSize(total));
+            } else if (message.transfer_state == "paused") {
+                status = QStringLiteral("已暂停 · %1%").arg(percent);
+            } else if (message.transfer_state == "failed") {
+                status = QStringLiteral("上传失败");
+            }
+            const QString title =
+                message.file.file_id != 0 && message.message_id != 0
+                    ? QString("<a href=\"file-open:///%1\" style=\"color:%2; "
+                              "text-decoration:none;\">&#128196; %3</a>")
+                          .arg(message.message_id)
+                          .arg(QString::fromLatin1(theme::kAccent),
+                               name.toHtmlEscaped())
+                    : QString("<span style=\"color:%1;\">&#128196; %2</span>")
+                          .arg(QString::fromLatin1(theme::kAccent),
+                               name.toHtmlEscaped());
+            content = title + "<br><span style=\"color:" +
+                      QString::fromLatin1(theme::kBubbleMeta) +
+                      "; font-size:12px;\">" + status.toHtmlEscaped() +
+                      "</span>";
         }
-        content = preview + title + "<br><span style=\"color:" +
-                  QString::fromLatin1(theme::kBubbleMeta) +
-                  "; font-size:12px;\">" + status.toHtmlEscaped() +
-                  "</span>";
     } else {
         content = message.recalled ? QStringLiteral("消息已撤回")
                                     : message.content.toHtmlEscaped();
@@ -266,7 +347,8 @@ QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
     // leave a frame outside the corners.
     html += "<table cellspacing=\"0\" cellpadding=\"1\" bgcolor=\"" +
             QString::fromLatin1(theme::kSurfaceSoft) + "\"><tr><td>";
-    html += "<table cellspacing=\"0\" cellpadding=\"12\" bgcolor=\"" + background +
+    html += "<table cellspacing=\"0\" cellpadding=\"" +
+            QString::number(bubble_padding) + "\" bgcolor=\"" + background +
             "\"><tr><td>";
     if (message.reply_to_id != 0) {
         QString quote = message.reply_content.toHtmlEscaped();

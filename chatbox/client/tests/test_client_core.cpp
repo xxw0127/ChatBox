@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstring>
 #include <QApplication>
+#include <QBuffer>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -52,6 +53,7 @@
 #include "core/client_policy.h"
 #include "core/account_store.h"
 #include "core/credential_store.h"
+#include "core/file_thumbnail_cache.h"
 #include "core/focus_ring.h"
 #include "core/avatar_cache.h"
 #include "core/avatar_utils.h"
@@ -388,6 +390,9 @@ private slots:
     void historyStoreFileDeleteIsConversationScoped();
     void messageStoreConfirmsFileUpload();
     void rendererFileCardShowsProgress();
+    void rendererShowsLargeImagePreview();
+    void rendererShowsVideoPreviewWithPlayMarker();
+    void rendererFallsBackToFileCardForVideoWithoutThumbnail();
     void historyStoreReportsOpenFailure();
     void historyStoreRejectsSecondInstance();
     void historyStoreSaveAndLoadRecent();
@@ -4243,6 +4248,91 @@ void TestClientCore::rendererFileCardShowsProgress() {
         pending, 1, false, QString(), false);
     QVERIFY(queued.contains(QStringLiteral("report.pdf")));
     QVERIFY(!queued.contains(QStringLiteral("file-open://")));
+}
+
+namespace {
+
+bool saveTestThumbnail(quint64 file_id, int width, int height) {
+    QImage image(width, height, QImage::Format_RGB32);
+    image.fill(Qt::red);
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    if (!buffer.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+    if (!image.save(&buffer, "JPG")) {
+        return false;
+    }
+    return chatbox::client::saveThumbnail(file_id, bytes);
+}
+
+chatbox::client::ChatMessage testFileMessage(quint64 file_id, quint64 message_id,
+                                             const QString& mime,
+                                             const QString& name,
+                                             quint32 duration_ms = 0) {
+    chatbox::client::ChatMessage message;
+    message.message_id = message_id;
+    message.sender_id = 2;
+    message.sender_name = QStringLiteral("Bob");
+    message.content = QStringLiteral("[文件] ") + name;
+    message.created_at_utc =
+        chatbox::client::parseServerUtc(QStringLiteral("2026-10-18 12:00:00"));
+    message.type = chatbox::client::MessageType::kFile;
+    message.file.file_id = file_id;
+    message.file.name = name;
+    message.file.size = 200000;
+    message.file.mime = mime;
+    message.file.thumb_available = true;
+    message.file.duration_ms = duration_ms;
+    return message;
+}
+
+}  // namespace
+
+void TestClientCore::rendererShowsLargeImagePreview() {
+    const quint64 file_id = 990001;
+    QVERIFY(saveTestThumbnail(file_id, 320, 640));
+
+    const chatbox::client::ChatMessage message =
+        testFileMessage(file_id, 77, QStringLiteral("image/jpeg"),
+                        QStringLiteral("photo.jpg"));
+    const QString html = chatbox::client::renderConversationHtml({message}, 1);
+
+    QVERIFY(html.contains(QStringLiteral("file-open:///77")));
+    QVERIFY(html.contains(QStringLiteral("width=\"240\" height=\"480\"")));
+    QVERIFY(!html.contains(QStringLiteral("width=\"220\"")));
+    QVERIFY(html.contains(
+        QString::fromLatin1(chatbox::client::theme::kSurfaceStrong)));
+    QFile::remove(chatbox::client::thumbnailCachePath(file_id));
+}
+
+void TestClientCore::rendererShowsVideoPreviewWithPlayMarker() {
+    const quint64 file_id = 990002;
+    QVERIFY(saveTestThumbnail(file_id, 320, 180));
+
+    const chatbox::client::ChatMessage message =
+        testFileMessage(file_id, 78, QStringLiteral("video/mp4"),
+                        QStringLiteral("clip.mp4"), 23000);
+    const QString html = chatbox::client::renderConversationHtml({message}, 1);
+
+    QVERIFY(html.contains(QStringLiteral("file-open:///78")));
+    QVERIFY(html.contains(QStringLiteral("width=\"320\" height=\"180\"")));
+    QVERIFY(html.contains(QStringLiteral("▶ 00:23")));
+    QFile::remove(chatbox::client::thumbnailCachePath(file_id));
+}
+
+void TestClientCore::rendererFallsBackToFileCardForVideoWithoutThumbnail() {
+    const quint64 file_id = 990003;
+    QFile::remove(chatbox::client::thumbnailCachePath(file_id));
+
+    const chatbox::client::ChatMessage message =
+        testFileMessage(file_id, 79, QStringLiteral("video/mp4"),
+                        QStringLiteral("movie.mp4"), 5000);
+    const QString html = chatbox::client::renderConversationHtml({message}, 1);
+
+    QVERIFY(!html.contains(QStringLiteral("<img")));
+    QVERIFY(html.contains(QStringLiteral("movie.mp4")));
+    QVERIFY(html.contains(QStringLiteral("file-open:///79")));
 }
 
 void TestClientCore::historyStoreFileDeleteIsConversationScoped() {

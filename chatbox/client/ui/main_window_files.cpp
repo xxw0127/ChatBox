@@ -384,9 +384,12 @@ void MainWindow::requestMissingThumbnails() {
     }
     for (const chatbox::client::ChatMessage& message :
          message_store_.messages()) {
+        const bool visual_mime =
+            message.file.mime.startsWith(QStringLiteral("image/")) ||
+            message.file.mime.startsWith(QStringLiteral("video/"));
         if (message.type != chatbox::client::MessageType::kFile ||
             !message.file.thumb_available || message.file.file_id == 0 ||
-            !message.file.mime.startsWith(QStringLiteral("image/"))) {
+            !visual_mime) {
             continue;
         }
         if (QFile::exists(chatbox::client::thumbnailCachePath(
