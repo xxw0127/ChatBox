@@ -105,6 +105,11 @@ SettingsDialog::SettingsDialog(const QString& public_id, const QString& history_
     form->addRow("", system_popup_check_);
     form->addRow("启动", autostart_check_);
     form->addRow("外观", appearance_combo_);
+    auto* device_button = new QPushButton(QStringLiteral("设备管理"), this);
+    device_button->setObjectName(QStringLiteral("DeviceManagementButton"));
+    connect(device_button, &QPushButton::clicked, this,
+            &SettingsDialog::deviceManagementRequested);
+    form->addRow("账号", device_button);
     layout->addLayout(form);
 
     // 本地聊天记录分组：只展示与发起意图，不在这里动数据库。

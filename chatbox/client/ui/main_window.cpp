@@ -865,6 +865,11 @@ void MainWindow::openSettings() {
         dialog.accept();
         manualCheckForUpdates();
     });
+    connect(&dialog, &SettingsDialog::deviceManagementRequested, this,
+            [this, &dialog] {
+                dialog.accept();
+                requestSessionList();
+            });
     connect(&dialog, &SettingsDialog::appearanceChanged, this, [this] {
         refreshThemeDependentIcons();
         if (chat_view_ != nullptr) {

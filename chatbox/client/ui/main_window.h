@@ -28,6 +28,7 @@ class LoginPage;
 class FriendListWidget;
 class NetworkThread;
 class ProfileDialog;
+class SessionListDialog;
 class ChatView;
 class EmptyState;
 class MessageInput;
@@ -153,6 +154,7 @@ private:
     void handleGroupPush(const QByteArray& body);
     void requestConversations();
     void requestFriendList();
+    void requestSessionList();
     void requestFriendRequests();
     void sendFriendRequest(quint64 user_id);
     void sendFriendResponse(quint64 requester_id, bool accept);
@@ -486,6 +488,8 @@ private:
     quint64 connection_generation_ = 0;
     quint32 next_seq_ = 1;
     quint32 server_caps_ = 0;
+    quint32 session_list_seq_ = 0;
+    SessionListDialog* session_list_dialog_ = nullptr;
     QHash<quint64, QString> peer_names_;
     QHash<quint64, chatbox::client::FriendView> friend_views_;
     QSet<quint64> friend_ids_;

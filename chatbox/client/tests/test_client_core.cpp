@@ -40,6 +40,7 @@
 #include <QStandardPaths>
 #include <QStringList>
 #include <QTemporaryDir>
+#include <QTableWidget>
 #include <QTextBlock>
 #include <QTimer>
 #include <QTextCursor>
@@ -79,6 +80,7 @@
 #include "ui/chat_view.h"
 #include "ui/empty_state.h"
 #include "ui/login_page.h"
+#include "ui/session_list_dialog.h"
 #include "ui/message_input.h"
 #include "ui/mention_popup.h"
 #include "ui/message_search_dialog.h"
@@ -249,6 +251,8 @@ private slots:
     void invalidTimestamp();
     void publicUserIdFormat();
     void sessionAuthExtrasRoundTrip();
+    void sessionListDialogShowsDevices();
+    void settingsDialogEmitsDeviceManagement();
     void messageStorePendingAndAck();
     void messageStoreHistoryPreservesPending();
     void messageStorePrependHistory();
@@ -5326,6 +5330,43 @@ void TestClientCore::sessionAuthExtrasRoundTrip() {
     QVERIFY(chatbox::readAuthExtras(reader, caps, ttl));
     QCOMPARE(caps, chatbox::kCapSyncPull);
     QCOMPARE(ttl, static_cast<uint32_t>(3600));
+}
+
+void TestClientCore::sessionListDialogShowsDevices() {
+    SessionListDialog dialog;
+    QVector<SessionView> sessions;
+    SessionView first;
+    first.session_id = QStringLiteral("s1");
+    first.device_name = QStringLiteral("Desktop");
+    first.platform = QStringLiteral("windows");
+    first.app_version = QStringLiteral("0.4.0");
+    first.last_seen_at = QStringLiteral("2026-10-29 10:00:00");
+    first.current = true;
+    sessions.push_back(first);
+    SessionView second;
+    second.session_id = QStringLiteral("s2");
+    second.device_name = QStringLiteral("Phone");
+    second.platform = QStringLiteral("android");
+    second.app_version = QStringLiteral("0.1.0");
+    second.last_seen_at = QStringLiteral("2026-10-29 10:05:00");
+    sessions.push_back(second);
+    dialog.setSessions(sessions);
+
+    auto* table = dialog.findChild<QTableWidget*>(QStringLiteral("SessionTable"));
+    QVERIFY(table != nullptr);
+    QCOMPARE(table->rowCount(), 2);
+    QCOMPARE(table->item(0, 0)->text(), QStringLiteral("Desktop"));
+    QVERIFY(table->cellWidget(0, 4) == nullptr);
+    QVERIFY(table->cellWidget(1, 4) != nullptr);
+}
+
+void TestClientCore::settingsDialogEmitsDeviceManagement() {
+    SettingsDialog dialog(QStringLiteral("U00000001"), QString(), 0, false);
+    auto* button = dialog.findChild<QPushButton*>(QStringLiteral("DeviceManagementButton"));
+    QVERIFY(button != nullptr);
+    QSignalSpy spy(&dialog, &SettingsDialog::deviceManagementRequested);
+    button->click();
+    QCOMPARE(spy.count(), 1);
 }
 
 QTEST_MAIN(TestClientCore)

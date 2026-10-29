@@ -52,6 +52,7 @@ SOURCES += \
     ../ui/more_dots.cpp \
     ../ui/file_manager_dialog.cpp \
     ../ui/settings_dialog.cpp \
+    ../ui/session_list_dialog.cpp \
     ../ui/group_create_dialog.cpp \
     ../ui/group_join_dialog.cpp \
     ../ui/group_settings_dialog.cpp \
@@ -96,6 +97,7 @@ HEADERS += \
     ../ui/more_dots.h \
     ../ui/file_manager_dialog.h \
     ../ui/settings_dialog.h \
+    ../ui/session_list_dialog.h \
     ../ui/group_create_dialog.h \
     ../ui/group_join_dialog.h \
     ../ui/group_settings_dialog.h \

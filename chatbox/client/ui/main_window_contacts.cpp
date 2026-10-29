@@ -239,6 +239,17 @@ void MainWindow::requestFriendList() {
     sendFrame(frame);
 }
 
+void MainWindow::requestSessionList() {
+    if (offline_mode_ || !logged_in_) {
+        return;
+    }
+    chatbox::Frame frame;
+    frame.header.cmd = chatbox::kCmdSessionList;
+    frame.header.seq = next_seq_++;
+    session_list_seq_ = frame.header.seq;
+    sendFrame(frame);
+}
+
 void MainWindow::requestFriendRequests() {
     if (offline_mode_) {
         return;

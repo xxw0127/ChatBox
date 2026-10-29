@@ -1,5 +1,7 @@
 #include "ui/main_window_support.h"
 
+#include <vector>
+
 #include "common/file_protocol.h"
 #include "common/group_protocol.h"
 #include "common/session_protocol.h"
@@ -12,6 +14,7 @@
 #include "ui/group_join_dialog.h"
 #include "ui/group_notify_dialog.h"
 #include "ui/group_settings_dialog.h"
+#include "ui/session_list_dialog.h"
 
 namespace {
 
@@ -1154,6 +1157,52 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             setStatus("私聊已发送");
             break;
         }
+        case chatbox::kCmdSessionList: {
+            std::vector<chatbox::SessionInfo> sessions;
+            if (!chatbox::readSessionList(reader, sessions)) {
+                setStatus("设备列表格式错误", true);
+                return;
+            }
+            QVector<SessionView> views;
+            views.reserve(static_cast<int>(sessions.size()));
+            for (const chatbox::SessionInfo& session : sessions) {
+                SessionView view;
+                view.session_id = QString::fromStdString(session.session_id);
+                view.device_name = QString::fromStdString(session.device_name);
+                if (view.device_name.isEmpty()) {
+                    view.device_name = QStringLiteral("旧客户端");
+                }
+                view.platform = QString::fromStdString(session.platform);
+                view.app_version = QString::fromStdString(session.app_version);
+                view.last_seen_at = QString::fromStdString(session.last_seen_at);
+                view.current = session.current;
+                views.push_back(view);
+            }
+            if (session_list_dialog_ == nullptr) {
+                session_list_dialog_ = new SessionListDialog(this);
+                connect(session_list_dialog_, &SessionListDialog::revokeRequested,
+                        this, [this](const QString& session_id) {
+                            chatbox::Frame frame;
+                            frame.header.cmd = chatbox::kCmdSessionRevoke;
+                            frame.header.seq = next_seq_++;
+                            chatbox::ByteWriter writer;
+                            writer.putString(session_id.toStdString());
+                            frame.body = writer.data();
+                            sendFrame(frame);
+                        });
+                connect(session_list_dialog_, &SessionListDialog::refreshRequested,
+                        this, &MainWindow::requestSessionList);
+            }
+            session_list_dialog_->setSessions(views);
+            session_list_dialog_->show();
+            session_list_dialog_->raise();
+            session_list_dialog_->activateWindow();
+            break;
+        }
+        case chatbox::kCmdSessionRevoke:
+            requestSessionList();
+            setStatus("设备已注销");
+            break;
         case chatbox::kCmdReadStatePush: {
             chatbox::ReadStateEvent event;
             if (!chatbox::readReadState(reader, event)) {

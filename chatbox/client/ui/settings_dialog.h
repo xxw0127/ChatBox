@@ -29,6 +29,7 @@ signals:
     void settingsSaved(bool notifications, bool system_popup, bool autostart);
     void appearanceChanged();
     void updateCheckRequested();
+    void deviceManagementRequested();
     // 用户在设置里选择退出当前账号；真正的断开由 MainWindow 执行。
     void logoutRequested();
     // 请求把本地聊天记录换到新目录；migrate 为真表示复制现有记录。
