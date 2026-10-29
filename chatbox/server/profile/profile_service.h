@@ -13,11 +13,6 @@
 
 namespace chatbox {
 
-struct ProfilePushTarget {
-    int io_thread_id = -1;
-    uint64_t connection_id = 0;
-};
-
 struct ProfileResult {
     ProfileResult() = default;
     explicit ProfileResult(Frame value) : response(std::move(value)) {}
@@ -26,7 +21,7 @@ struct ProfileResult {
     bool nickname_changed = false;
     std::string new_nickname;
     std::string push_frame;
-    std::vector<ProfilePushTarget> push_targets;
+    std::vector<uint64_t> push_user_ids;
 };
 
 class ProfileService {

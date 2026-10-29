@@ -334,7 +334,7 @@ RoomResult RoomService::handleChatSend(const Frame& request, const RoomMember& c
     push_writer.putString(reply_content);
     push.body = push_writer.data();
 
-    if (!rooms_.snapshot(room_id, result.targets)) {
+    if (!rooms_.targets(room_id, result.targets)) {
         result.broadcast = false;
         return result;
     }
@@ -388,10 +388,10 @@ RoomResult RoomService::handleRecall(const Frame& request, const RoomMember& cal
     RoomResult result;
     result.response = makeSuccess(kCmdMessageRecall, request.header.seq);
     result.response.body = recall.body;
-    std::vector<RoomMember> members;
-    if (rooms_.snapshot(room_id, members)) {
-        for (const RoomMember& member : members) {
-            if (member.user_id != caller.user_id) {
+    std::vector<RoomMember> targets;
+    if (rooms_.targets(room_id, targets)) {
+        for (const RoomMember& member : targets) {
+            if (member.connection_id != caller.connection_id) {
                 result.targets.push_back(member);
             }
         }

@@ -154,8 +154,7 @@ PrivateResult PrivateService::handlePrivateSend(const Frame& request,
         return result;
     }
 
-    SessionBinding target;
-    if (!sessions_.find(receiver_id, target)) {
+    if (!sessions_.isOnline(receiver_id)) {
         return result;
     }
 
@@ -174,8 +173,7 @@ PrivateResult PrivateService::handlePrivateSend(const Frame& request,
     push.body = push_writer.data();
 
     result.push = true;
-    result.target_io_thread_id = target.io_thread_id;
-    result.target_connection_id = target.connection_id;
+    result.target_user_id = receiver_id;
     result.push_frame = encodeFrame(push);
     return result;
 }
@@ -296,11 +294,9 @@ PrivateResult PrivateService::handleRecall(const Frame& request,
     result.response = makeSuccess(kCmdMessageRecall, request.header.seq);
     result.response.body = recall.body;
 
-    SessionBinding target;
-    if (sessions_.find(target_id, target)) {
+    if (sessions_.isOnline(target_id)) {
         result.push = true;
-        result.target_io_thread_id = target.io_thread_id;
-        result.target_connection_id = target.connection_id;
+        result.target_user_id = target_id;
         result.push_frame = encodeFrame(recall);
     }
     return result;

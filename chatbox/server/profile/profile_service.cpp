@@ -229,16 +229,12 @@ ProfileResult ProfileService::handleProfileUpdate(const Frame& request,
         result.push_frame = encodeFrame(push);
 
         for (const uint64_t friend_id : friend_ids) {
-            SessionBinding binding;
-            if (!sessions_.find(friend_id, binding)) {
+            if (!sessions_.isOnline(friend_id)) {
                 continue;
             }
-            ProfilePushTarget target;
-            target.io_thread_id = binding.io_thread_id;
-            target.connection_id = binding.connection_id;
-            result.push_targets.push_back(target);
+            result.push_user_ids.push_back(friend_id);
         }
-        if (result.push_targets.empty()) {
+        if (result.push_user_ids.empty()) {
             result.push_frame.clear();
         }
     }

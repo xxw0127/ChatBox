@@ -105,6 +105,29 @@ void broadcastPresence(const chatbox::SessionManager& sessions,
     }
 }
 
+void postToUserSessions(const chatbox::SessionManager& sessions,
+                        const std::vector<chatbox::IoThread*>& io_threads,
+                        uint64_t user_id, const std::string& encoded,
+                        uint64_t exclude_connection_id = 0) {
+    std::vector<chatbox::SessionBinding> bindings;
+    if (user_id == 0 || encoded.empty() ||
+        !sessions.findAll(user_id, bindings)) {
+        return;
+    }
+    std::unordered_map<int, std::vector<uint64_t>> groups;
+    for (const chatbox::SessionBinding& binding : bindings) {
+        if (binding.connection_id == exclude_connection_id ||
+            binding.io_thread_id < 0 ||
+            binding.io_thread_id >= static_cast<int>(io_threads.size())) {
+            continue;
+        }
+        groups[binding.io_thread_id].push_back(binding.connection_id);
+    }
+    for (const auto& group : groups) {
+        io_threads[group.first]->postMulticast(group.second, encoded);
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -393,12 +416,10 @@ int main(int argc, char** argv) {
                 if (friend_command) {
                     chatbox::FriendResult result =
                         context.friend_chat.handle(frame, caller);
-                    if (result.push && result.target_io_thread_id >= 0 &&
-                        result.target_io_thread_id <
-                            static_cast<int>(io_thread_refs.size())) {
-                        io_thread_refs[result.target_io_thread_id]->postMulticast(
-                            std::vector<uint64_t>{result.target_connection_id},
-                            result.push_frame);
+                    if (result.push) {
+                        postToUserSessions(sessions, io_thread_refs,
+                                           result.target_user_id,
+                                           result.push_frame);
                     }
                     if (io_thread_id < 0 ||
                         io_thread_id >= static_cast<int>(io_thread_refs.size())) {
@@ -432,19 +453,10 @@ int main(int argc, char** argv) {
                             connection->setNickname(nickname);
                         });
                     }
-                    if (!result.push_frame.empty() && !result.push_targets.empty()) {
-                        std::unordered_map<int, std::vector<uint64_t>> groups;
-                        for (const chatbox::ProfilePushTarget& target :
-                             result.push_targets) {
-                            if (target.io_thread_id >= 0 &&
-                                target.io_thread_id <
-                                    static_cast<int>(io_thread_refs.size())) {
-                                groups[target.io_thread_id].push_back(target.connection_id);
-                            }
-                        }
-                        for (auto& entry : groups) {
-                            io_thread_refs[entry.first]->postMulticast(
-                                entry.second, result.push_frame);
+                    if (!result.push_frame.empty() && !result.push_user_ids.empty()) {
+                        for (const uint64_t user_id : result.push_user_ids) {
+                            postToUserSessions(sessions, io_thread_refs, user_id,
+                                               result.push_frame);
                         }
                     }
                     owner->post([connection, response = std::move(result.response),
@@ -507,17 +519,11 @@ int main(int argc, char** argv) {
                         }
                     }
                     for (const chatbox::FileNotice& notice : result.notices) {
-                        chatbox::SessionBinding binding;
-                        if (notice.frame.empty() ||
-                            !sessions.find(notice.user_id, binding) ||
-                            binding.io_thread_id < 0 ||
-                            binding.io_thread_id >=
-                                static_cast<int>(io_thread_refs.size())) {
+                        if (notice.frame.empty()) {
                             continue;
                         }
-                        io_thread_refs[binding.io_thread_id]->postMulticast(
-                            std::vector<uint64_t>{binding.connection_id},
-                            notice.frame);
+                        postToUserSessions(sessions, io_thread_refs, notice.user_id,
+                                           notice.frame);
                     }
                     if (io_thread_id < 0 ||
                         io_thread_id >= static_cast<int>(io_thread_refs.size())) {
@@ -554,16 +560,11 @@ int main(int argc, char** argv) {
                         }
                     }
                     for (const chatbox::GroupNotice& notice : result.notices) {
-                        chatbox::SessionBinding binding;
-                        if (notice.frame.empty() ||
-                            !sessions.find(notice.user_id, binding) ||
-                            binding.io_thread_id < 0 ||
-                            binding.io_thread_id >=
-                                static_cast<int>(io_thread_refs.size())) {
+                        if (notice.frame.empty()) {
                             continue;
                         }
-                        io_thread_refs[binding.io_thread_id]->postMulticast(
-                            std::vector<uint64_t>{binding.connection_id}, notice.frame);
+                        postToUserSessions(sessions, io_thread_refs, notice.user_id,
+                                           notice.frame);
                     }
 
                     if (io_thread_id < 0 ||
@@ -584,12 +585,10 @@ int main(int argc, char** argv) {
                 if (private_command) {
                     chatbox::PrivateResult result =
                         context.private_chat.handle(frame, caller);
-                    if (result.push && result.target_io_thread_id >= 0 &&
-                        result.target_io_thread_id <
-                            static_cast<int>(io_thread_refs.size())) {
-                        io_thread_refs[result.target_io_thread_id]->postMulticast(
-                            std::vector<uint64_t>{result.target_connection_id},
-                            result.push_frame);
+                    if (result.push) {
+                        postToUserSessions(sessions, io_thread_refs,
+                                           result.target_user_id,
+                                           result.push_frame);
                     }
 
                     if (io_thread_id < 0 ||

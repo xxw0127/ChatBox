@@ -14,8 +14,7 @@ namespace chatbox {
 struct PrivateResult {
     Frame response;
     bool push = false;
-    int target_io_thread_id = -1;
-    uint64_t target_connection_id = 0;
+    uint64_t target_user_id = 0;
     std::string push_frame;
 
     PrivateResult() = default;

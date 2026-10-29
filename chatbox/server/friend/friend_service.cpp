@@ -29,11 +29,10 @@ Frame makeSuccess(uint16_t command, uint32_t seq) {
     return response;
 }
 
-void attachPush(FriendResult& result, const SessionBinding& target,
+void attachPush(FriendResult& result, uint64_t target_user_id,
                 const Frame& push) {
     result.push = true;
-    result.target_io_thread_id = target.io_thread_id;
-    result.target_connection_id = target.connection_id;
+    result.target_user_id = target_user_id;
     result.push_frame = encodeFrame(push);
 }
 
@@ -139,8 +138,7 @@ FriendResult FriendService::handleRequest(const Frame& request,
     if (!requester_found) {
         return result;
     }
-    SessionBinding target;
-    if (sessions_.find(target_id, target)) {
+    if (sessions_.isOnline(target_id)) {
         Frame push;
         push.header.cmd = kCmdFriendRequestPush;
         push.header.seq = 0;
@@ -149,7 +147,7 @@ FriendResult FriendService::handleRequest(const Frame& request,
         writer.putString(requester.username);
         writer.putString(requester.nickname);
         push.body = writer.data();
-        attachPush(result, target, push);
+        attachPush(result, target_id, push);
     }
     return result;
 }
@@ -192,8 +190,7 @@ FriendResult FriendService::handleRespond(const Frame& request,
         !responder_found) {
         return result;
     }
-    SessionBinding target;
-    if (sessions_.find(requester_id, target)) {
+    if (sessions_.isOnline(requester_id)) {
         Frame push;
         push.header.cmd = kCmdFriendAcceptPush;
         push.header.seq = 0;
@@ -203,7 +200,7 @@ FriendResult FriendService::handleRespond(const Frame& request,
         writer.putString(responder.nickname);
         writer.putU8(sessions_.isOnline(caller.user_id) ? 1 : 0);
         push.body = writer.data();
-        attachPush(result, target, push);
+        attachPush(result, requester_id, push);
     }
     return result;
 }
