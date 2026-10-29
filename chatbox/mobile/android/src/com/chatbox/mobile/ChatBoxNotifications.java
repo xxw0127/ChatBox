@@ -10,7 +10,6 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 
-import org.qtproject.qt.android.bindings.QtActivity;
 
 public final class ChatBoxNotifications {
     public static final String CHANNEL_SERVICE = "chatbox_service";
@@ -74,7 +73,7 @@ public final class ChatBoxNotifications {
         if (manager == null) {
             return;
         }
-        Intent intent = new Intent(context, QtActivity.class);
+        Intent intent = new Intent(context, ChatBoxActivity.class);
         intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         intent.putExtra("chatbox_kind", kind);
         intent.putExtra("chatbox_target_id", targetId);
@@ -109,7 +108,7 @@ public final class ChatBoxNotifications {
     }
 
     private static Notification buildForeground(Context context, String text) {
-        Intent intent = new Intent(context, QtActivity.class);
+        Intent intent = new Intent(context, ChatBoxActivity.class);
         intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pending = PendingIntent.getActivity(context, 0, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -123,9 +122,10 @@ public final class ChatBoxNotifications {
     }
 
     private static PendingIntent openApp(Context context) {
-        Intent intent = new Intent(context, QtActivity.class);
+        Intent intent = new Intent(context, ChatBoxActivity.class);
         intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         return PendingIntent.getActivity(context, 0, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 }
+

@@ -12,8 +12,7 @@
 #include <QtCore/private/qandroidextras_p.h>
 #endif
 
-#include "connection_tester.h"
-#include "ipc_probe.h"
+#include "ipc_bridge.h"
 #include "service_app.h"
 
 int main(int argc, char* argv[]) {
@@ -46,13 +45,9 @@ int main(int argc, char* argv[]) {
         "(Landroid/content/Context;)V", context.object());
 #endif
 
-    ConnectionTester tester;
-    IpcProbe ipc_probe;
+    IpcBridge ipc_bridge;
     QQmlApplicationEngine engine;
-    engine.rootContext()->setContextProperty(QStringLiteral("tester"), &tester);
-    engine.rootContext()->setContextProperty(QStringLiteral("ipcProbe"), &ipc_probe);
-    engine.rootContext()->setContextProperty(QStringLiteral("qtVersion"),
-                                             QStringLiteral(QT_VERSION_STR));
+    engine.rootContext()->setContextProperty(QStringLiteral("ipc"), &ipc_bridge);
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed, &app,
         []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);

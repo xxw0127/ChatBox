@@ -21,6 +21,8 @@ qt_add_executable(chatbox_mobile
     src/connection_tester.cpp
     src/ipc_probe.h
     src/ipc_probe.cpp
+    src/ipc_bridge.h
+    src/ipc_bridge.cpp
     src/service_app.h
     src/service_app.cpp
     src/android_notification_sink.h
@@ -56,6 +58,10 @@ qt_add_qml_module(chatbox_mobile
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/LoginPage.qml
+        qml/ConversationListPage.qml
+        qml/ChatPage.qml
+        qml/SettingsPage.qml
 )
 
 target_link_libraries(chatbox_mobile PRIVATE

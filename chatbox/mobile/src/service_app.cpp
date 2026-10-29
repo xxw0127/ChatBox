@@ -163,18 +163,12 @@ bool ServiceApp::start(QString* error) {
             : QCoreApplication::applicationVersion();
     config.db_path = directory + QStringLiteral("/chatbox.db");
     config.secure_store = secure_.get();
+    qInfo() << "ChatBox service config host" << config.session.transport.host
+            << "port" << config.session.transport.port << "ca_bytes"
+            << ca_pem.size() << "db" << config.db_path;
 
     if (!chat_->start(config, error)) {
         return false;
-    }
-
-    // Kept for the F0 service smoke test; the real notification path is driven
-    // by incoming message events.
-    const QJniObject context = QNativeInterface::QAndroidApplication::context();
-    if (context.isValid()) {
-        QJniObject::callStaticMethod<void>(
-            kNotificationsClass, "notifyTest", "(Landroid/content/Context;)V",
-            context.object());
     }
 
     qInfo() << "ChatBox service listening at"
