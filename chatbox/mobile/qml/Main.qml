@@ -11,7 +11,8 @@ ApplicationWindow {
 
     ColumnLayout {
         anchors.centerIn: parent
-        spacing: 12
+        width: parent.width - 48
+        spacing: 14
 
         Label {
             text: "ChatBox Android"
@@ -25,6 +26,19 @@ ApplicationWindow {
             font.pixelSize: 15
             opacity: 0.7
             Layout.alignment: Qt.AlignHCenter
+        }
+
+        Button {
+            text: "连接测试"
+            Layout.fillWidth: true
+            onClicked: tester.test()
+        }
+
+        Label {
+            text: tester.status
+            wrapMode: Text.Wrap
+            horizontalAlignment: Text.AlignHCenter
+            Layout.fillWidth: true
         }
 
         Label {

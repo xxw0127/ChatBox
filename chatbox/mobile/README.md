@@ -59,6 +59,16 @@ APK 输出在 `build-android-<abi>` 下，脚本会打印完整路径。
 4. UI 进程能通过 `QLocalSocket` 和 service 双向通信。
 5. 锁屏、划掉任务、重启手机的行为记录在 `docs/f0-device-matrix.md`。
 
+TLS 冒烟可以自动跑：
+
+```powershell
+.\tools\verify_tls_smoke.ps1
+```
+
+脚本会启动 app、点“连接测试”、读 UI 层级并断言出现 `PONG received`。手机需要保持解锁并允许安装/调试。
+
+OpenSSL 预编译库来源和校验见 `android/libs/README.md`；不要依赖 Android 系统自带的 OpenSSL。
+
 ## 已知限制
 
 - 自建服务端 + 国内 ROM 没有系统级推送；锁屏通知依赖前台服务保活。

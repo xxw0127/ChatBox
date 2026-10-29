@@ -13,9 +13,26 @@ qt_policy(SET QTP0001 NEW)
 qt_policy(SET QTP0002 NEW)
 qt_policy(SET QTP0004 NEW)
 
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../clientcore" clientcore)
+
 qt_add_executable(chatbox_mobile
     src/main.cpp
+    src/connection_tester.h
+    src/connection_tester.cpp
 )
+
+qt_add_resources(chatbox_mobile "mobile_ca"
+    PREFIX "/"
+    FILES certs/ca.crt
+)
+
+set(CMAKE_ANDROID_OPENSSL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android/libs/${ANDROID_ABI}")
+if(EXISTS "${CMAKE_ANDROID_OPENSSL_DIR}/libssl_3.so")
+    set_target_properties(chatbox_mobile PROPERTIES
+        QT_ANDROID_EXTRA_LIBS
+        "${CMAKE_ANDROID_OPENSSL_DIR}/libssl_3.so;${CMAKE_ANDROID_OPENSSL_DIR}/libcrypto_3.so"
+    )
+endif()
 
 set_target_properties(chatbox_mobile PROPERTIES
     QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
@@ -38,4 +55,6 @@ target_link_libraries(chatbox_mobile PRIVATE
     Qt6::Gui
     Qt6::Quick
     Qt6::QuickControls2
+    Qt6::Network
+    chatbox_clientcore
 )

@@ -100,9 +100,10 @@ if (Test-Path $wrapper) {
 & $cmakeExe --build $buildDir --target apk -j 8
 if ($LASTEXITCODE -ne 0) { throw "APK build failed" }
 
-$apk = Get-ChildItem $buildDir -Recurse -Filter *.apk |
+$apkDir = Join-Path $buildDir "android-build\build\outputs\apk"
+$apk = Get-ChildItem $apkDir -Recurse -Filter *.apk -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $apk) { throw "APK not found under $buildDir" }
+if (-not $apk) { throw "APK not found under $apkDir" }
 
 Write-Output "APK: $($apk.FullName)"
 
