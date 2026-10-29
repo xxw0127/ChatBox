@@ -20,7 +20,8 @@ void fitThumbnail(uint32_t source_width, uint32_t source_height,
                   uint32_t max_width, uint32_t max_height,
                   uint32_t& out_width, uint32_t& out_height);
 
-// Generates a JPEG preview for image/GIF files. Video previews are Phase 3.
+// Generates a JPEG preview for image/GIF files and the first frame of video
+// files. The bounding box is 640x640 so the client can show a sharp preview.
 class FileThumbnailer {
 public:
     FileThumbnailer(std::string ffmpeg_path, std::string ffprobe_path);

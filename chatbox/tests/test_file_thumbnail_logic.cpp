@@ -14,7 +14,9 @@ namespace {
 int testMimeClassification() {
     CHECK_TRUE(chatbox::isThumbnailMime("image/png"));
     CHECK_TRUE(chatbox::isThumbnailMime("image/gif"));
-    CHECK_TRUE(!chatbox::isThumbnailMime("video/mp4"));
+    CHECK_TRUE(chatbox::isThumbnailMime("video/mp4"));
+    CHECK_TRUE(chatbox::isThumbnailMime("video/webm"));
+    CHECK_TRUE(chatbox::isThumbnailMime("video/quicktime"));
     CHECK_TRUE(!chatbox::isThumbnailMime("application/pdf"));
     return 0;
 }
@@ -47,6 +49,18 @@ int testFitThumbnail() {
     chatbox::fitThumbnail(1000, 100, 320, 180, width, height);
     CHECK_EQ(width, 320u);
     CHECK_EQ(height, 32u);
+    return 0;
+}
+
+int testLargeFitThumbnail() {
+    uint32_t width = 0;
+    uint32_t height = 0;
+    chatbox::fitThumbnail(1920, 1080, 640, 640, width, height);
+    CHECK_EQ(width, 640u);
+    CHECK_EQ(height, 360u);
+    chatbox::fitThumbnail(1080, 1920, 640, 640, width, height);
+    CHECK_EQ(width, 360u);
+    CHECK_EQ(height, 640u);
     return 0;
 }
 
@@ -96,13 +110,50 @@ int testImageFixture() {
 
 }  // namespace
 
+int testVideoFixture() {
+    if (::access("/usr/bin/ffmpeg", X_OK) != 0 ||
+        ::access("/usr/bin/ffprobe", X_OK) != 0) {
+        std::cout << "ffmpeg not installed; skipping video fixture\n";
+        return 0;
+    }
+    const std::string source = "/tmp/chatbox-thumb-test.avi";
+    const std::string output = "/tmp/chatbox-thumb-test-video.jpg";
+    std::remove(source.c_str());
+    std::remove(output.c_str());
+    const std::string create =
+        "/usr/bin/ffmpeg -v error -y -f lavfi -i testsrc=size=320x240:rate=10 "
+        "-t 1 -c:v mpeg4 " + source;
+    if (std::system(create.c_str()) != 0) {
+        std::cout << "cannot create video fixture\n";
+        return 0;
+    }
+    chatbox::FileThumbnailer thumbnailer("/usr/bin/ffmpeg",
+                                         "/usr/bin/ffprobe");
+    const chatbox::ThumbnailResult result =
+        thumbnailer.generate(source, output, "video/x-msvideo");
+    CHECK_TRUE(result.ok);
+    CHECK_EQ(result.width, 320u);
+    CHECK_EQ(result.height, 240u);
+    CHECK_TRUE(result.duration_ms > 0);
+    std::ifstream jpeg(output, std::ios::binary);
+    unsigned char header[2] = {0, 0};
+    jpeg.read(reinterpret_cast<char*>(header), 2);
+    CHECK_EQ(static_cast<int>(header[0]), 0xFF);
+    CHECK_EQ(static_cast<int>(header[1]), 0xD8);
+    std::remove(source.c_str());
+    std::remove(output.c_str());
+    return 0;
+}
+
 int main() {
     int failures = 0;
     failures += testMimeClassification();
     failures += testProbeParsing();
     failures += testFitThumbnail();
+    failures += testLargeFitThumbnail();
     failures += testMissingFfmpeg();
     failures += testImageFixture();
+    failures += testVideoFixture();
     if (failures == 0) {
         std::cout << "test_file_thumbnail_logic: all checks passed\n";
     }

@@ -19,8 +19,8 @@ namespace chatbox {
 
 namespace {
 
-constexpr uint32_t kThumbMaxWidth = 320;
-constexpr uint32_t kThumbMaxHeight = 180;
+constexpr uint32_t kThumbMaxWidth = 640;
+constexpr uint32_t kThumbMaxHeight = 640;
 constexpr int kProbeTimeoutMs = 5000;
 constexpr int kGenerateTimeoutMs = 15000;
 
@@ -131,7 +131,8 @@ std::vector<std::string> splitComma(const std::string& line) {
 bool isThumbnailMime(const std::string& mime) {
     return mime == "image/png" || mime == "image/jpeg" ||
            mime == "image/jpg" || mime == "image/gif" ||
-           mime == "image/webp" || mime == "image/bmp";
+           mime == "image/webp" || mime == "image/bmp" ||
+           mime.rfind("video/", 0) == 0;
 }
 
 bool parseProbeCsv(const std::string& csv, uint32_t& width, uint32_t& height,
@@ -235,7 +236,7 @@ ThumbnailResult FileThumbnailer::generate(const std::string& source_path,
     const std::vector<std::string> args = {
         ffmpeg_path_, "-v", "error", "-y", "-i", source_path,
         "-frames:v", "1", "-vf", scale, "-pix_fmt", "yuvj420p",
-        "-q:v", "4", output_path};
+        "-q:v", "2", output_path};
     std::string ignored;
     const int status = runProcess(args, false, kGenerateTimeoutMs, ignored);
     if (status != 0) {
