@@ -111,7 +111,7 @@ add_executable(test_session_manager
     tests/test_session_manager.cpp
     server/auth/session_manager.cpp)
 target_include_directories(test_session_manager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(test_session_manager PRIVATE Threads::Threads)
+target_link_libraries(test_session_manager PRIVATE chatbox_net chatbox_metrics Threads::Threads)
 add_test(NAME session_manager COMMAND test_session_manager)
 
 add_executable(test_text_utils tests/test_text_utils.cpp)

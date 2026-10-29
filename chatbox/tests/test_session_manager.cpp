@@ -1,83 +1,164 @@
-#include <cstdint>
+﻿#include <cstdint>
 #include <iostream>
+#include <memory>
+#include <string>
+#include <vector>
 
 #include "server/auth/session_manager.h"
 #include "tests/test_framework.h"
 
 namespace {
 
-int testPresenceSequenceAndTakeover() {
+std::shared_ptr<chatbox::Connection> makeConnection(uint64_t id, int io_thread) {
+    return std::make_shared<chatbox::Connection>(
+        -1, id, io_thread, "127.0.0.1", false);
+}
+
+chatbox::SessionBinding makeBinding(
+    uint64_t connection_id, const std::string& session_id,
+    const std::string& device_id,
+    const std::shared_ptr<chatbox::Connection>& connection) {
+    chatbox::SessionBinding binding;
+    binding.connection_id = connection_id;
+    binding.io_thread_id = static_cast<int>(connection_id % 4);
+    binding.peer_ip = "127.0.0.1";
+    binding.connection = connection;
+    binding.session_id = session_id;
+    binding.device_id = device_id;
+    binding.caps = chatbox::kCapMultiDevice;
+    return binding;
+}
+
+int testFirstAddBecomesOnline() {
     chatbox::SessionManager sessions;
+    auto connection = makeConnection(1, 0);
+    const auto change = sessions.add(
+        7, makeBinding(1, "session-1", "device-1", connection));
+    CHECK_TRUE(change.became_online);
+    CHECK_TRUE(!change.went_offline);
+    CHECK_TRUE(change.presence_seq != 0);
+    CHECK_TRUE(change.removed.empty());
+    CHECK_TRUE(sessions.isOnline(7));
+    return 0;
+}
 
-    chatbox::SessionBinding first;
-    first.connection_id = 1;
-    first.io_thread_id = 0;
-    chatbox::SessionBinding old_binding;
-    uint64_t seq1 = 0;
-    CHECK_TRUE(!sessions.bind(7, first, old_binding, &seq1));
-    CHECK_TRUE(seq1 != 0);
+int testSecondAddKeepsOnlineWithoutSeq() {
+    chatbox::SessionManager sessions;
+    auto first = makeConnection(1, 0);
+    auto second = makeConnection(2, 1);
+    const auto first_change = sessions.add(
+        7, makeBinding(1, "session-1", "device-1", first));
+    const auto second_change = sessions.add(
+        7, makeBinding(2, "session-2", "device-2", second));
+    CHECK_TRUE(first_change.became_online);
+    CHECK_TRUE(!second_change.became_online);
+    CHECK_EQ(second_change.presence_seq, static_cast<uint64_t>(0));
 
-    chatbox::SessionBinding second;
-    second.connection_id = 2;
-    second.io_thread_id = 1;
-    uint64_t seq2 = 0;
-    CHECK_TRUE(sessions.bind(7, second, old_binding, &seq2));
-    CHECK_TRUE(seq2 > seq1);
-    CHECK_EQ(old_binding.connection_id, static_cast<uint64_t>(1));
+    std::vector<chatbox::SessionBinding> bindings;
+    CHECK_TRUE(sessions.findAll(7, bindings));
+    CHECK_EQ(bindings.size(), static_cast<std::size_t>(2));
+    return 0;
+}
 
-    // The superseded connection must not be able to unbind the new session.
-    uint64_t seq3 = 0;
-    CHECK_TRUE(!sessions.unbind(7, 1, &seq3));
-    CHECK_EQ(seq3, static_cast<uint64_t>(0));
+int testRemoveOneKeepsOnline() {
+    chatbox::SessionManager sessions;
+    auto first = makeConnection(1, 0);
+    auto second = makeConnection(2, 1);
+    sessions.add(7, makeBinding(1, "session-1", "device-1", first));
+    sessions.add(7, makeBinding(2, "session-2", "device-2", second));
 
-    // The owning connection can.
-    uint64_t seq4 = 0;
-    CHECK_TRUE(sessions.unbind(7, 2, &seq4));
-    CHECK_TRUE(seq4 > seq2);
+    const auto change = sessions.removeConnection(1);
+    CHECK_EQ(change.user_id, static_cast<uint64_t>(7));
+    CHECK_TRUE(!change.went_offline);
+    CHECK_EQ(change.presence_seq, static_cast<uint64_t>(0));
+    CHECK_TRUE(sessions.isOnline(7));
 
-    // A close callback for an already-superseded connection returns 0 and
-    // assigns no sequence, so no false offline push is emitted.
-    uint64_t seq5 = 0;
-    CHECK_EQ(sessions.unbindByConnection(2, &seq5), static_cast<uint64_t>(0));
-    CHECK_EQ(seq5, static_cast<uint64_t>(0));
+    std::vector<chatbox::SessionBinding> bindings;
+    CHECK_TRUE(sessions.findAll(7, bindings));
+    CHECK_EQ(bindings.size(), static_cast<std::size_t>(1));
+    return 0;
+}
 
-    chatbox::SessionBinding third;
-    third.connection_id = 3;
-    third.io_thread_id = 2;
-    uint64_t seq6 = 0;
-    CHECK_TRUE(!sessions.bind(9, third, old_binding, &seq6));
-    uint64_t seq7 = 0;
-    CHECK_EQ(sessions.unbindByConnection(3, &seq7), static_cast<uint64_t>(9));
-    CHECK_TRUE(seq7 > seq6);
+int testRemoveLastGoesOffline() {
+    chatbox::SessionManager sessions;
+    auto connection = makeConnection(1, 0);
+    sessions.add(7, makeBinding(1, "session-1", "device-1", connection));
+    const auto change = sessions.removeConnection(1);
+    CHECK_TRUE(change.went_offline);
+    CHECK_TRUE(change.presence_seq != 0);
+    CHECK_TRUE(!sessions.isOnline(7));
+    return 0;
+}
 
-    // Defensive: two users bound to one connection (a client that logged in
-    // twice) are both drained, so neither can remain online forever.
-    chatbox::SessionBinding fourth;
-    fourth.connection_id = 4;
-    fourth.io_thread_id = 3;
-    uint64_t seq8 = 0;
-    uint64_t seq9 = 0;
-    CHECK_TRUE(!sessions.bind(11, fourth, old_binding, &seq8));
-    CHECK_TRUE(!sessions.bind(12, fourth, old_binding, &seq9));
-    uint64_t drain1 = 0;
-    uint64_t drain2 = 0;
-    uint64_t drain3 = 0;
-    const uint64_t first_user = sessions.unbindByConnection(4, &drain1);
-    const uint64_t second_user = sessions.unbindByConnection(4, &drain2);
-    CHECK_TRUE((first_user == 11 && second_user == 12) ||
-               (first_user == 12 && second_user == 11));
-    CHECK_TRUE(drain1 != 0 && drain2 != 0);
-    CHECK_EQ(sessions.unbindByConnection(4, &drain3), static_cast<uint64_t>(0));
-    CHECK_EQ(drain3, static_cast<uint64_t>(0));
+int testRemoveSessionOnlyRemovesTarget() {
+    chatbox::SessionManager sessions;
+    auto first = makeConnection(1, 0);
+    auto second = makeConnection(2, 1);
+    sessions.add(7, makeBinding(1, "session-1", "device-1", first));
+    sessions.add(7, makeBinding(2, "session-2", "device-2", second));
+
+    const auto change = sessions.removeSession(7, "session-2");
+    CHECK_EQ(change.removed.size(), static_cast<std::size_t>(1));
+    CHECK_EQ(change.removed[0].connection_id, static_cast<uint64_t>(2));
+    CHECK_TRUE(!change.went_offline);
+
+    chatbox::SessionBinding binding;
+    CHECK_TRUE(!sessions.findBySession("session-2", binding));
+    CHECK_TRUE(sessions.findBySession("session-1", binding));
+    return 0;
+}
+
+int testDuplicateConnectionReplacesBinding() {
+    chatbox::SessionManager sessions;
+    auto first = makeConnection(1, 0);
+    sessions.add(7, makeBinding(1, "session-1", "device-1", first));
+    const auto change = sessions.add(
+        7, makeBinding(1, "session-1b", "device-1", first));
+    CHECK_EQ(change.removed.size(), static_cast<std::size_t>(1));
+    CHECK_TRUE(!change.became_online);
+    CHECK_EQ(change.presence_seq, static_cast<uint64_t>(0));
+
+    std::vector<chatbox::SessionBinding> bindings;
+    CHECK_TRUE(sessions.findAll(7, bindings));
+    CHECK_EQ(bindings.size(), static_cast<std::size_t>(1));
+    CHECK_EQ(bindings[0].session_id, std::string("session-1b"));
+    return 0;
+}
+
+int testExpiredConnectionIsOffline() {
+    chatbox::SessionManager sessions;
+    chatbox::SessionBinding expired;
+    expired.connection_id = 1;
+    expired.io_thread_id = 0;
+    expired.session_id = "session-expired";
+    sessions.add(7, expired);
+
+    CHECK_TRUE(!sessions.isOnline(7));
+    std::vector<chatbox::SessionBinding> bindings;
+    CHECK_TRUE(!sessions.findAll(7, bindings));
+    CHECK_TRUE(sessions.targets().empty());
+
+    const auto change = sessions.removeConnection(1);
+    CHECK_EQ(change.user_id, static_cast<uint64_t>(7));
+    CHECK_TRUE(change.went_offline);
     return 0;
 }
 
 }  // namespace
 
 int main() {
-    const int failures = testPresenceSequenceAndTakeover();
+    int failures = 0;
+    failures += testFirstAddBecomesOnline();
+    failures += testSecondAddKeepsOnlineWithoutSeq();
+    failures += testRemoveOneKeepsOnline();
+    failures += testRemoveLastGoesOffline();
+    failures += testRemoveSessionOnlyRemovesTarget();
+    failures += testDuplicateConnectionReplacesBinding();
+    failures += testExpiredConnectionIsOffline();
     if (failures == 0) {
         std::cout << "test_session_manager: all checks passed\n";
     }
     return failures == 0 ? 0 : 1;
 }
+
+
