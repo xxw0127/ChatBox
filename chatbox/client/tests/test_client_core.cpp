@@ -252,8 +252,8 @@ private slots:
     void outboxMarksSentAndAllFailed();
     void rendererEscapesHtml();
     void rendererShowsRetryOnlyWhenFailed();
-    void rendererAddsDateSeparator();
-    void rendererBubbleSpecUsesBorderAndExternalTimestamp();
+    void rendererAddsCenteredTimeSeparator();
+    void rendererBubbleSpecUsesBorderWithoutPerMessageTimestamp();
     void rendererSuppressesRepeatedSenderName();
     void rendererQuoteBlockUsesQuoteSurface();
     void rendererRecalledBubbleHasNoSenderName();
@@ -264,7 +264,8 @@ private slots:
     void rendererQuoteBubbleStaysNarrow();
     void rendererShowsAvatarAndPublicId();
     void rendererOwnMessageHidesNameAndId();
-    void rendererKeepsAvatarOnEveryMessage();
+    void rendererHidesAvatarForConsecutiveMessages();
+    void messageGroupingUsesPreviousMessage();
     void bubbleTextIsVerticallyCentered();
     void messageBubblesHaveRoundedCorners();
     void messageBubblesDrawRightEdge();
@@ -900,25 +901,34 @@ void TestClientCore::rendererShowsRetryOnlyWhenFailed() {
     QVERIFY(!html.contains("发送失败"));
 }
 
-void TestClientCore::rendererAddsDateSeparator() {
-    const QDateTime first_local(QDate(2026, 10, 18), QTime(10, 0), Qt::LocalTime);
-    const QDateTime second_local(QDate(2026, 10, 19), QTime(10, 0), Qt::LocalTime);
+void TestClientCore::rendererAddsCenteredTimeSeparator() {
+    const QDateTime first_local(QDate::currentDate(), QTime(10, 0),
+                                Qt::LocalTime);
+    const QDateTime second_local = first_local.addSecs(60);
+    const QDateTime third_local = first_local.addSecs(360);
 
     chatbox::client::ChatMessage first;
     first.message_id = 1;
-    first.content = "day one";
+    first.content = "first";
     first.created_at_utc = first_local.toUTC();
-    chatbox::client::ChatMessage second;
+    chatbox::client::ChatMessage second = first;
     second.message_id = 2;
-    second.content = "day two";
+    second.content = "second";
     second.created_at_utc = second_local.toUTC();
+    chatbox::client::ChatMessage third = first;
+    third.message_id = 3;
+    third.content = "third";
+    third.created_at_utc = third_local.toUTC();
 
-    const QString html = chatbox::client::renderConversationHtml({first, second}, 1);
-    QVERIFY(html.contains("2026-10-18"));
-    QVERIFY(html.contains("2026-10-19"));
+    const QString html = chatbox::client::renderConversationHtml(
+        {first, second, third}, 1);
+    QVERIFY(html.contains(QStringLiteral("align=\"center\"")));
+    QCOMPARE(html.count(QStringLiteral(">10:00</div>")), 1);
+    QCOMPARE(html.count(QStringLiteral(">10:01</div>")), 0);
+    QCOMPARE(html.count(QStringLiteral(">10:06</div>")), 1);
 }
 
-void TestClientCore::rendererBubbleSpecUsesBorderAndExternalTimestamp() {
+void TestClientCore::rendererBubbleSpecUsesBorderWithoutPerMessageTimestamp() {
     const QDateTime created = chatbox::client::parseServerUtc("2026-10-18 12:00:00");
     chatbox::client::ChatMessage message;
     message.message_id = 1;
@@ -943,7 +953,10 @@ void TestClientCore::rendererBubbleSpecUsesBorderAndExternalTimestamp() {
     const int bubble_close = html.indexOf(QStringLiteral("</table></td></tr></table>"));
     QVERIFY(timestamp > 0);
     QVERIFY(bubble_close > 0);
-    QVERIFY(timestamp > bubble_close);
+    // The timestamp lives in the centered separator above the bubble, never
+    // in a per-message meta line below it.
+    QVERIFY(timestamp < bubble_close);
+    QCOMPARE(html.count(local_time), 1);
 }
 
 void TestClientCore::rendererSuppressesRepeatedSenderName() {
@@ -1023,9 +1036,9 @@ void TestClientCore::rendererFragmentMatchesFullRender() {
     const QString expected =
         QStringLiteral("<html><body style=\"font-family: 'Microsoft YaHei', sans-serif;\">") +
         chatbox::client::renderMessageFragment(
-            first, 1, true, chatbox::client::formatLocalDate(first.created_at_utc)) +
+            first, 1, true, chatbox::client::timeSeparatorLabel(first)) +
         chatbox::client::renderMessageFragment(
-            second, 1, true, chatbox::client::formatLocalDate(second.created_at_utc)) +
+            second, 1, true, chatbox::client::timeSeparatorLabel(second)) +
         QStringLiteral("</body></html>");
     QCOMPARE(chatbox::client::renderConversationHtml({first, second}, 1), expected);
 }
@@ -1187,7 +1200,7 @@ void TestClientCore::rendererOwnMessageHidesNameAndId() {
     QVERIFY(!html.contains(QStringLiteral("U00000007")));
 }
 
-void TestClientCore::rendererKeepsAvatarOnEveryMessage() {
+void TestClientCore::rendererHidesAvatarForConsecutiveMessages() {
     const QDateTime created = chatbox::client::parseServerUtc("2026-10-18 12:00:00");
     chatbox::client::ChatMessage first;
     first.message_id = 1;
@@ -1205,8 +1218,44 @@ void TestClientCore::rendererKeepsAvatarOnEveryMessage() {
     const QString html =
         chatbox::client::renderConversationHtml({first, second}, 99, nullptr, avatars);
 
-    QCOMPARE(html.count(QStringLiteral("chatbox-avatar://11?v=2")), 2);
+    QCOMPARE(html.count(QStringLiteral("chatbox-avatar://11?v=2")), 1);
     QCOMPARE(html.count(QStringLiteral("OnlyOnceName")), 1);
+    QVERIFY(html.contains(QStringLiteral("td width=\"36\"")));
+}
+
+void TestClientCore::messageGroupingUsesPreviousMessage() {
+    const QDateTime created =
+        QDateTime(QDate::currentDate(), QTime(12, 0), Qt::LocalTime).toUTC();
+    chatbox::client::ChatMessage first;
+    first.message_id = 1;
+    first.sender_id = 5;
+    first.sender_name = "Bob";
+    first.content = "first";
+    first.created_at_utc = created;
+    chatbox::client::ChatMessage second = first;
+    second.message_id = 2;
+    second.content = "second";
+    second.created_at_utc = created.addSecs(30);
+    chatbox::client::ChatMessage third = first;
+    third.message_id = 3;
+    third.content = "third";
+    third.created_at_utc = created.addSecs(360);
+
+    const chatbox::client::MessageGrouping opening =
+        chatbox::client::messageGrouping(nullptr, first);
+    QVERIFY(opening.show_separator);
+    QVERIFY(opening.show_sender_name);
+
+    const chatbox::client::MessageGrouping continuation =
+        chatbox::client::messageGrouping(&first, second);
+    QVERIFY(!continuation.show_separator);
+    QVERIFY(!continuation.show_sender_name);
+
+    const chatbox::client::MessageGrouping after_gap =
+        chatbox::client::messageGrouping(&second, third);
+    QVERIFY(after_gap.show_separator);
+    QVERIFY(after_gap.show_sender_name);
+    QCOMPARE(after_gap.separator_label, QStringLiteral("12:06"));
 }
 
 void TestClientCore::bubbleTextIsVerticallyCentered() {
@@ -1518,8 +1567,9 @@ void TestClientCore::chatViewMapsMessagesToIds() {
     QVERIFY(!second_cursor.isNull());
     QCOMPARE(view.messageIdAt(view.cursorRect(second_cursor).center()), quint64(22));
 
-    // The date separator is not part of any message.
-    const QTextCursor date_cursor = view.document()->find("2026-10-18");
+    // The centered time separator is not part of any message.
+    const QTextCursor date_cursor = view.document()->find(
+        chatbox::client::timeSeparatorLabel(first));
     QVERIFY(!date_cursor.isNull());
     QCOMPARE(view.messageIdAt(view.cursorRect(date_cursor).center()), quint64(0));
 

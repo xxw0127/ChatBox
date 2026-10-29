@@ -1223,9 +1223,14 @@ void MainWindow::addIncomingMessage(const chatbox::client::ChatMessage& message)
     QScrollBar* bar = chat_view_->verticalScrollBar();
     const bool at_bottom = bar->value() >= bar->maximum() - 8;
     const QVector<chatbox::client::ChatMessage>& messages = message_store_.messages();
+    // Copy the previous message before appendIncoming: the vector reference is
+    // stable, but its last element becomes the new message after the append.
+    const bool has_previous = !messages.isEmpty();
+    const chatbox::client::ChatMessage previous_message =
+        has_previous ? messages.last() : chatbox::client::ChatMessage();
     const bool same_day =
-        !messages.isEmpty() &&
-        chatbox::client::formatLocalDate(messages.last().created_at_utc) ==
+        has_previous &&
+        chatbox::client::formatLocalDate(previous_message.created_at_utc) ==
             chatbox::client::formatLocalDate(message.created_at_utc);
     const bool appended = message_store_.appendIncoming(message);
     if (appended && context_type_ == ContextType::Room) {
@@ -1244,13 +1249,14 @@ void MainWindow::addIncomingMessage(const chatbox::client::ChatMessage& message)
         key.client_msg_id = message.client_msg_id;
         key.bubble_color =
             chatbox::client::messageBubbleColor(message, user_id_);
-        const bool show_sender_name =
-            messages.isEmpty() ||
-            chatbox::client::shouldShowSenderName(&messages.last(), message);
+        const chatbox::client::MessageGrouping grouping =
+            chatbox::client::messageGrouping(
+                has_previous ? &previous_message : nullptr, message);
         const MessageAvatars avatars = messageAvatars({message});
         chat_view_->appendFragment(
-            chatbox::client::renderMessageFragment(message, user_id_, false, QString(),
-                                                   show_sender_name, avatars.srcs),
+            chatbox::client::renderMessageFragment(
+                message, user_id_, grouping.show_separator,
+                grouping.separator_label, grouping.show_sender_name, avatars.srcs),
             key, avatars.images);
         requestMissingMessageAvatars({message});
         bar->setValue(bar->maximum());

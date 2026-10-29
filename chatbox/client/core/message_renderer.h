@@ -37,13 +37,39 @@ struct MessageActions {
 MessageActions messageActions(const ChatMessage& message, quint64 self_user_id,
                               const QDateTime& now_utc = QDateTime::currentDateTimeUtc());
 
-// Renders one message (and optionally its date separator). The full renderer
-// uses this same function so the whole conversation and incremental appends
-// produce identical markup.
+// Messages from the same sender inside this window form one visual run: only
+// the first bubble carries the sender name and avatar.
+constexpr int kMessageGroupGapSeconds = 300;
+
+// True when the conversation, a calendar-day change, or a gap of at least
+// kMessageGroupGapSeconds calls for a centered time separator.
+bool shouldShowTimeSeparator(const ChatMessage* previous,
+                             const ChatMessage& current);
+
+// Label for the centered separator: HH:mm today, MM-dd HH:mm on an older
+// date, and yyyy-MM-dd HH:mm when the year differs.
+QString timeSeparatorLabel(const ChatMessage& message);
+
+// Rendering decisions for one message relative to the previous bubble.
+struct MessageGrouping {
+    bool show_separator = false;
+    QString separator_label;
+    bool show_sender_name = false;
+};
+
+// One source of truth for the full render and incremental appends. previous
+// must point at the message before current, not at current itself.
+MessageGrouping messageGrouping(const ChatMessage* previous,
+                                const ChatMessage& current);
+
+// Renders one message (and optionally its centered time separator). The full
+// renderer uses this same function so the whole conversation and incremental
+// appends produce identical markup.
 bool shouldShowSenderName(const ChatMessage* previous, const ChatMessage& current);
 
 QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
-                              bool include_date_header, const QString& date_label,
+                              bool include_time_separator,
+                              const QString& separator_label,
                               bool show_sender_name = true,
                               const AvatarSrcMap& avatar_srcs = {});
 

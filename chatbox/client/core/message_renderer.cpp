@@ -51,22 +51,20 @@ bool messageNeedsWidthCap(const ChatMessage& message) {
 }
 
 QString messageMeta(const ChatMessage& message) {
-    QString meta = formatLocalTime(message.created_at_utc);
     switch (message.status) {
         case MessageStatus::kSending:
-            meta += "  发送中...";
-            break;
+            return QStringLiteral("发送中...");
         case MessageStatus::kFailed:
-            meta += "  <span style=\"color: " +
-                    QString::fromLatin1(theme::kSemanticDown) + ";\">发送失败</span> <a href=\"retry:" +
-                    message.client_msg_id.toHtmlEscaped() +
-                    "\" style=\"color: " + QString::fromLatin1(theme::kAccent) +
-                    "; text-decoration: none;\">重发</a>";
-            break;
+            return QStringLiteral("<span style=\"color: ") +
+                   QString::fromLatin1(theme::kSemanticDown) +
+                   ";\">发送失败</span> <a href=\"retry:" +
+                   message.client_msg_id.toHtmlEscaped() +
+                   "\" style=\"color: " + QString::fromLatin1(theme::kAccent) +
+                   "; text-decoration: none;\">重发</a>";
         case MessageStatus::kSent:
             break;
     }
-    return meta;
+    return QString();
 }
 
 }  // namespace
@@ -109,23 +107,63 @@ bool shouldShowSenderName(const ChatMessage* previous, const ChatMessage& curren
     if (previous->sender_id != current.sender_id) {
         return true;
     }
-    if (!previous->created_at_utc.isValid() || !current.created_at_utc.isValid()) {
+    return shouldShowTimeSeparator(previous, current);
+}
+
+bool shouldShowTimeSeparator(const ChatMessage* previous,
+                             const ChatMessage& current) {
+    if (previous == nullptr) {
+        return true;
+    }
+    if (!previous->created_at_utc.isValid() ||
+        !current.created_at_utc.isValid()) {
+        return true;
+    }
+    if (formatLocalDate(previous->created_at_utc) !=
+        formatLocalDate(current.created_at_utc)) {
         return true;
     }
     const qint64 seconds =
         previous->created_at_utc.secsTo(current.created_at_utc);
-    return seconds < 0 || seconds >= 180;
+    return seconds < 0 || seconds >= kMessageGroupGapSeconds;
+}
+
+QString timeSeparatorLabel(const ChatMessage& message) {
+    if (!message.created_at_utc.isValid()) {
+        return QStringLiteral("--");
+    }
+    const QDateTime local = message.created_at_utc.toLocalTime();
+    const QDate today = QDate::currentDate();
+    if (local.date() == today) {
+        return local.toString("HH:mm");
+    }
+    if (local.date().year() == today.year()) {
+        return local.toString("MM-dd HH:mm");
+    }
+    return local.toString("yyyy-MM-dd HH:mm");
+}
+
+MessageGrouping messageGrouping(const ChatMessage* previous,
+                                const ChatMessage& current) {
+    MessageGrouping grouping;
+    grouping.show_separator = shouldShowTimeSeparator(previous, current);
+    grouping.separator_label = timeSeparatorLabel(current);
+    grouping.show_sender_name =
+        !current.recalled &&
+        (grouping.show_separator || shouldShowSenderName(previous, current));
+    return grouping;
 }
 
 QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
-                              bool include_date_header, const QString& date_label,
+                              bool include_time_separator,
+                              const QString& separator_label,
                               bool show_sender_name, const AvatarSrcMap& avatar_srcs) {
     QString html;
-    if (include_date_header) {
+    if (include_time_separator) {
         html += "<div align=\"center\" style=\"color: " +
                 QString::fromLatin1(theme::kMuted) +
                 "; font-size: 11px; margin: 16px 0;\">" +
-                date_label.toHtmlEscaped() + "</div>";
+                separator_label.toHtmlEscaped() + "</div>";
     }
 
     const bool outgoing =
@@ -187,11 +225,17 @@ QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
     }
 
     const QString avatar_src = avatar_srcs.value(message.sender_id);
+    const bool show_avatar = !message.recalled && show_sender_name;
     const QString avatar_cell =
         avatar_src.isEmpty()
             ? QString()
             : "<td valign=\"top\"><img src=\"" + avatar_src.toHtmlEscaped() +
                   "\" width=\"36\" height=\"36\"></td>";
+    // A grouped continuation keeps the avatar column empty so its bubble stays
+    // aligned with the first message in the run.
+    const QString avatar_spacer = avatar_src.isEmpty()
+                                      ? QString()
+                                      : QStringLiteral("<td width=\"36\" valign=\"top\"></td>");
 
     const int top_margin = show_sender_name ? 12 : 4;
     html += "<div style=\"margin-top: " + QString::number(top_margin) + "px;\">";
@@ -202,7 +246,7 @@ QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
     html += "<table align=\"" + alignment + "\"" + width_attr +
             " cellspacing=\"0\" cellpadding=\"4\"><tr>";
     if (!outgoing) {
-        html += avatar_cell;
+        html += show_avatar ? avatar_cell : avatar_spacer;
     }
     html += "<td>";
     if (!outgoing && !message.recalled && show_sender_name) {
@@ -254,12 +298,15 @@ QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
     html += "</td></tr></table>";
     html += "</td>";
     if (outgoing) {
-        html += avatar_cell;
+        html += show_avatar ? avatar_cell : avatar_spacer;
     }
     html += "</tr></table>";
-    html += "<div style=\"color: " + QString::fromLatin1(theme::kBubbleMeta) +
-            "; font-size: 11px; margin: 4px 4px 8px 4px; text-align: " +
-            (outgoing ? "right" : "left") + ";\">" + messageMeta(message) + "</div>";
+    const QString meta = messageMeta(message);
+    if (!meta.isEmpty()) {
+        html += "<div style=\"color: " + QString::fromLatin1(theme::kBubbleMeta) +
+                "; font-size: 11px; margin: 4px 4px 8px 4px; text-align: " +
+                (outgoing ? "right" : "left") + ";\">" + meta + "</div>";
+    }
     html += "</div>";
     return html;
 }
@@ -274,7 +321,6 @@ QString renderConversationHtml(const QVector<ChatMessage>& messages,
     QStringList html;
     html << "<html><body style=\"font-family: 'Microsoft YaHei', sans-serif;\">";
 
-    QString current_date;
     for (int index = 0; index < messages.size(); ++index) {
         const ChatMessage& message = messages.at(index);
         if (rendered_messages != nullptr) {
@@ -284,16 +330,12 @@ QString renderConversationHtml(const QVector<ChatMessage>& messages,
             key.bubble_color = messageBubbleColor(message, self_user_id);
             rendered_messages->append(key);
         }
-        const QString date = formatLocalDate(message.created_at_utc);
-        const bool include_date_header = date != current_date;
-        if (include_date_header) {
-            current_date = date;
-        }
         const ChatMessage* previous = index > 0 ? &messages.at(index - 1) : nullptr;
-        const bool show_sender_name =
-            include_date_header || shouldShowSenderName(previous, message);
-        html << renderMessageFragment(message, self_user_id, include_date_header, date,
-                                      show_sender_name, avatar_srcs);
+        const MessageGrouping grouping = messageGrouping(previous, message);
+        html << renderMessageFragment(message, self_user_id,
+                                      grouping.show_separator,
+                                      grouping.separator_label,
+                                      grouping.show_sender_name, avatar_srcs);
     }
 
     html << "</body></html>";
