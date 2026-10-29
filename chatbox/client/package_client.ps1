@@ -37,7 +37,8 @@ Copy-Item (Join-Path $root "README.md") $target -Force
 foreach ($required in @(
     "chatbox.exe", "Qt5Core.dll", "Qt5Gui.dll", "Qt5Widgets.dll",
     "Qt5Sql.dll", "Qt5Network.dll", "platforms\qwindows.dll",
-    "sqldrivers\qsqlite.dll", "certs\ca.crt", "imageformats\qjpeg.dll"
+    "sqldrivers\qsqlite.dll", "certs\ca.crt", "imageformats\qjpeg.dll",
+    "libssl-1_1-x64.dll", "libcrypto-1_1-x64.dll"
 )) {
     $path = Join-Path $target $required
     if (-not (Test-Path $path -PathType Leaf)) {

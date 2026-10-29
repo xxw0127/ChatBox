@@ -40,6 +40,16 @@ foreach ($name in @("Qt5Core.dll", "Qt5Gui.dll", "Qt5Widgets.dll", "Qt5Sql.dll",
 foreach ($name in @("libssl-4-x64.dll", "libcrypto-4-x64.dll")) {
     Copy-Item (Join-Path $OpenSSLDir "bin\$name") $release -Force
 }
+# Qt 5.15.2's QSslSocket resolves OpenSSL 1.1 by name, while the main socket
+# links OpenSSL 4 directly. Ship both stacks; without the 1.1 pair a clean
+# machine reports "TLS initialization failed" on the file-transfer channel.
+foreach ($name in @("libssl-1_1-x64.dll", "libcrypto-1_1-x64.dll")) {
+    $path = Join-Path $QtDir "bin\$name"
+    if (-not (Test-Path $path)) {
+        throw "Qt OpenSSL DLL not found: $path"
+    }
+    Copy-Item $path $release -Force
+}
 $vcRuntime = Join-Path $env:SystemRoot "System32\vcruntime140.dll"
 if (Test-Path $vcRuntime) {
     Copy-Item $vcRuntime $release -Force

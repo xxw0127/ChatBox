@@ -403,6 +403,7 @@ private slots:
     void historyStorePathMoveCopiesData();
     void historyStoreRejectsExistingTarget();
     void buildScriptShipsSqlDriver();
+    void buildScriptShipsQtOpenSslForFileTransfer();
     void conversationOpensFromLocalHistoryFirst();
     void incomingPushesArePersistedForOtherConversations();
     void recallPushUpdatesBackgroundHistory();
@@ -4548,6 +4549,20 @@ void TestClientCore::buildScriptShipsSqlDriver() {
     QVERIFY2(!package.isEmpty(), "package_client.ps1 must be readable");
     QVERIFY(package.contains(QStringLiteral("\"imageformats\"")));
     QVERIFY(package.contains(QStringLiteral("\"sqldrivers\"")));
+}
+
+// The main socket uses OpenSSL 4 directly, but Qt 5.15.2's QSslSocket (file
+// transfer) loads OpenSSL 1.1 by name. A portable package needs both stacks.
+void TestClientCore::buildScriptShipsQtOpenSslForFileTransfer() {
+    const QString build = readClientSource(QStringLiteral("build_client.ps1"));
+    QVERIFY2(!build.isEmpty(), "build_client.ps1 must be readable");
+    QVERIFY(build.contains(QStringLiteral("libssl-1_1-x64.dll")));
+    QVERIFY(build.contains(QStringLiteral("libcrypto-1_1-x64.dll")));
+
+    const QString package = readClientSource(QStringLiteral("package_client.ps1"));
+    QVERIFY2(!package.isEmpty(), "package_client.ps1 must be readable");
+    QVERIFY(package.contains(QStringLiteral("libssl-1_1-x64.dll")));
+    QVERIFY(package.contains(QStringLiteral("libcrypto-1_1-x64.dll")));
 }
 
 // 打开会话时先用本地历史首屏渲染，再由在线历史覆盖：
