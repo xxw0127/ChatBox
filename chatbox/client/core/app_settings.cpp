@@ -6,6 +6,8 @@
 #include <QFileInfo>
 #include <QStandardPaths>
 #include <QStringList>
+#include <QSysInfo>
+#include <QUuid>
 #include <QVariant>
 
 #include "core/client_config.h"
@@ -49,6 +51,22 @@ bool migrateServerEndpoint(QSettings& settings) {
     settings.remove(QStringLiteral("session"));
     settings.sync();
     return true;
+}
+
+QString clientDeviceId() {
+    QSettings settings;
+    QString device_id = settings.value(QStringLiteral("device/id")).toString().trimmed();
+    if (device_id.isEmpty()) {
+        device_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        settings.setValue(QStringLiteral("device/id"), device_id);
+        settings.sync();
+    }
+    return device_id;
+}
+
+QString clientDeviceName() {
+    const QString host = QSysInfo::machineHostName().trimmed();
+    return host.isEmpty() ? QStringLiteral("Windows PC") : host;
 }
 
 namespace {

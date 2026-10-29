@@ -11,6 +11,7 @@ SOURCES += \
     test_client_core.cpp \
     ../../common/group_protocol.cpp \
     ../../common/file_protocol.cpp \
+    ../../common/session_protocol.cpp \
     ../../common/protocol.cpp \
     ../core/group_types.cpp \
     ../core/group_store.cpp \

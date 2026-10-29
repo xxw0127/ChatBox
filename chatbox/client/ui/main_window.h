@@ -485,6 +485,7 @@ private:
     int reconnect_attempt_ = 0;
     quint64 connection_generation_ = 0;
     quint32 next_seq_ = 1;
+    quint32 server_caps_ = 0;
     QHash<quint64, QString> peer_names_;
     QHash<quint64, chatbox::client::FriendView> friend_views_;
     QSet<quint64> friend_ids_;

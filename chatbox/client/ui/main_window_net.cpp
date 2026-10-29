@@ -2,6 +2,8 @@
 
 #include "common/file_protocol.h"
 #include "common/group_protocol.h"
+#include "common/session_protocol.h"
+#include "core/app_settings.h"
 #include "core/file_transfer_manager.h"
 #include "core/file_types.h"
 #include "core/group_types.h"
@@ -10,6 +12,26 @@
 #include "ui/group_join_dialog.h"
 #include "ui/group_notify_dialog.h"
 #include "ui/group_settings_dialog.h"
+
+namespace {
+
+void appendClientDeviceInfo(chatbox::ByteWriter& writer) {
+    chatbox::DeviceInfo info;
+    info.device_id = chatbox::toUtf8(chatbox::client::clientDeviceId());
+    info.device_name = chatbox::toUtf8(chatbox::client::clientDeviceName());
+    info.platform = "windows";
+    QString version = QCoreApplication::applicationVersion();
+    if (version.isEmpty()) {
+        version = QStringLiteral("0.4.0");
+    }
+    info.app_version = chatbox::toUtf8(version);
+    info.caps = chatbox::kCapMultiDevice | chatbox::kCapSyncPull |
+                chatbox::kCapReadStatePush | chatbox::kCapMessageEcho |
+                chatbox::kCapSessionManage | chatbox::kCapDeviceMetadata;
+    chatbox::appendDeviceInfo(writer, info);
+}
+
+}  // namespace
 
 bool MainWindow::sendGroupCommand(quint16 command, const std::string& body) {
     chatbox::Frame frame;
@@ -470,6 +492,7 @@ void MainWindow::sendLogin() {
     chatbox::ByteWriter writer;
     writer.putString(chatbox::toUtf8(username_));
     writer.putString(chatbox::toUtf8(password_));
+    appendClientDeviceInfo(writer);
     frame.body = writer.data();
     sendFrame(frame);
     if (auth_timeout_timer_ != nullptr) {
@@ -501,6 +524,7 @@ void MainWindow::sendResume() {
     frame.header.seq = next_seq_++;
     chatbox::ByteWriter writer;
     writer.putString(chatbox::toUtf8(token_));
+    appendClientDeviceInfo(writer);
     frame.body = writer.data();
     sendFrame(frame);
     if (auth_timeout_timer_ != nullptr) {
@@ -615,6 +639,11 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             user_id_ = user_id;
             nickname_ = nickname;
             token_ = token;
+            uint32_t server_caps = 0;
+            uint32_t ttl_seconds = 0;
+            if (chatbox::readAuthExtras(reader, server_caps, ttl_seconds)) {
+                server_caps_ = server_caps;
+            }
             password_.clear();
             login_page_->clearPassword();
             logged_in_ = true;
@@ -714,6 +743,11 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             nickname_ = nickname;
             logged_in_ = true;
             resuming_ = false;
+            uint32_t server_caps = 0;
+            uint32_t ttl_seconds = 0;
+            if (chatbox::readAuthExtras(reader, server_caps, ttl_seconds)) {
+                server_caps_ = server_caps;
+            }
             if (auth_timeout_timer_ != nullptr) {
                 auth_timeout_timer_->stop();
             }
@@ -1118,6 +1152,93 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
             }
             requestConversations();
             setStatus("私聊已发送");
+            break;
+        }
+        case chatbox::kCmdReadStatePush: {
+            chatbox::ReadStateEvent event;
+            if (!chatbox::readReadState(reader, event)) {
+                setStatus("已读同步格式错误", true);
+                return;
+            }
+            if (event.kind == 2) {
+                QListWidgetItem* item = findConversationItem(event.target_id);
+                if (item != nullptr) {
+                    item->setData(Qt::UserRole + 2, static_cast<int>(event.unread));
+                }
+            } else if (event.kind == 1) {
+                group_store_.setUnread(event.target_id, static_cast<int>(event.unread));
+                refreshGroupListView();
+            }
+            refreshUnreadTitle();
+            break;
+        }
+        case chatbox::kCmdMessageEchoPush: {
+            uint8_t kind = 0;
+            uint64_t target_id = 0;
+            uint64_t message_id = 0;
+            uint64_t sender_id = 0;
+            QString nickname;
+            QString content;
+            QString created_at;
+            if (!reader.getU8(kind) || !reader.getU64(target_id) ||
+                !reader.getU64(message_id) || !reader.getU64(sender_id) ||
+                !readString(reader, nickname) || !readString(reader, content) ||
+                !readString(reader, created_at)) {
+                setStatus("消息回显格式错误", true);
+                return;
+            }
+            uint64_t reply_to_id = 0;
+            QString reply_sender_name;
+            QString reply_content;
+            if (reader.remaining() >= 8) {
+                if (!reader.getU64(reply_to_id) ||
+                    !readString(reader, reply_sender_name) ||
+                    !readString(reader, reply_content)) {
+                    setStatus("消息回显格式错误", true);
+                    return;
+                }
+            }
+            if (kind != 2) {
+                break;
+            }
+            chatbox::client::ChatMessage message;
+            message.message_id = message_id;
+            message.context = chatbox::client::ChatContext::kPrivate;
+            message.target_id = target_id;
+            message.sender_id = sender_id;
+            message.sender_name = nickname;
+            message.content = content;
+            message.created_at_utc = chatbox::client::parseServerUtc(created_at);
+            message.reply_to_id = reply_to_id;
+            message.reply_sender_name = reply_sender_name;
+            message.reply_content = reply_content;
+            message.outgoing = true;
+            message.status = chatbox::client::MessageStatus::kSent;
+
+            QString title = nickname;
+            const auto known_view = friend_views_.constFind(target_id);
+            if (known_view != friend_views_.constEnd() &&
+                !known_view->remark.trimmed().isEmpty()) {
+                title = known_view->remark.trimmed();
+            }
+            if (context_type_ == ContextType::Private &&
+                target_id == current_peer_id_) {
+                addIncomingMessage(message);
+            } else {
+                QListWidgetItem* item = findConversationItem(target_id);
+                const int unread = item == nullptr
+                                       ? 0
+                                       : item->data(Qt::UserRole + 2).toInt();
+                const bool online = item == nullptr
+                                        ? true
+                                        : item->data(Qt::UserRole + 3).toBool();
+                updateConversationItem(target_id, unread, title, content, created_at,
+                                       online);
+                if (history_store_.isOpen()) {
+                    history_store_.saveMessage(message);
+                }
+                refreshUnreadTitle();
+            }
             break;
         }
         case chatbox::kCmdPrivatePush: {

@@ -23,6 +23,7 @@ SOURCES += \
     ../common/protocol.cpp \
     ../common/group_protocol.cpp \
     ../common/file_protocol.cpp \
+    ../common/session_protocol.cpp \
     core/group_types.cpp \
     core/group_store.cpp \
     core/file_types.cpp \

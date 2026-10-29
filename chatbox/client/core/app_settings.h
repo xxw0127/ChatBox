@@ -20,6 +20,11 @@ bool migrateLegacySettings(QSettings& current, QSettings& legacy);
 // to force a fresh login.
 bool migrateServerEndpoint(QSettings& settings);
 
+// Stable per-install device id used for multi-device sessions. Generated on
+// first use and persisted in QSettings; never derived from hardware IDs.
+QString clientDeviceId();
+QString clientDeviceName();
+
 // True when the history directory is the install directory or below it. Such
 // a location would be deleted by the updater's mirror replacement.
 bool isHistoryDirectoryInsideInstall(const QString& directory);

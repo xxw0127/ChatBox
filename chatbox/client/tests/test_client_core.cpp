@@ -52,6 +52,7 @@
 #include "core/app_settings.h"
 #include "core/autostart.h"
 #include "core/client_config.h"
+#include "common/session_protocol.h"
 #include "core/client_policy.h"
 #include "core/account_store.h"
 #include "core/credential_store.h"
@@ -247,6 +248,7 @@ private slots:
     void formatLocalTimeAndDate();
     void invalidTimestamp();
     void publicUserIdFormat();
+    void sessionAuthExtrasRoundTrip();
     void messageStorePendingAndAck();
     void messageStoreHistoryPreservesPending();
     void messageStorePrependHistory();
@@ -5297,6 +5299,33 @@ void TestClientCore::messageMenuKeepsReplyAndRecall() {
              "right-click menu must keep retry");
     QVERIFY2(menu.contains(QStringLiteral("\u590d\u5236")),
              "right-click menu must keep copy");
+}
+
+void TestClientCore::sessionAuthExtrasRoundTrip() {
+    chatbox::DeviceInfo info;
+    info.device_id = QStringLiteral("device-a").toStdString();
+    info.device_name = QStringLiteral("Desktop").toStdString();
+    info.platform = "windows";
+    info.app_version = "0.4.0";
+    info.caps = chatbox::kCapMultiDevice | chatbox::kCapReadStatePush;
+
+    chatbox::ByteWriter writer;
+    chatbox::appendDeviceInfo(writer, info);
+    chatbox::appendAuthExtras(writer, chatbox::kCapSyncPull, 3600);
+
+    chatbox::ByteReader reader(writer.data().data(), writer.data().size());
+    chatbox::DeviceInfo decoded;
+    bool present = false;
+    QVERIFY(chatbox::readDeviceInfo(reader, decoded, present));
+    QVERIFY(present);
+    QCOMPARE(QString::fromStdString(decoded.device_id), QStringLiteral("device-a"));
+    QCOMPARE(decoded.caps, info.caps);
+
+    uint32_t caps = 0;
+    uint32_t ttl = 0;
+    QVERIFY(chatbox::readAuthExtras(reader, caps, ttl));
+    QCOMPARE(caps, chatbox::kCapSyncPull);
+    QCOMPARE(ttl, static_cast<uint32_t>(3600));
 }
 
 QTEST_MAIN(TestClientCore)
