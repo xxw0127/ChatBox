@@ -24,6 +24,7 @@ add_library(chatbox_common
     common/protocol.cpp
     common/group_protocol.cpp
     common/file_protocol.cpp
+    common/session_protocol.cpp
     common/text_utils.cpp
 )
 target_include_directories(chatbox_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -84,6 +85,10 @@ enable_testing()
 add_executable(test_protocol tests/test_protocol.cpp)
 target_link_libraries(test_protocol PRIVATE chatbox_common)
 add_test(NAME protocol COMMAND test_protocol)
+
+add_executable(test_session_protocol tests/test_session_protocol.cpp)
+target_link_libraries(test_session_protocol PRIVATE chatbox_common)
+add_test(NAME session_protocol COMMAND test_session_protocol)
 
 add_executable(test_presence tests/test_presence.cpp server/presence/presence_service.cpp)
 target_link_libraries(test_presence PRIVATE chatbox_common)

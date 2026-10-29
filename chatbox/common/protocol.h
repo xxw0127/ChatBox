@@ -13,6 +13,15 @@ constexpr std::size_t kFrameHeaderSize = 14;
 constexpr uint32_t kMaxInFrameBody = 64 * 1024;
 constexpr uint32_t kMaxOutFrameBody = 512 * 1024;
 
+// Additive capability bits negotiated in LOGIN/RESUME. Old clients send none
+// and keep receiving only the legacy push set.
+constexpr uint32_t kCapMultiDevice = 1u << 0;
+constexpr uint32_t kCapSyncPull = 1u << 1;
+constexpr uint32_t kCapReadStatePush = 1u << 2;
+constexpr uint32_t kCapMessageEcho = 1u << 3;
+constexpr uint32_t kCapSessionManage = 1u << 4;
+constexpr uint32_t kCapDeviceMetadata = 1u << 5;
+
 enum FrameFlags : uint8_t {
     kFlagResponse = 0x01,
     kFlagCompressed = 0x02,
@@ -84,6 +93,12 @@ enum Command : uint16_t {
     kCmdFileThumb = 0x00CC,
     kCmdFileList = 0x00CD,
     kCmdFileDeleted = 0x00CE,
+    kCmdSessionList = 0x00D0,
+    kCmdSessionRevoke = 0x00D1,
+    kCmdReadStatePush = 0x00D2,
+    kCmdSyncPull = 0x00D3,
+    kCmdSyncResp = 0x00D4,
+    kCmdMessageEchoPush = 0x00D5,
     // Realtime friend/room presence. Kept below the group range
     kCmdPresencePush = 0x00A4,
 
