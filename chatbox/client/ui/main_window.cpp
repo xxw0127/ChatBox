@@ -409,10 +409,14 @@ QWidget* MainWindow::buildChatPage() {
     profile_layout->addLayout(profile_text_layout, 1);
     // Without this the strip reads as a status line, not as the account menu
     // entry that now holds 切换账号 / 设置 / 退出登录.
-    auto* account_menu_hint = new QLabel(QStringLiteral("⋯"), my_profile_button_);
-    account_menu_hint->setObjectName("AccountMenuHint");
-    account_menu_hint->setAttribute(Qt::WA_TransparentForMouseEvents);
-    profile_layout->addWidget(account_menu_hint, 0, Qt::AlignVCenter);
+    account_menu_hint_ = new QLabel(my_profile_button_);
+    account_menu_hint_->setObjectName("AccountMenuHint");
+    account_menu_hint_->setPixmap(
+        chatbox::client::hamburgerIcon(QColor(theme::kMuted)).pixmap(16, 16));
+    account_menu_hint_->setFixedSize(16, 16);
+    account_menu_hint_->setAlignment(Qt::AlignCenter);
+    account_menu_hint_->setAttribute(Qt::WA_TransparentForMouseEvents);
+    profile_layout->addWidget(account_menu_hint_, 0, Qt::AlignVCenter);
     left->addWidget(my_profile_button_);
     updateOwnProfileStrip();
     splitter->addWidget(left_panel);
@@ -461,7 +465,8 @@ QWidget* MainWindow::buildChatPage() {
     more_button_ = new QToolButton(header);
     more_button_->setObjectName("MoreButton");
     more_button_->setAccessibleName("右侧栏");
-    more_button_->setIcon(chatbox::client::moreDotsIcon(QColor(theme::kInk)));
+    more_button_->setIcon(
+        chatbox::client::sidebarToggleIcon(false, QColor(theme::kMuted)));
     more_button_->setIconSize(QSize(20, 20));
     more_button_->setToolTip("打开/关闭右侧栏");
     more_button_->setFixedSize(32, 32);
@@ -558,7 +563,10 @@ QWidget* MainWindow::buildChatPage() {
     right_header_row->addWidget(member_count_label_, 1);
     right_settings_button_ = new QToolButton(right_panel_);
     right_settings_button_->setObjectName("RightSettingsButton");
-    right_settings_button_->setText("⚙");
+    right_settings_button_->setIcon(
+        chatbox::client::hamburgerIcon(QColor(theme::kMuted)));
+    right_settings_button_->setIconSize(QSize(16, 16));
+    right_settings_button_->setFixedSize(24, 24);
     right_settings_button_->setToolTip("群设置");
     right_settings_button_->setAutoRaise(true);
     right_settings_button_->hide();
@@ -829,7 +837,17 @@ void MainWindow::refreshThemeDependentIcons() {
     // asset belongs in this function so a new one cannot be forgotten inside
     // an appearance-changed lambda.
     if (more_button_ != nullptr) {
-        more_button_->setIcon(chatbox::client::moreDotsIcon(QColor(theme::kInk)));
+        more_button_->setIcon(chatbox::client::sidebarToggleIcon(
+            right_panel_ != nullptr && right_panel_->isVisible(),
+            QColor(theme::kMuted)));
+    }
+    if (right_settings_button_ != nullptr) {
+        right_settings_button_->setIcon(
+            chatbox::client::hamburgerIcon(QColor(theme::kMuted)));
+    }
+    if (account_menu_hint_ != nullptr) {
+        account_menu_hint_->setPixmap(
+            chatbox::client::hamburgerIcon(QColor(theme::kMuted)).pixmap(16, 16));
     }
     // Sidebar glyphs are tinted pixmaps, so they need the same treatment.
     if (search_users_button_ != nullptr) {

@@ -15,6 +15,11 @@ void MainWindow::updateRightPanelVisibility() {
     const bool has_context = context_type_ == ContextType::Room ||
                              context_type_ == ContextType::Private;
     right_panel_->setVisible(has_context && member_panel_visible_);
+    if (more_button_ != nullptr) {
+        more_button_->setIcon(chatbox::client::sidebarToggleIcon(
+            right_panel_->isVisible(),
+            QColor(chatbox::client::theme::kMuted)));
+    }
     if (!has_context || !member_panel_visible_) {
         return;
     }
@@ -23,13 +28,7 @@ void MainWindow::updateRightPanelVisibility() {
         const chatbox::client::GroupInfo* group =
             group_store_.find(static_cast<quint64>(current_room_id_));
         if (group != nullptr) {
-            member_count_label_->setText(
-                group->status != 0
-                    ? QString("%1 · %2")
-                          .arg(group->name,
-                               group->status == 2 ? QStringLiteral("已退出")
-                                                  : QStringLiteral("已解散"))
-                    : QString("%1 · %2 人").arg(group->name).arg(group->member_count));
+            member_count_label_->setText(group->name);
             const bool active = group->status == 0;
             right_settings_button_->setVisible(
                 active && (group->role == 1 || group->role == 2));

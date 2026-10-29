@@ -14,6 +14,7 @@
 #include <QFile>
 #include <QFrame>
 #include <QGraphicsDropShadowEffect>
+#include <QHBoxLayout>
 #include <QIcon>
 #include <QImage>
 #include <QLabel>
@@ -45,6 +46,7 @@
 #include <QTextDocument>
 #include <QTextFragment>
 #include <QToolButton>
+#include <QVBoxLayout>
 #include <QVector>
 
 #include "core/app_settings.h"
@@ -60,6 +62,7 @@
 #include "core/contact_store.h"
 #include "core/history_store.h"
 #include "core/group_store.h"
+#include "core/group_types.h"
 #include "core/identity.h"
 #include "core/message_renderer.h"
 #include "core/message_store.h"
@@ -78,6 +81,7 @@
 #include "ui/message_input.h"
 #include "ui/mention_popup.h"
 #include "ui/message_search_dialog.h"
+#include "ui/more_dots.h"
 #include "ui/profile_dialog.h"
 #include "ui/file_manager_dialog.h"
 #include "ui/settings_dialog.h"
@@ -349,6 +353,8 @@ private slots:
     void groupStoreFiltersAndSorts();
     void groupDialogsValidateInput();
     void sidebarHasGroupTabs();
+    void groupListTitleShowsOnlyName();
+    void sidebarAndMenuIconsAreDistinct();
     void rightSidebarHasRequiredPanels();
     void scrollLoadsOlderAndJumpsToSearchHit();
     void groupSettingsRespectsRoles();
@@ -3593,6 +3599,34 @@ void TestClientCore::sidebarHasGroupTabs() {
     QVERIFY(source.contains(QStringLiteral("QTabWidget")));
 }
 
+void TestClientCore::groupListTitleShowsOnlyName() {
+    chatbox::client::GroupInfo group;
+    group.name = QString::fromUtf8("公共大厅");
+    group.is_default = true;
+    group.member_count = 13;
+    group.role = 2;
+    group.unread = 4;
+    QCOMPARE(chatbox::client::groupListTitle(group),
+             QString::fromUtf8("公共大厅"));
+}
+
+void TestClientCore::sidebarAndMenuIconsAreDistinct() {
+    const QColor color(60, 60, 60);
+    const QImage collapsed =
+        chatbox::client::sidebarToggleIcon(false, color).pixmap(20, 20).toImage();
+    const QImage expanded =
+        chatbox::client::sidebarToggleIcon(true, color).pixmap(20, 20).toImage();
+    QVERIFY(!collapsed.isNull());
+    QVERIFY(!expanded.isNull());
+    QVERIFY(collapsed != expanded);
+    QVERIFY(!chatbox::client::hamburgerIcon(color).pixmap(20, 20).isNull());
+
+    const QString source = readMainWindowSource();
+    QVERIFY(source.contains(QStringLiteral("right_settings_button_->setIcon(")));
+    QVERIFY(source.contains(QStringLiteral("account_menu_hint_->setPixmap(")));
+    QVERIFY(source.contains(QStringLiteral("hamburgerIcon(")));
+}
+
 void TestClientCore::rightSidebarHasRequiredPanels() {
     const QString source = readMainWindowSource();
     QVERIFY(source.contains(QStringLiteral("RightSidebar")));
@@ -3883,10 +3917,11 @@ void TestClientCore::headerUsesAvatarAndMoreMenu() {
              "the header more control is a plain toggle");
     QVERIFY2(source.contains(QStringLiteral("&MainWindow::toggleRightPanel")),
              "the header more control opens the right sidebar");
-    QVERIFY2(source.contains(QStringLiteral("more_button_->setIcon(chatbox::client::moreDotsIcon(")),
-             "the header more control uses three filled dots");
+    QVERIFY2(source.contains(QStringLiteral("more_button_->setIcon(")) &&
+                 source.contains(QStringLiteral("sidebarToggleIcon(")),
+             "the header more control uses the sidebar state icon");
     QVERIFY2(!source.contains(QStringLiteral("more_button_->setText")),
-             "the header more control must not render thin text dots");
+             "the header more control must not render text");
     // The indicator rule moved from an inline setStyleSheet into style.qss so
     // it follows the theme; assert against the stylesheet that actually
     // carries it now.

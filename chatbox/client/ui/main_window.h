@@ -330,6 +330,7 @@ private:
     QLabel* context_label_ = nullptr;
     QLabel* context_avatar_ = nullptr;
     QToolButton* more_button_ = nullptr;
+    QLabel* account_menu_hint_ = nullptr;
     QLabel* connection_banner_ = nullptr;
     QWidget* banner_row_ = nullptr;
     QPushButton* reconnect_button_ = nullptr;

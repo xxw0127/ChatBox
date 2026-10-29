@@ -39,6 +39,10 @@ struct GroupRequestInfo {
     QString created_at;
 };
 
+// Visible title for a row in the group list. Keep the descriptive suffix
+// (default/member count/role) out of the list; the group panel owns it.
+QString groupListTitle(const GroupInfo& group);
+
 GroupInfo groupInfoFromWire(const chatbox::GroupInfo& wire);
 GroupMemberInfo groupMemberFromWire(const chatbox::GroupMemberInfo& wire);
 GroupRequestInfo groupRequestFromWire(const chatbox::GroupRequestInfo& wire);

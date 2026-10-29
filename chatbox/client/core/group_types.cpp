@@ -11,6 +11,10 @@ QString fromStd(const std::string& value) {
 
 }  // namespace
 
+QString groupListTitle(const GroupInfo& group) {
+    return group.name;
+}
+
 GroupInfo groupInfoFromWire(const chatbox::GroupInfo& wire) {
     GroupInfo group;
     group.room_id = wire.room_id;

@@ -10,32 +10,7 @@
 #include "ui/group_settings_dialog.h"
 #include "core/group_types.h"
 
-namespace {
 
-QString roleSuffix(int role) {
-    if (role == 2) {
-        return " · 群主";
-    }
-    if (role == 1) {
-        return " · 管理员";
-    }
-    return {};
-}
-
-QString groupRowText(const chatbox::client::GroupInfo& group) {
-    QString text = group.name;
-    if (group.is_default) {
-        text.prepend("默认 · ");
-    }
-    text += QString(" · %1人").arg(group.member_count);
-    text += roleSuffix(group.role);
-    if (group.unread > 0) {
-        text.prepend(QString("(%1) ").arg(group.unread));
-    }
-    return text;
-}
-
-}  // namespace
 
 QVector<chatbox::client::GroupRequestInfo>
 MainWindow::pendingGroupRequests() const {
@@ -101,7 +76,7 @@ void MainWindow::selectDissolvedGroup(quint64 room_id, const QString& name) {
     loadInitialHistory(chatbox::client::ChatContext::kRoom, room_id);
     renderCurrentConversation(ScrollMode::kBottom);
     if (member_count_label_ != nullptr) {
-        member_count_label_->setText(QString("%1 · %2").arg(name, tombstone));
+        member_count_label_->setText(name);
     }
     if (member_list_ != nullptr) {
         member_list_->clear();
@@ -139,7 +114,8 @@ void MainWindow::refreshGroupListView() {
     group_list_->clear();
     const QVector<chatbox::client::GroupInfo> active = group_store_.active();
     for (const chatbox::client::GroupInfo& group : active) {
-        auto* item = new QListWidgetItem(groupRowText(group), group_list_);
+        auto* item = new QListWidgetItem(
+            chatbox::client::groupListTitle(group), group_list_);
         item->setIcon(QIcon(QPixmap::fromImage(chatbox::client::roomAvatar(30))));
         item->setSizeHint(QSize(0, 48));
         item->setData(Qt::UserRole, QVariant::fromValue<qulonglong>(group.room_id));
@@ -163,7 +139,7 @@ void MainWindow::refreshGroupListView() {
             const QString tombstone = group.status == 2 ? QStringLiteral("已退出")
                                                         : QStringLiteral("已解散");
             auto* item = new QListWidgetItem(
-                QString("%1（%2）").arg(group.name, tombstone), group_list_);
+                chatbox::client::groupListTitle(group), group_list_);
             item->setData(Qt::UserRole, QVariant::fromValue<qulonglong>(group.room_id));
             item->setData(Qt::UserRole + 1, group.name);
             item->setData(Qt::UserRole + 2, group.status);
