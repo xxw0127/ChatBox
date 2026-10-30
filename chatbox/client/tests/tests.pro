@@ -55,6 +55,7 @@ SOURCES += \
     ../ui/group_join_dialog.cpp \
     ../ui/group_settings_dialog.cpp \
     ../ui/group_notify_dialog.cpp \
+    ../ui/friend_request_dialog.cpp \
     ../ui/update_dialog.cpp \
     ../ui/account_switcher_dialog.cpp
 HEADERS += \
@@ -99,6 +100,7 @@ HEADERS += \
     ../ui/group_join_dialog.h \
     ../ui/group_settings_dialog.h \
     ../ui/group_notify_dialog.h \
+    ../ui/friend_request_dialog.h \
     ../ui/update_dialog.h \
     ../ui/account_switcher_dialog.h
 

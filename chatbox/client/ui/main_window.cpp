@@ -311,12 +311,12 @@ QWidget* MainWindow::buildChatPage() {
     friend_requests_button_ = new QToolButton(conversations_page);
     friend_requests_button_->setObjectName("HeaderAction");
     friend_requests_button_->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    friend_requests_button_->setText("好友申请");
+    friend_requests_button_->setText("通知");
     friend_requests_button_->setFixedHeight(24);
     friend_requests_button_->setAutoRaise(true);
     friend_requests_button_->setCursor(Qt::PointingHandCursor);
-    friend_requests_button_->setToolTip("好友申请");
-    friend_requests_button_->setAccessibleName("好友申请");
+    friend_requests_button_->setToolTip("通知");
+    friend_requests_button_->setAccessibleName("通知");
     friends_header_layout->addWidget(friend_requests_button_, 0, Qt::AlignVCenter);
     conversations_layout->addLayout(friends_header_layout);
 

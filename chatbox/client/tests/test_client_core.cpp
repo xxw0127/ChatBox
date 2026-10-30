@@ -84,6 +84,7 @@
 #include "ui/more_dots.h"
 #include "ui/profile_dialog.h"
 #include "ui/file_manager_dialog.h"
+#include "ui/friend_request_dialog.h"
 #include "ui/settings_dialog.h"
 #include "ui/group_create_dialog.h"
 #include "ui/group_join_dialog.h"
@@ -436,6 +437,8 @@ private slots:
     void settingsDialogOffersSignOut();
     void settingsDialogOffersUpdateCheck();
     void settingsDialogOffersCloseToTray();
+    void notificationCenterShowsDirectActions();
+    void notificationCenterCombinesInvites();
     void accountSwitcherBuildsList();
     void messageInputHidesEmptyScrollbar();
     void messageComposerUsesByteCounter();
@@ -4976,10 +4979,10 @@ void TestClientCore::layoutWeightsFollowAudit() {
     QVERIFY(source.contains(QStringLiteral("member_count_label_")));
     QVERIFY(source.contains(QStringLiteral("confirmDanger")));
     QVERIFY(source.contains(QStringLiteral("more_button_->setFixedSize(32, 32)")));
-    // 好友申请从独立一行收进「好友」标题行，用图标按钮 + 角标；
+    // 好友申请和群邀请合并成「通知」，用图标按钮 + 共用角标；
     // 文字信息改由 tooltip / accessibleName 承载，未读数仍然只走角标。
-    QVERIFY(source.contains(QStringLiteral("friend_requests_button_->setAccessibleName(\"好友申请\")")));
-    QVERIFY(source.contains(QStringLiteral("friend_requests_button_->setToolTip(\"好友申请\")")));
+    QVERIFY(source.contains(QStringLiteral("friend_requests_button_->setAccessibleName(\"通知\")")));
+    QVERIFY(source.contains(QStringLiteral("friend_requests_button_->setToolTip(\"通知\")")));
 }
 
 void TestClientCore::adaptiveLayoutUsesSplitter() {
@@ -5392,6 +5395,73 @@ void TestClientCore::settingsDialogExposesHistoryActions() {
 }
 
 // 设置页必须提供检查更新入口，不能只藏在托盘菜单里。
+void TestClientCore::notificationCenterShowsDirectActions() {
+    FriendRequestDialog dialog;
+    FriendRequestInfo friend_request;
+    friend_request.user_id = 42;
+    friend_request.username = QStringLiteral("alice");
+    friend_request.nickname = QStringLiteral("Alice");
+    friend_request.created_at = QStringLiteral("2026-10-29 10:00:00");
+    chatbox::client::GroupRequestInfo invite;
+    invite.request_id = 77;
+    invite.nickname = QStringLiteral("Bob");
+    invite.room_name = QStringLiteral("设计群");
+    dialog.setNotifications({friend_request}, {invite});
+
+    auto find_button = [&dialog](const QString& accessible_name)
+        -> QPushButton* {
+        for (QPushButton* button : dialog.findChildren<QPushButton*>()) {
+            if (button->accessibleName() == accessible_name) {
+                return button;
+            }
+        }
+        return nullptr;
+    };
+    QPushButton* friend_accept = find_button(QStringLiteral("FriendAcceptButton"));
+    QPushButton* friend_reject = dialog.findChild<QPushButton*>(
+        QStringLiteral("FriendRejectButton"));
+    QPushButton* invite_accept = find_button(
+        QStringLiteral("GroupInviteAcceptButton"));
+    QPushButton* invite_reject = dialog.findChild<QPushButton*>(
+        QStringLiteral("GroupInviteRejectButton"));
+    QVERIFY(friend_accept != nullptr);
+    QVERIFY(friend_reject != nullptr);
+    QVERIFY(invite_accept != nullptr);
+    QVERIFY(invite_reject != nullptr);
+    QVERIFY(friend_accept->isEnabled());
+    QVERIFY(invite_accept->isEnabled());
+
+    QSignalSpy friend_spy(&dialog,
+                          &FriendRequestDialog::respondRequested);
+    QSignalSpy invite_spy(&dialog,
+                          &FriendRequestDialog::groupInviteRespondRequested);
+    friend_accept->click();
+    invite_accept->click();
+    QCOMPARE(friend_spy.count(), 1);
+    QCOMPARE(friend_spy.at(0).at(0).toULongLong(), qulonglong(42));
+    QCOMPARE(friend_spy.at(0).at(1).toBool(), true);
+    QCOMPARE(invite_spy.count(), 1);
+    QCOMPARE(invite_spy.at(0).at(0).toULongLong(), qulonglong(77));
+    QCOMPARE(invite_spy.at(0).at(1).toBool(), true);
+}
+
+void TestClientCore::notificationCenterCombinesInvites() {
+    const QString contacts =
+        readClientSource(QStringLiteral("ui/main_window_contacts.cpp"));
+    QVERIFY(!contacts.isEmpty());
+    QVERIFY(contacts.contains(QStringLiteral("requestGroupRequests(0)")));
+    QVERIFY(contacts.contains(QStringLiteral("setNotifications(")));
+    QVERIFY(contacts.contains(
+        QStringLiteral("friend_requests_button_->setText(\"通知\")")));
+
+    const QString groups =
+        readClientSource(QStringLiteral("ui/main_window_groups.cpp"));
+    const QString badge = functionSection(
+        groups, QStringLiteral("void MainWindow::updateGroupNoticeBadge("));
+    QVERIFY(!badge.isEmpty());
+    QVERIFY(!badge.contains(QStringLiteral("group_invites_.size()")));
+}
+
 void TestClientCore::settingsDialogOffersUpdateCheck() {
     SettingsDialog dialog(QStringLiteral("U00001001"), QString(), 0, false);
     auto* check = dialog.findChild<QPushButton*>(

@@ -23,6 +23,7 @@
 #include "core/presence_book.h"
 #include "core/update_manifest.h"
 #include "core/user_profile.h"
+#include "ui/friend_request_dialog.h"
 
 class LoginPage;
 class FriendListWidget;
@@ -406,6 +407,7 @@ private:
     QLabel* my_profile_name_ = nullptr;
     QLabel* my_profile_uid_ = nullptr;
     int friend_request_count_ = 0;
+    QVector<FriendRequestInfo> friend_requests_;
     MessageSearchDialog* message_search_dialog_ = nullptr;
     chatbox::client::ContactStore contact_store_;
     QTimer* send_timeout_timer_ = nullptr;

@@ -447,8 +447,7 @@ void MainWindow::openGroupNotifications() {
                                 ? group_store_.find(static_cast<quint64>(current_room_id_))->role
                                 : 0)
                          : 0;
-    group_notify_dialog_->setData(pendingGroupRequests(), group_invites_,
-                                  role >= 1);
+    group_notify_dialog_->setData(pendingGroupRequests(), {}, role >= 1);
     group_notify_dialog_->show();
     group_notify_dialog_->raise();
     group_notify_dialog_->activateWindow();
@@ -476,7 +475,7 @@ void MainWindow::updateGroupNoticeBadge() {
          it != group_requests_by_room_.constEnd(); ++it) {
         request_count += it.value().size();
     }
-    const int count = request_count + group_invites_.size();
+    const int count = request_count;
     group_notice_badge_->setText(QString::number(count));
     group_notice_badge_->setVisible(count > 0);
 }
