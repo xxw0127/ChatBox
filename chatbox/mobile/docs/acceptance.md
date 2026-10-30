@@ -26,7 +26,7 @@ APK：`com.chatbox.mobile` 0.1.0，arm64-v8a，Debug 签名
 | 4 | 手机已读，桌面未读清除；反之亦然 | 服务端与单元测试通过 | 服务端 `test_multidevice_read_echo.py` PASS；桌面 read-state handler 209 QtTest PASS；手机 ChatPage 进入即 `mark_read`，本地未读清零并取消通知。双真机已读未单独复测 |
 | 5 | 手机离线 30 分钟后重连，补消息顺序正确、无重复 | 通过 | 生产：手机关机状态下，第二设备连续发 40 条 1988 字节消息（约 80 KB）；手机重连后 sync 一次补齐，cursor 69，40 条全部落库、无重复（覆盖旧 64 KB 限制回归） |
 | 6 | 桌面注销手机会话，手机提示并回登录页 | 服务端通过；真机待复测 | 服务端 revoke 返回 1002 并由会话关闭；手机收到终止错误会清 token 回登录页（`terminalErrorClearsToken` PASS）。桌面设备管理页已实现 |
-| 7 | 服务端重启，手机自动重连并恢复状态 | 通过 | 生产 12:51 重启服务，手机 1.5 秒内 `reconnecting → authenticating → online`，无需重新登录 |
+| 7 | 服务端重启，手机自动重连并恢复状态 | 通过（亮屏）/ 需知悉锁屏限制 | 亮屏时 12:51 重启后 1.5 秒内 `reconnecting → authenticating → online`；锁屏/Doze 时系统会冻结心跳与网络，重连可能推迟到用户点亮屏幕，需厂商推送才能根治 |
 | 8 | 旧 0.4.0 桌面登录，不踢新手机，双方收发正常 | 服务端通过；真机待复测 | `test_multidevice_auth.py` 的 legacy 场景 PASS；旧桌面仍用 legacy 单会话规则，不会踢新手机 |
 | 9 | 手机杀 service / 厂商限制后的恢复 | 已知限制 | HyperOS 划掉最近任务会杀 UID，`START_STICKY` 30 秒内不拉起；通知在用户重新打开 App 或系统重启 service 前停止。见 `f0-device-matrix.md` |
 | 10 | 手机重启后（允许自启动）自动恢复连接 | 已知限制 | MIUI 默认拦截 `BOOT_COMPLETED`；需用户手动允许“自启动”。允许后由 `ChatBoxBootReceiver` 拉起前台 service |
@@ -38,6 +38,7 @@ APK：`com.chatbox.mobile` 0.1.0，arm64-v8a，Debug 签名
 - 迁移：`deploy/migrate_20261029_multidevice.sql`，`sessions` 已具备 `session_id/device_id/last_seen_at`，64 条存量会话全部回填
 - 新二进制：`/home/ubuntu/chatbox/build/chatbox_server`（1130648 bytes，含 multi-device）
 - systemd `chatbox` active，监听 `127.0.0.1:9100`；重启后手机 1.5 秒内 RESUME 成功
+- 桌面 0.4.3 已于 13:34 通过 `/updates/latest.json` 推送（合并 0.4.2 侧栏/通知中心 + 多设备）
 - 回滚：停服务 → 恢复备份二进制 → 启动；schema 为增量，旧二进制可直接运行
 
 ## 4. 已执行的自动化回归
