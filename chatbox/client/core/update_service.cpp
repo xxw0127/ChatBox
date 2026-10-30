@@ -1,6 +1,7 @@
 #include "core/update_service.h"
 
 #include <QCoreApplication>
+#include <QDebug>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QSslCertificate>
@@ -28,7 +29,18 @@ QNetworkRequest makeRequest(const QUrl& url, const QString& ca_path, bool* ca_ok
     // Idle timeout: a stalled TLS transfer must not leave the dialog busy
     // forever. Large packages still pass as long as data keeps arriving.
     request.setTransferTimeout(60000);
-    const QList<QSslCertificate> certificates = QSslCertificate::fromPath(ca_path);
+    QList<QSslCertificate> certificates = QSslCertificate::fromPath(ca_path);
+    if (certificates.isEmpty()) {
+        // A partial extraction or an old portable copy may be missing the
+        // adjacent certs directory. The same CA is compiled into the binary
+        // so update checks can still authenticate the pinned host.
+        certificates = QSslCertificate::fromPath(
+            QStringLiteral(":/certs/ca.crt"));
+        if (!certificates.isEmpty()) {
+            qWarning("update CA file missing at %s; using embedded certificate",
+                     qPrintable(ca_path));
+        }
+    }
     if (certificates.isEmpty()) {
         *ca_ok = false;
         return request;

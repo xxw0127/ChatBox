@@ -208,13 +208,15 @@ void MainWindow::handleGroupMemberList(const QByteArray& body) {
             requestPeerAvatar(member.user_id);
         }
     }
+    if (right_group_search_ != nullptr) {
+        filterGroupMembers(right_group_search_->text());
+    }
     const chatbox::client::GroupInfo* group =
         group_store_.find(static_cast<quint64>(room_id));
     if (member_count_label_ != nullptr) {
         member_count_label_->setText(
-            group != nullptr
-                ? QString("%1 · %2 人").arg(group->name).arg(members.size())
-                : QString("成员 (%1)").arg(members.size()));
+            group != nullptr ? group->name
+                             : QString("成员 (%1)").arg(members.size()));
     }
 }
 
@@ -234,6 +236,11 @@ void MainWindow::handleGroupRequestList(const QByteArray& body) {
     }
     if (room_id == 0) {
         group_invites_ = requests;
+        updateFriendRequestCount();
+        if (friend_requests_dialog_ != nullptr) {
+            friend_requests_dialog_->setNotifications(friend_requests_,
+                                                      group_invites_);
+        }
     } else {
         group_requests_by_room_.insert(static_cast<quint64>(room_id), requests);
     }
@@ -242,8 +249,7 @@ void MainWindow::handleGroupRequestList(const QByteArray& body) {
         const int role = group_store_.find(static_cast<quint64>(current_room_id_))
                              ? group_store_.find(static_cast<quint64>(current_room_id_))->role
                              : 0;
-        group_notify_dialog_->setData(pendingGroupRequests(), group_invites_,
-                                      role >= 1);
+        group_notify_dialog_->setData(pendingGroupRequests(), {}, role >= 1);
     }
 }
 
@@ -1050,6 +1056,9 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                     requestPeerAvatar(member_id);
                 }
             }
+            if (right_group_search_ != nullptr) {
+                filterGroupMembers(right_group_search_->text());
+            }
             break;
         }
         case chatbox::kCmdChatSendResp: {
@@ -1777,10 +1786,11 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                 request.created_at = created_at;
                 requests.push_back(request);
             }
-            friend_request_count_ = requests.size();
+            friend_requests_ = requests;
             updateFriendRequestCount();
             if (friend_requests_dialog_ != nullptr) {
-                friend_requests_dialog_->setRequests(requests);
+                friend_requests_dialog_->setNotifications(friend_requests_,
+                                                          group_invites_);
             }
             break;
         }
@@ -2337,6 +2347,8 @@ void MainWindow::clearSession() {
     closeProfileDialog();
     avatar_cache_.clear();
     friend_request_count_ = 0;
+    friend_requests_.clear();
+    group_invites_.clear();
     updateFriendRequestCount();
     user_search_seq_ = 0;
     if (search_timeout_timer_ != nullptr) {

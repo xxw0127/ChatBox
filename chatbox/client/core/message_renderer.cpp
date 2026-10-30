@@ -307,27 +307,35 @@ QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
 
     const QString avatar_src = avatar_srcs.value(message.sender_id);
     const bool show_avatar = !message.recalled && show_sender_name;
+    QString avatar_image =
+        "<img src=\"" + avatar_src.toHtmlEscaped() +
+        "\" width=\"36\" height=\"36\">";
+    if (!avatar_src.isEmpty() && message.sender_id != 0) {
+        avatar_image = QStringLiteral("<a href=\"profile-open:///%1\">%2</a>")
+                            .arg(message.sender_id)
+                            .arg(avatar_image);
+    }
     const QString avatar_cell =
         avatar_src.isEmpty()
             ? QString()
-            : "<td valign=\"top\"><img src=\"" + avatar_src.toHtmlEscaped() +
-                  "\" width=\"36\" height=\"36\"></td>";
+            : "<td valign=\"top\">" + avatar_image + "</td>";
     // A grouped continuation keeps the avatar column empty so its bubble stays
     // aligned with the first message in the run.
     const QString avatar_spacer =
         avatar_src.isEmpty()
             ? QString()
             : QStringLiteral(
-                  "<td width=\"44\" valign=\"top\">&nbsp;</td>");
+                  "<td width=\"41\" valign=\"top\">&nbsp;</td>");
 
-    const int top_margin = show_sender_name ? 12 : 4;
+    const int top_margin = show_sender_name ? 12 : 0;
+    const int wrapper_padding = show_sender_name ? 1 : 0;
     html += "<div style=\"margin-top: " + QString::number(top_margin) + "px;\">";
     // Once content would exceed roughly 620px at 14px, pin the whole row to
     // 72% of the viewport; the avatar column takes its 36px out of that budget.
     const QString width_attr =
         messageNeedsWidthCap(message) ? " width=\"72%\"" : QString();
     html += "<table align=\"" + alignment + "\"" + width_attr +
-            " cellspacing=\"0\" cellpadding=\"4\"><tr>";
+            " cellspacing=\"0\" cellpadding=\"2\"><tr>";
     if (!outgoing) {
         html += show_avatar ? avatar_cell : avatar_spacer;
     }
@@ -335,10 +343,11 @@ QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
     if (!outgoing && !message.recalled && show_sender_name) {
         QString identity = senderLabel(message).toHtmlEscaped();
         if (message.sender_id != 0) {
-            identity += "&nbsp;&nbsp;<span style=\"color: " +
-                        QString::fromLatin1(theme::kMuted) +
-                        "; font-size: 11px;\">" +
-                        publicUserId(message.sender_id).toHtmlEscaped() + "</span>";
+            identity = QStringLiteral(
+                           "<a href=\"profile-open:///%1\" style=\"color: %2; "
+                           "text-decoration: none;\">%3</a>")
+                           .arg(message.sender_id)
+                           .arg(QString::fromLatin1(theme::kBody), identity);
         }
         html += "<div style=\"color: " + QString::fromLatin1(theme::kBody) +
                 "; font-size: 12px; margin-bottom: 2px;\">" + identity + "</div>";
@@ -347,7 +356,8 @@ QString renderMessageFragment(const ChatMessage& message, quint64 self_user_id,
     // Qt's rich-text engine (border-radius and box-shadow are unsupported).
     // The visible border is painted by ChatView; a square bgcolor here would
     // leave a frame outside the corners.
-    html += "<table cellspacing=\"0\" cellpadding=\"1\" bgcolor=\"" +
+    html += "<table cellspacing=\"0\" cellpadding=\"" +
+            QString::number(wrapper_padding) + "\" bgcolor=\"" +
             QString::fromLatin1(theme::kSurfaceSoft) + "\"><tr><td>";
     html += "<table cellspacing=\"0\" cellpadding=\"" +
             QString::number(bubble_padding) + "\" bgcolor=\"" + background +

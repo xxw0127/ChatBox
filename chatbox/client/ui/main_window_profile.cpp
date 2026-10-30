@@ -30,8 +30,6 @@ void MainWindow::updateRightPanelVisibility() {
         if (group != nullptr) {
             member_count_label_->setText(group->name);
             const bool active = group->status == 0;
-            right_settings_button_->setVisible(
-                active && (group->role == 1 || group->role == 2));
             if (right_invite_button_ != nullptr) {
                 right_invite_button_->setVisible(active);
                 right_invite_button_->setEnabled(active && online_ &&
@@ -46,7 +44,6 @@ void MainWindow::updateRightPanelVisibility() {
             }
         } else {
             member_count_label_->setText(current_peer_name_);
-            right_settings_button_->hide();
             if (right_invite_button_ != nullptr) {
                 right_invite_button_->hide();
             }
@@ -57,7 +54,6 @@ void MainWindow::updateRightPanelVisibility() {
     } else {
         right_mode_stack_->setCurrentWidget(right_private_page_);
         member_count_label_->setText(current_peer_name_);
-        right_settings_button_->hide();
         updatePrivateProfileCard();
     }
 }

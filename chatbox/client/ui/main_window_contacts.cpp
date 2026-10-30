@@ -312,27 +312,35 @@ void MainWindow::sendFriendRemove(quint64 friend_id) {
 
 void MainWindow::openFriendRequests() {
     if (offline_mode_ || !online_) {
-        setStatus("当前离线，无法查看好友申请", true);
+        setStatus("当前离线，无法查看通知", true);
         return;
     }
     if (friend_requests_dialog_ == nullptr) {
         friend_requests_dialog_ = new FriendRequestDialog(this);
-        connect(friend_requests_dialog_, &FriendRequestDialog::respondRequested, this,
-                [this](quint64 requester_id, bool accept) {
+        connect(friend_requests_dialog_, &FriendRequestDialog::respondRequested,
+                this, [this](quint64 requester_id, bool accept) {
                     sendFriendResponse(requester_id, accept);
                 });
-        connect(friend_requests_dialog_, &FriendRequestDialog::refreshRequested, this,
-                &MainWindow::requestFriendRequests);
-        connect(friend_requests_dialog_, &FriendRequestDialog::profileRequested, this,
-                [this](quint64 user_id) {
-                    const QString fallback =
-                        friend_requests_dialog_ != nullptr
-                            ? friend_requests_dialog_->currentDisplayName()
-                            : QString();
-                    openProfile(user_id, fallback);
+        connect(friend_requests_dialog_,
+                &FriendRequestDialog::groupInviteRespondRequested, this,
+                [this](quint64 invite_id, bool accept) {
+                    chatbox::ByteWriter writer;
+                    writer.putU64(invite_id);
+                    writer.putU8(accept ? 1 : 0);
+                    sendGroupCommand(chatbox::kCmdGroupInviteRespond,
+                                     writer.data());
                 });
+        connect(friend_requests_dialog_, &FriendRequestDialog::refreshRequested,
+                this, [this] {
+                    requestFriendRequests();
+                    requestGroupRequests(0);
+                });
+        connect(friend_requests_dialog_, &FriendRequestDialog::profileRequested,
+                this, [this](quint64 user_id) { openProfile(user_id); });
     }
     requestFriendRequests();
+    requestGroupRequests(0);
+    friend_requests_dialog_->setNotifications(friend_requests_, group_invites_);
     friend_requests_dialog_->show();
     friend_requests_dialog_->raise();
     friend_requests_dialog_->activateWindow();
@@ -342,11 +350,20 @@ void MainWindow::updateFriendRequestCount() {
     if (friend_requests_button_ == nullptr) {
         return;
     }
-    friend_requests_button_->setText("好友申请");
+    friend_request_count_ =
+        friend_requests_.size() + group_invites_.size();
+    friend_requests_button_->setText("通知");
     friend_requests_button_->setAccessibleName(
         friend_request_count_ > 0
-            ? QString("好友申请，%1 条未读").arg(friend_request_count_)
-            : QString("好友申请"));
+            ? QString("通知，%1 条待处理").arg(friend_request_count_)
+            : QString("通知"));
+    friend_requests_button_->setToolTip("通知");
+    if (sidebar_tabs_ != nullptr) {
+        sidebar_tabs_->setTabText(
+            0, friend_request_count_ > 0
+                   ? QString("会话 (%1)").arg(friend_request_count_)
+                   : QString("会话"));
+    }
     if (friend_requests_badge_ == nullptr) {
         return;
     }

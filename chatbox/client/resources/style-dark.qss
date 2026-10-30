@@ -1,7 +1,22 @@
 * {
-    font-family: "Segoe UI", "Microsoft YaHei UI";
+    font-family: "Microsoft YaHei UI", "Segoe UI";
     font-size: 13px;
     color: #FFFFFF;
+}
+
+QDialog#UpdateDialog {
+    font-family: "Microsoft YaHei UI", "Segoe UI";
+}
+
+QLabel#UpdateTitleLabel {
+    font-size: 14px;
+    font-weight: 600;
+    padding: 2px 0;
+}
+
+QLabel#UpdateNotesLabel {
+    font-size: 13px;
+    padding: 2px 0;
 }
 
 QMainWindow, QDialog {
@@ -488,11 +503,27 @@ QToolTip {
     border: none;
     padding: 6px 8px;
 }
-QToolButton#MoreButton, QToolButton#AdvancedOptionsButton {
+QToolButton#MoreButton, QToolButton#AdvancedOptionsButton,
+QToolButton#RightSearchButton, QToolButton#RightMoreButton {
     background: transparent;
     border: none;
     border-radius: 8px;
     padding: 0px;
+}
+
+QToolButton#RightSearchButton:hover, QToolButton#RightMoreButton:hover {
+    background: #2B3B4E;
+}
+
+QToolButton#RightMoreButton::menu-indicator {
+    image: none;
+    width: 0px;
+}
+
+QLabel#MemberSearchEmpty {
+    color: #708499;
+    font-size: 12px;
+    padding: 12px 0;
 }
 
 QToolButton[keyboardFocus="true"]:focus {
@@ -591,10 +622,8 @@ QPushButton#MyProfileButton:pressed {
 }
 
 QLabel#AccountMenuHint {
-    color: #708499;
-    font-size: 18px;
-    font-weight: 600;
-    padding-right: 4px;
+    background: transparent;
+    padding: 0;
 }
 
 QLabel#MyProfileName {

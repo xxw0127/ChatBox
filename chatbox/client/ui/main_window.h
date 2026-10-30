@@ -23,6 +23,7 @@
 #include "core/presence_book.h"
 #include "core/update_manifest.h"
 #include "core/user_profile.h"
+#include "ui/friend_request_dialog.h"
 
 class LoginPage;
 class FriendListWidget;
@@ -86,6 +87,7 @@ public:
 protected:
     void closeEvent(QCloseEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
+    void requestQuit();
 
 private slots:
     void onLoginRequested(const QString& host, quint16 port, const QString& username,
@@ -213,6 +215,7 @@ private:
     void selectGroup(quint64 room_id, const QString& name);
     void selectDissolvedGroup(quint64 room_id, const QString& name);
     void refreshGroupListView();
+    void filterGroupMembers(const QString& keyword);
     void openCreateGroupDialog();
     void openJoinGroupDialog();
     void openGroupSettings();
@@ -377,12 +380,15 @@ private:
     QLabel* member_count_label_ = nullptr;
     QLineEdit* right_group_search_ = nullptr;
     QLineEdit* right_private_search_ = nullptr;
-    QPushButton* right_group_file_button_ = nullptr;
-    QPushButton* right_private_file_button_ = nullptr;
+    QLabel* member_search_empty_ = nullptr;
     QPushButton* right_profile_button_ = nullptr;
     QPushButton* right_invite_button_ = nullptr;
     QPushButton* right_leave_button_ = nullptr;
-    QToolButton* right_settings_button_ = nullptr;
+    QToolButton* right_search_button_ = nullptr;
+    QToolButton* right_more_button_ = nullptr;
+    QAction* right_search_action_ = nullptr;
+    QAction* right_files_action_ = nullptr;
+    QAction* right_group_settings_action_ = nullptr;
     QLabel* right_profile_avatar_ = nullptr;
     QLabel* right_profile_name_ = nullptr;
     QLabel* right_profile_id_ = nullptr;
@@ -403,6 +409,7 @@ private:
     QLabel* my_profile_name_ = nullptr;
     QLabel* my_profile_uid_ = nullptr;
     int friend_request_count_ = 0;
+    QVector<FriendRequestInfo> friend_requests_;
     MessageSearchDialog* message_search_dialog_ = nullptr;
     chatbox::client::ContactStore contact_store_;
     QTimer* send_timeout_timer_ = nullptr;
@@ -481,6 +488,8 @@ private:
     bool system_popup_enabled_ = true;
     bool logged_in_ = false;
     bool shutting_down_ = false;
+    bool close_to_tray_ = true;
+    bool tray_hint_shown_ = false;
     bool logging_out_ = false;
     bool logout_finishing_ = false;
     bool reconnect_scheduled_ = false;

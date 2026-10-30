@@ -20,6 +20,7 @@ UpdateDialog::UpdateDialog(const chatbox::client::UpdateManifest& manifest,
 
     auto* title = new QLabel(QStringLiteral("ChatBox %1 可用").arg(manifest.version), this);
     title->setObjectName(QStringLiteral("UpdateTitleLabel"));
+    title->setMinimumHeight(title->fontMetrics().height() + 6);
     layout->addWidget(title);
 
     notes_label_ = new QLabel(manifest.notes.isEmpty()
@@ -28,6 +29,7 @@ UpdateDialog::UpdateDialog(const chatbox::client::UpdateManifest& manifest,
                               this);
     notes_label_->setObjectName(QStringLiteral("UpdateNotesLabel"));
     notes_label_->setWordWrap(true);
+    notes_label_->setMinimumHeight(notes_label_->fontMetrics().height() + 6);
     layout->addWidget(notes_label_);
 
     progress_bar_ = new QProgressBar(this);

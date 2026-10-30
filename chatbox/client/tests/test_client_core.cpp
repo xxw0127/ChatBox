@@ -87,6 +87,7 @@
 #include "ui/more_dots.h"
 #include "ui/profile_dialog.h"
 #include "ui/file_manager_dialog.h"
+#include "ui/friend_request_dialog.h"
 #include "ui/settings_dialog.h"
 #include "ui/group_create_dialog.h"
 #include "ui/group_join_dialog.h"
@@ -274,7 +275,8 @@ private slots:
     void rendererQuoteBlockWithoutInlineActions();
     void rendererCapsWideBubbleWidth();
     void rendererQuoteBubbleStaysNarrow();
-    void rendererShowsAvatarAndPublicId();
+    void rendererShowsAvatarAndNameOnly();
+    void rendererTightensConsecutiveBubbleGap();
     void rendererOwnMessageHidesNameAndId();
     void rendererHidesAvatarForConsecutiveMessages();
     void messageGroupingUsesPreviousMessage();
@@ -360,6 +362,7 @@ private slots:
     void groupDialogsValidateInput();
     void sidebarHasGroupTabs();
     void groupListTitleShowsOnlyName();
+    void groupListBadgeUsesDisplayedUnread();
     void sidebarAndMenuIconsAreDistinct();
     void rightSidebarHasRequiredPanels();
     void scrollLoadsOlderAndJumpsToSearchHit();
@@ -373,6 +376,7 @@ private slots:
     void updateServiceCancelIsSafe();
     void updateServiceRejectsShaMismatch();
     void updateDialogHasRequiredActions();
+    void updateDialogTextFitsFontMetrics();
     void updateDialogShowsCancelDuringDownload();
     void startupSchedulesOneUpdateCheck();
     void updateInstallerValidatesPackage();
@@ -394,6 +398,7 @@ private slots:
     void startupHonoursMinimizedAndSingleInstance();
     void startupSupportsIsolatedProfile();
     void startupPolicyRequiresUsableTray();
+    void closeToTrayPolicy();
     void unreadBadgesHonourAlertsSwitch();
     void historyStoreCreatesSchema();
     void historyStoreMigratesV1();
@@ -407,6 +412,7 @@ private slots:
     void rendererShowsLargeImagePreview();
     void rendererShowsVideoPreviewWithPlayMarker();
     void rendererFallsBackToFileCardForVideoWithoutThumbnail();
+    void thumbnailCacheUsesVersionedPath();
     void historyStoreReportsOpenFailure();
     void historyStoreRejectsSecondInstance();
     void historyStoreSaveAndLoadRecent();
@@ -436,6 +442,9 @@ private slots:
     void messageInputHandlesKeyboardAndPlainPaste();
     void settingsDialogOffersSignOut();
     void settingsDialogOffersUpdateCheck();
+    void settingsDialogOffersCloseToTray();
+    void notificationCenterShowsDirectActions();
+    void notificationCenterCombinesInvites();
     void accountSwitcherBuildsList();
     void messageInputHidesEmptyScrollbar();
     void messageComposerUsesByteCounter();
@@ -1178,7 +1187,7 @@ void TestClientCore::rendererQuoteBubbleStaysNarrow() {
                             .arg(limit)));
 }
 
-void TestClientCore::rendererShowsAvatarAndPublicId() {
+void TestClientCore::rendererShowsAvatarAndNameOnly() {
     const QDateTime created = chatbox::client::parseServerUtc("2026-10-18 12:00:00");
     chatbox::client::ChatMessage message;
     message.message_id = 1;
@@ -1194,9 +1203,54 @@ void TestClientCore::rendererShowsAvatarAndPublicId() {
         chatbox::client::renderConversationHtml({message}, 99999, nullptr, avatars);
 
     QVERIFY(html.contains(QStringLiteral("chatbox-avatar://10001?v=3")));
-    QVERIFY(html.contains(QStringLiteral("U00010001")));
+    QVERIFY(!html.contains(QStringLiteral("U00010001")));
+    QCOMPARE(html.count(QStringLiteral("profile-open:///10001")), 2);
     QVERIFY(html.contains(QStringLiteral("width=\"36\"")));
     QVERIFY(html.contains(QString::fromUtf8("李硬")));
+
+    const QString window = readMainWindowSource();
+    QVERIFY(window.contains(QStringLiteral("profile-open")));
+    QVERIFY(window.contains(QStringLiteral("openOwnProfile")));
+}
+
+void TestClientCore::rendererTightensConsecutiveBubbleGap() {
+    const QDateTime created = chatbox::client::parseServerUtc("2026-10-18 12:00:00");
+    chatbox::client::ChatMessage first;
+    first.message_id = 1;
+    first.sender_id = 2;
+    first.sender_name = "Bob";
+    first.content = "one";
+    first.created_at_utc = created;
+    chatbox::client::ChatMessage second = first;
+    second.message_id = 2;
+    second.content = "two";
+    second.created_at_utc = created.addSecs(30);
+    chatbox::client::ChatMessage third = first;
+    third.message_id = 3;
+    third.content = "three";
+    third.created_at_utc = created.addSecs(60);
+
+    QVector<chatbox::client::MessageKey> keys;
+    const QString html =
+        chatbox::client::renderConversationHtml({first, second, third}, 1, &keys);
+    ChatView view;
+    view.resize(640, 500);
+    view.show();
+    QTest::qWait(30);
+    view.setConversationHtml(html, keys);
+
+    const QRect first_bubble = view.messageBubbleRect(1);
+    const QRect second_bubble = view.messageBubbleRect(2);
+    const QRect third_bubble = view.messageBubbleRect(3);
+    QVERIFY(!first_bubble.isNull());
+    QVERIFY(!second_bubble.isNull());
+    QVERIFY(!third_bubble.isNull());
+    const int gap_12 = second_bubble.top() - first_bubble.bottom();
+    const int gap_23 = third_bubble.top() - second_bubble.bottom();
+    QVERIFY2(gap_12 <= 6,
+             qPrintable(QStringLiteral("first continuation gap %1").arg(gap_12)));
+    QVERIFY2(gap_23 <= 6,
+             qPrintable(QStringLiteral("second continuation gap %1").arg(gap_23)));
 }
 
 void TestClientCore::rendererOwnMessageHidesNameAndId() {
@@ -1216,6 +1270,7 @@ void TestClientCore::rendererOwnMessageHidesNameAndId() {
         chatbox::client::renderConversationHtml({own}, 7, nullptr, avatars);
 
     QVERIFY(html.contains(QStringLiteral("chatbox-avatar://7?v=0")));
+    QVERIFY(html.contains(QStringLiteral("profile-open:///7")));
     QVERIFY(!html.contains(QStringLiteral("ZeldaUnique")));
     QVERIFY(!html.contains(QStringLiteral("U00000007")));
 }
@@ -1240,7 +1295,7 @@ void TestClientCore::rendererHidesAvatarForConsecutiveMessages() {
 
     QCOMPARE(html.count(QStringLiteral("chatbox-avatar://11?v=2")), 1);
     QCOMPARE(html.count(QStringLiteral("OnlyOnceName")), 1);
-    QVERIFY(html.contains(QStringLiteral("td width=\"44\"")));
+    QVERIFY(html.contains(QStringLiteral("td width=\"41\"")));
 }
 
 void TestClientCore::messageGroupingUsesPreviousMessage() {
@@ -1368,12 +1423,21 @@ void TestClientCore::messageBubblesHaveRoundedCorners() {
         view.findChild<QWidget*>(QStringLiteral("BubbleOverlay"));
     QVERIFY(overlay != nullptr);
     const QImage image = overlay->grab().toImage();
+    const qreal dpr = image.devicePixelRatio();
+    auto device = [dpr](int logical) { return qRound(logical * dpr); };
     const QColor canvas(chatbox::client::theme::kSurfaceSoft);
     const QColor border(chatbox::client::theme::kBubbleBorder);
-    const QColor corner = image.pixelColor(bubble.left() + 2, bubble.top() + 2);
+    auto near = [](const QColor& a, const QColor& b) {
+        return qAbs(a.red() - b.red()) <= 24 &&
+               qAbs(a.green() - b.green()) <= 24 &&
+               qAbs(a.blue() - b.blue()) <= 24;
+    };
+    const QColor corner = image.pixelColor(device(bubble.left() + 2),
+                                           device(bubble.top() + 2));
     bool border_on_top_edge = false;
     for (int y = bubble.top(); y <= bubble.top() + 2; ++y) {
-        if (image.pixelColor(bubble.center().x(), y) == border) {
+        if (near(image.pixelColor(device(bubble.center().x()), device(y)),
+                 border)) {
             border_on_top_edge = true;
         }
     }
@@ -1423,20 +1487,30 @@ void TestClientCore::messageBubblesDrawRightEdge() {
         view.findChild<QWidget*>(QStringLiteral("BubbleOverlay"));
     QVERIFY(overlay != nullptr);
     const QImage image = overlay->grab().toImage();
+    const qreal dpr = image.devicePixelRatio();
+    auto device = [dpr](int logical) { return qRound(logical * dpr); };
     const QColor border(chatbox::client::theme::kBubbleBorder);
+    auto near = [](const QColor& a, const QColor& b) {
+        return qAbs(a.red() - b.red()) <= 24 &&
+               qAbs(a.green() - b.green()) <= 24 &&
+               qAbs(a.blue() - b.blue()) <= 24;
+    };
     bool found = false;
     for (int x = bubble.right() - 2; x <= bubble.right() + 2; ++x) {
         for (int y = bubble.top() + 2; y <= bubble.bottom() - 2; ++y) {
-            if (x >= 0 && x < image.width() && y >= 0 && y < image.height() &&
-                image.pixelColor(x, y) == border) {
+            const int dx = device(x);
+            const int dy = device(y);
+            if (dx >= 0 && dx < image.width() && dy >= 0 && dy < image.height() &&
+                near(image.pixelColor(dx, dy), border)) {
                 found = true;
             }
         }
     }
-    const QColor edge = image.pixelColor(image.width() - 1, bubble.center().y());
+    const QColor edge =
+        image.pixelColor(image.width() - 1, device(bubble.center().y()));
     qApp->setStyleSheet(previous_style);
     QVERIFY2(found, "outgoing bubbles must paint the right border");
-    QVERIFY2(edge != border,
+    QVERIFY2(!near(edge, border),
              "the bubble border must not be clipped at the viewport edge");
 }
 
@@ -3093,7 +3167,7 @@ void TestClientCore::updatePromptRestoresHiddenWindow() {
     QVERIFY(window.contains(QStringLiteral("checkPreviousUpdateInterrupted")));
     QVERIFY(window.contains(QStringLiteral("QTimer::singleShot(10000")));
     QVERIFY(update.contains(QStringLiteral("checkPreviousUpdateInterrupted")));
-    QVERIFY(main.contains(QStringLiteral("setApplicationVersion(\"0.4.1\")")));
+    QVERIFY(main.contains(QStringLiteral("setApplicationVersion(\"0.4.2\")")));
 }
 
 void TestClientCore::updateManifestParsesValid() {
@@ -3182,6 +3256,10 @@ void TestClientCore::updateServiceUsesPinnedCa() {
     QVERIFY2(!header.isEmpty(), "core/update_service.h must be readable");
     QVERIFY(source.contains(QStringLiteral("QSslConfiguration")));
     QVERIFY(source.contains(QStringLiteral("QSslCertificate")));
+    QVERIFY(source.contains(QStringLiteral(":/certs/ca.crt")));
+    const QString qrc =
+        readClientSource(QStringLiteral("resources/resources.qrc"));
+    QVERIFY(qrc.contains(QStringLiteral("certs/ca.crt")));
     QVERIFY(!source.contains(QStringLiteral("setPeerVerifyMode(QSslSocket::VerifyNone)")));
     QVERIFY(header.contains(QStringLiteral("QCryptographicHash")));
     QVERIFY(source.contains(QStringLiteral("download_hash_")));
@@ -3261,6 +3339,36 @@ void TestClientCore::updateDialogHasRequiredActions() {
     QVERIFY2(!source.isEmpty(), "ui/main_window_update.cpp must be readable");
     QVERIFY(source.contains(QStringLiteral("update_dialog_->show()")));
     QVERIFY(!source.contains(QStringLiteral("update_dialog_->exec()")));
+}
+
+void TestClientCore::updateDialogTextFitsFontMetrics() {
+    const QString light = readClientSource(QStringLiteral("resources/style.qss"));
+    const QString dark =
+        readClientSource(QStringLiteral("resources/style-dark.qss"));
+    QVERIFY(light.contains(
+        QStringLiteral("\"Microsoft YaHei UI\", \"Segoe UI\"")));
+    QVERIFY(dark.contains(
+        QStringLiteral("\"Microsoft YaHei UI\", \"Segoe UI\"")));
+    QVERIFY(light.contains(QStringLiteral("QLabel#UpdateTitleLabel")));
+    QVERIFY(light.contains(QStringLiteral("QLabel#UpdateNotesLabel")));
+    QVERIFY(dark.contains(QStringLiteral("QLabel#UpdateTitleLabel")));
+    QVERIFY(dark.contains(QStringLiteral("QLabel#UpdateNotesLabel")));
+
+    chatbox::client::UpdateManifest manifest;
+    manifest.version = QStringLiteral("0.4.2");
+    manifest.notes = QString::fromUtf8(
+        "这是一段用于检查更新弹窗行高的说明文字，包含中文和 English mixed text。");
+    UpdateDialog dialog(manifest);
+    dialog.show();
+    QTest::qWait(50);
+    auto* title = dialog.findChild<QLabel*>(QStringLiteral("UpdateTitleLabel"));
+    auto* notes = dialog.findChild<QLabel*>(QStringLiteral("UpdateNotesLabel"));
+    QVERIFY(title != nullptr);
+    QVERIFY(notes != nullptr);
+    QVERIFY2(title->height() >= title->fontMetrics().height(),
+             "update title must not clip the font's ascent/descent");
+    QVERIFY2(notes->height() >= notes->fontMetrics().height(),
+             "update notes must not clip the font's ascent/descent");
 }
 
 void TestClientCore::updateDialogShowsCancelDuringDownload() {
@@ -3616,6 +3724,18 @@ void TestClientCore::groupListTitleShowsOnlyName() {
              QString::fromUtf8("公共大厅"));
 }
 
+void TestClientCore::groupListBadgeUsesDisplayedUnread() {
+    const QString source =
+        readClientSource(QStringLiteral("ui/main_window_groups.cpp"));
+    const QString refresh = functionSection(
+        source, QStringLiteral("void MainWindow::refreshGroupListView("));
+    QVERIFY2(!refresh.isEmpty(), "refreshGroupListView must be readable");
+    QVERIFY(refresh.contains(QStringLiteral("displayedUnread(")));
+    QVERIFY(refresh.contains(QStringLiteral("notifications_enabled_")));
+    QVERIFY(refresh.contains(QStringLiteral("groupListIcon(")));
+    QVERIFY(!refresh.contains(QStringLiteral("QString(\"(%1)\"")));
+}
+
 void TestClientCore::sidebarAndMenuIconsAreDistinct() {
     const QColor color(60, 60, 60);
     const QImage collapsed =
@@ -3628,7 +3748,8 @@ void TestClientCore::sidebarAndMenuIconsAreDistinct() {
     QVERIFY(!chatbox::client::hamburgerIcon(color).pixmap(20, 20).isNull());
 
     const QString source = readMainWindowSource();
-    QVERIFY(source.contains(QStringLiteral("right_settings_button_->setIcon(")));
+    QVERIFY(source.contains(QStringLiteral("right_more_button_->setIcon(")));
+    QVERIFY(source.contains(QStringLiteral("right_search_button_->setIcon(")));
     QVERIFY(source.contains(QStringLiteral("account_menu_hint_->setPixmap(")));
     QVERIFY(source.contains(QStringLiteral("hamburgerIcon(")));
 }
@@ -3643,7 +3764,14 @@ void TestClientCore::rightSidebarHasRequiredPanels() {
     QVERIFY(source.contains(QStringLiteral("RightPrivateSearch")));
     QVERIFY(source.contains(QStringLiteral("RightSearchPage")));
     QVERIFY(source.contains(QStringLiteral("RightSearchResults")));
-    QVERIFY(source.contains(QStringLiteral("RightFileButton")));
+    QVERIFY(source.contains(QStringLiteral("RightMoreButton")));
+    QVERIFY(source.contains(QStringLiteral("RightSearchButton")));
+    QVERIFY(!source.contains(QStringLiteral("RightFileButton")));
+    QVERIFY(source.contains(QStringLiteral("搜索成员")));
+    QVERIFY(source.contains(QStringLiteral("filterGroupMembers")));
+    QVERIFY(source.contains(QStringLiteral("查找聊天内容")));
+    QVERIFY(source.contains(QStringLiteral("文件管理")));
+    QVERIFY(source.contains(QStringLiteral("群设置")));
     QVERIFY(source.contains(QStringLiteral("RightInviteButton")));
     QVERIFY(source.contains(QStringLiteral("RightLeaveButton")));
     QVERIFY(source.contains(QStringLiteral("RightProfileButton")));
@@ -3934,8 +4062,10 @@ void TestClientCore::headerUsesAvatarAndMoreMenu() {
     const QString qss = readClientSource(QStringLiteral("resources/style.qss"));
     QVERIFY2(qss.contains(QStringLiteral("QToolButton#MoreButton::menu-indicator")),
              "the header more control must hide the menu indicator arrow");
-    QVERIFY2(!source.contains(QStringLiteral("more_menu_")),
-             "the header must not keep a popup menu");
+    QVERIFY2(!source.contains(QStringLiteral("    more_button_->setMenu(")),
+             "the sidebar toggle must not become a popup menu");
+    QVERIFY2(source.contains(QStringLiteral("right_more_button_->setMenu(")),
+             "the right sidebar owns the More menu");
     QVERIFY2(source.contains(QStringLiteral("RightGroupSearch")),
              "message search lives in the right sidebar");
     QVERIFY2(source.contains(QStringLiteral("RightPrivateSearch")),
@@ -4043,6 +4173,19 @@ void TestClientCore::startupPolicyRequiresUsableTray() {
     QVERIFY(!chatbox::client::shouldStartHidden(true, false));
     QVERIFY(!chatbox::client::shouldStartHidden(false, true));
     QVERIFY(!chatbox::client::shouldStartHidden(false, false));
+}
+
+void TestClientCore::closeToTrayPolicy() {
+    QVERIFY(chatbox::client::shouldHideToTray(true, true, false));
+    QVERIFY(!chatbox::client::shouldHideToTray(true, true, true));
+    QVERIFY(!chatbox::client::shouldHideToTray(false, true, false));
+    QVERIFY(!chatbox::client::shouldHideToTray(true, false, false));
+
+    const QString source = readMainWindowSource();
+    QVERIFY2(source.contains(QStringLiteral("shouldHideToTray(")),
+             "closeEvent must use the testable tray policy");
+    QVERIFY2(source.contains(QStringLiteral("requestQuit(")),
+             "tray Exit must have an explicit quit path");
 }
 
 // Turning the alert master switch off must also hide unread badges and the
@@ -4453,6 +4596,25 @@ void TestClientCore::historyStorePreservesFileMediaDimensions() {
     store.close();
 }
 
+void TestClientCore::thumbnailCacheUsesVersionedPath() {
+    const quint64 file_id = 990010;
+    QVERIFY(QDir().mkpath(chatbox::client::thumbnailCacheDirectory()));
+    const QString legacy = QDir(chatbox::client::thumbnailCacheDirectory())
+                               .filePath(QString::number(file_id) +
+                                         QStringLiteral(".jpg"));
+    QFile old_file(legacy);
+    QVERIFY(old_file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    old_file.write("old");
+    old_file.close();
+
+    QVERIFY(chatbox::client::thumbnailCachePath(file_id)
+                .endsWith(QStringLiteral("990010-v2.jpg")));
+    QVERIFY(saveTestThumbnail(file_id, 32, 32));
+    QVERIFY(!QFile::exists(legacy));
+    QVERIFY(QFile::exists(chatbox::client::thumbnailCachePath(file_id)));
+    QFile::remove(chatbox::client::thumbnailCachePath(file_id));
+}
+
 void TestClientCore::historyStoreFileDeleteIsConversationScoped() {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -4842,10 +5004,10 @@ void TestClientCore::layoutWeightsFollowAudit() {
     QVERIFY(source.contains(QStringLiteral("member_count_label_")));
     QVERIFY(source.contains(QStringLiteral("confirmDanger")));
     QVERIFY(source.contains(QStringLiteral("more_button_->setFixedSize(32, 32)")));
-    // 好友申请从独立一行收进「好友」标题行，用图标按钮 + 角标；
+    // 好友申请和群邀请合并成「通知」，用图标按钮 + 共用角标；
     // 文字信息改由 tooltip / accessibleName 承载，未读数仍然只走角标。
-    QVERIFY(source.contains(QStringLiteral("friend_requests_button_->setAccessibleName(\"好友申请\")")));
-    QVERIFY(source.contains(QStringLiteral("friend_requests_button_->setToolTip(\"好友申请\")")));
+    QVERIFY(source.contains(QStringLiteral("friend_requests_button_->setAccessibleName(\"通知\")")));
+    QVERIFY(source.contains(QStringLiteral("friend_requests_button_->setToolTip(\"通知\")")));
 }
 
 void TestClientCore::adaptiveLayoutUsesSplitter() {
@@ -5258,12 +5420,96 @@ void TestClientCore::settingsDialogExposesHistoryActions() {
 }
 
 // 设置页必须提供检查更新入口，不能只藏在托盘菜单里。
+void TestClientCore::notificationCenterShowsDirectActions() {
+    FriendRequestDialog dialog;
+    FriendRequestInfo friend_request;
+    friend_request.user_id = 42;
+    friend_request.username = QStringLiteral("alice");
+    friend_request.nickname = QStringLiteral("Alice");
+    friend_request.created_at = QStringLiteral("2026-10-29 10:00:00");
+    chatbox::client::GroupRequestInfo invite;
+    invite.request_id = 77;
+    invite.nickname = QStringLiteral("Bob");
+    invite.room_name = QStringLiteral("设计群");
+    dialog.setNotifications({friend_request}, {invite});
+
+    auto find_button = [&dialog](const QString& accessible_name)
+        -> QPushButton* {
+        for (QPushButton* button : dialog.findChildren<QPushButton*>()) {
+            if (button->accessibleName() == accessible_name) {
+                return button;
+            }
+        }
+        return nullptr;
+    };
+    QPushButton* friend_accept = find_button(QStringLiteral("FriendAcceptButton"));
+    QPushButton* friend_reject = dialog.findChild<QPushButton*>(
+        QStringLiteral("FriendRejectButton"));
+    QPushButton* invite_accept = find_button(
+        QStringLiteral("GroupInviteAcceptButton"));
+    QPushButton* invite_reject = dialog.findChild<QPushButton*>(
+        QStringLiteral("GroupInviteRejectButton"));
+    QVERIFY(friend_accept != nullptr);
+    QVERIFY(friend_reject != nullptr);
+    QVERIFY(invite_accept != nullptr);
+    QVERIFY(invite_reject != nullptr);
+    QVERIFY(friend_accept->isEnabled());
+    QVERIFY(invite_accept->isEnabled());
+
+    QSignalSpy friend_spy(&dialog,
+                          &FriendRequestDialog::respondRequested);
+    QSignalSpy invite_spy(&dialog,
+                          &FriendRequestDialog::groupInviteRespondRequested);
+    friend_accept->click();
+    invite_accept->click();
+    QCOMPARE(friend_spy.count(), 1);
+    QCOMPARE(friend_spy.at(0).at(0).toULongLong(), qulonglong(42));
+    QCOMPARE(friend_spy.at(0).at(1).toBool(), true);
+    QCOMPARE(invite_spy.count(), 1);
+    QCOMPARE(invite_spy.at(0).at(0).toULongLong(), qulonglong(77));
+    QCOMPARE(invite_spy.at(0).at(1).toBool(), true);
+}
+
+void TestClientCore::notificationCenterCombinesInvites() {
+    const QString contacts =
+        readClientSource(QStringLiteral("ui/main_window_contacts.cpp"));
+    QVERIFY(!contacts.isEmpty());
+    QVERIFY(contacts.contains(QStringLiteral("requestGroupRequests(0)")));
+    QVERIFY(contacts.contains(QStringLiteral("setNotifications(")));
+    QVERIFY(contacts.contains(
+        QStringLiteral("friend_requests_button_->setText(\"通知\")")));
+
+    const QString groups =
+        readClientSource(QStringLiteral("ui/main_window_groups.cpp"));
+    const QString badge = functionSection(
+        groups, QStringLiteral("void MainWindow::updateGroupNoticeBadge("));
+    QVERIFY(!badge.isEmpty());
+    QVERIFY(!badge.contains(QStringLiteral("group_invites_.size()")));
+}
+
 void TestClientCore::settingsDialogOffersUpdateCheck() {
     SettingsDialog dialog(QStringLiteral("U00001001"), QString(), 0, false);
     auto* check = dialog.findChild<QPushButton*>(
         QStringLiteral("CheckUpdateButton"));
     QVERIFY2(check != nullptr, "settings must expose a check-update action");
     QVERIFY(check->text().contains(QStringLiteral("检查更新")));
+}
+
+void TestClientCore::settingsDialogOffersCloseToTray() {
+    QSettings settings;
+    const QVariant previous = settings.value("settings/close_to_tray");
+    settings.setValue("settings/close_to_tray", true);
+    SettingsDialog dialog(QStringLiteral("U00001001"), QString(), 0, false);
+    auto* check =
+        dialog.findChild<QCheckBox*>(QStringLiteral("CloseToTrayCheck"));
+    QVERIFY2(check != nullptr, "settings must expose the close-to-tray option");
+    QVERIFY(check->isChecked());
+    QVERIFY(check->text().contains(QStringLiteral("托盘")));
+    if (previous.isValid()) {
+        settings.setValue("settings/close_to_tray", previous);
+    } else {
+        settings.remove("settings/close_to_tray");
+    }
 }
 
 // 账号级操作搬到设置后，右栏不再承载导航；这里守住「设置里能退出」这一入口。
