@@ -124,3 +124,11 @@ cd chatbox\client\tests
 - 服务器不保证 24 小时在线；重启/休眠期间手机通知不可用。
 - 小米 HyperOS 从最近任务划掉 App 会杀进程，`START_STICKY` 不会在 30 秒内拉起；开机自启默认被系统拦截，需要在系统设置里允许“自启动”。这是 OEM 行为，不是服务端问题。
 - 多设备消息同步以服务端 MySQL 为准；本地历史仍是本机副本。
+
+## 8. 生产部署记录（2026-10-30 12:51 UTC+8）
+
+- 备份：`/home/ubuntu/backups/chatbox-20261030-125012-pre-multidevice.sql`
+- 旧二进制：`/home/ubuntu/backups/chatbox_server-20261030-125012-pre-multidevice`
+- 迁移后 `sessions` 的 64 条存量会话全部回填 `session_id`，无 NULL
+- 新二进制：`/home/ubuntu/chatbox/build/chatbox_server`，systemd `chatbox` active，监听 127.0.0.1:9100
+- 验证：服务重启后手机 1.5 秒内 RESUME 成功；同账号第二客户端与手机同时在线；双向 echo；离线期间 40 条 ×1988B（约 80 KB）消息重连后一次补齐
