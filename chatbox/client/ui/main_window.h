@@ -85,6 +85,7 @@ public:
 protected:
     void closeEvent(QCloseEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
+    void requestQuit();
 
 private slots:
     void onLoginRequested(const QString& host, quint16 port, const QString& username,
@@ -479,6 +480,8 @@ private:
     bool system_popup_enabled_ = true;
     bool logged_in_ = false;
     bool shutting_down_ = false;
+    bool close_to_tray_ = true;
+    bool tray_hint_shown_ = false;
     bool logging_out_ = false;
     bool logout_finishing_ = false;
     bool reconnect_scheduled_ = false;

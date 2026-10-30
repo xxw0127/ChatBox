@@ -81,6 +81,11 @@ SettingsDialog::SettingsDialog(const QString& public_id, const QString& history_
         settings.value("settings/system_popup", true).toBool());
     autostart_check_ = new QCheckBox("开机自启动（静默到托盘）", this);
     autostart_check_->setChecked(chatbox::client::isAutostartEnabled());
+    close_to_tray_check_ =
+        new QCheckBox("关闭窗口时最小化到托盘（不退出程序）", this);
+    close_to_tray_check_->setObjectName("CloseToTrayCheck");
+    close_to_tray_check_->setChecked(
+        settings.value("settings/close_to_tray", true).toBool());
     appearance_combo_ = new QComboBox(this);
     appearance_combo_->setObjectName("AppearanceCombo");
     appearance_combo_->addItem("跟随系统",
@@ -104,6 +109,7 @@ SettingsDialog::SettingsDialog(const QString& public_id, const QString& history_
     form->addRow("通知", notifications_check_);
     form->addRow("", system_popup_check_);
     form->addRow("启动", autostart_check_);
+    form->addRow("", close_to_tray_check_);
     form->addRow("外观", appearance_combo_);
     layout->addLayout(form);
 
@@ -276,7 +282,8 @@ void SettingsDialog::saveSettings() {
     }
     emit settingsSaved(notifications_check_->isChecked(),
                        system_popup_check_->isChecked(),
-                       autostart_check_->isChecked());
+                       autostart_check_->isChecked(),
+                       close_to_tray_check_->isChecked());
     accept();
 }
 

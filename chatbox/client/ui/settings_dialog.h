@@ -26,7 +26,8 @@ public:
     void setHistoryInfo(const QString& directory, qint64 size_bytes, bool available);
 
 signals:
-    void settingsSaved(bool notifications, bool system_popup, bool autostart);
+    void settingsSaved(bool notifications, bool system_popup, bool autostart,
+                       bool close_to_tray);
     void appearanceChanged();
     void updateCheckRequested();
     // 用户在设置里选择退出当前账号；真正的断开由 MainWindow 执行。
@@ -50,6 +51,7 @@ private:
     QCheckBox* notifications_check_ = nullptr;
     QCheckBox* system_popup_check_ = nullptr;
     QCheckBox* autostart_check_ = nullptr;
+    QCheckBox* close_to_tray_check_ = nullptr;
     QComboBox* appearance_combo_ = nullptr;
     QLabel* log_label_ = nullptr;
     QLabel* id_label_ = nullptr;

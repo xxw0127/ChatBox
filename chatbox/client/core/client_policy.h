@@ -15,6 +15,11 @@ bool shellNotificationAreaAvailable();
 // source guard over main().
 bool shouldStartHidden(bool start_minimized, bool tray_available);
 
+// Closing the main window hides it to the tray only when the user enabled
+// that behavior, the tray is usable, and this is not an explicit quit.
+bool shouldHideToTray(bool close_to_tray, bool tray_available,
+                      bool shutting_down);
+
 // Unread counters keep running while alerts are off, but neither the badge nor
 // the window-title counter may show them.
 int displayedUnread(bool alerts_enabled, int unread);

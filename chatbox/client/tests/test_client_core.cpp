@@ -389,6 +389,7 @@ private slots:
     void startupHonoursMinimizedAndSingleInstance();
     void startupSupportsIsolatedProfile();
     void startupPolicyRequiresUsableTray();
+    void closeToTrayPolicy();
     void unreadBadgesHonourAlertsSwitch();
     void historyStoreCreatesSchema();
     void historyStoreMigratesV1();
@@ -431,6 +432,7 @@ private slots:
     void messageInputHandlesKeyboardAndPlainPaste();
     void settingsDialogOffersSignOut();
     void settingsDialogOffersUpdateCheck();
+    void settingsDialogOffersCloseToTray();
     void accountSwitcherBuildsList();
     void messageInputHidesEmptyScrollbar();
     void messageComposerUsesByteCounter();
@@ -4086,6 +4088,19 @@ void TestClientCore::startupPolicyRequiresUsableTray() {
     QVERIFY(!chatbox::client::shouldStartHidden(false, false));
 }
 
+void TestClientCore::closeToTrayPolicy() {
+    QVERIFY(chatbox::client::shouldHideToTray(true, true, false));
+    QVERIFY(!chatbox::client::shouldHideToTray(true, true, true));
+    QVERIFY(!chatbox::client::shouldHideToTray(false, true, false));
+    QVERIFY(!chatbox::client::shouldHideToTray(true, false, false));
+
+    const QString source = readMainWindowSource();
+    QVERIFY2(source.contains(QStringLiteral("shouldHideToTray(")),
+             "closeEvent must use the testable tray policy");
+    QVERIFY2(source.contains(QStringLiteral("requestQuit(")),
+             "tray Exit must have an explicit quit path");
+}
+
 // Turning the alert master switch off must also hide unread badges and the
 // window-title counter, not only the taskbar flash and popups.
 void TestClientCore::unreadBadgesHonourAlertsSwitch() {
@@ -5305,6 +5320,23 @@ void TestClientCore::settingsDialogOffersUpdateCheck() {
         QStringLiteral("CheckUpdateButton"));
     QVERIFY2(check != nullptr, "settings must expose a check-update action");
     QVERIFY(check->text().contains(QStringLiteral("检查更新")));
+}
+
+void TestClientCore::settingsDialogOffersCloseToTray() {
+    QSettings settings;
+    const QVariant previous = settings.value("settings/close_to_tray");
+    settings.setValue("settings/close_to_tray", true);
+    SettingsDialog dialog(QStringLiteral("U00001001"), QString(), 0, false);
+    auto* check =
+        dialog.findChild<QCheckBox*>(QStringLiteral("CloseToTrayCheck"));
+    QVERIFY2(check != nullptr, "settings must expose the close-to-tray option");
+    QVERIFY(check->isChecked());
+    QVERIFY(check->text().contains(QStringLiteral("托盘")));
+    if (previous.isValid()) {
+        settings.setValue("settings/close_to_tray", previous);
+    } else {
+        settings.remove("settings/close_to_tray");
+    }
 }
 
 // 账号级操作搬到设置后，右栏不再承载导航；这里守住「设置里能退出」这一入口。

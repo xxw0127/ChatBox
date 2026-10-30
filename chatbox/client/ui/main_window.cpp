@@ -20,6 +20,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         QSettings settings;
         member_panel_visible_ =
             settings.value(QStringLiteral("settings/member_panel"), false).toBool();
+        close_to_tray_ =
+            settings.value(QStringLiteral("settings/close_to_tray"), true).toBool();
     }
     buildUi();
     QTimer::singleShot(1500, this, &MainWindow::checkForUpdates);
@@ -792,7 +794,7 @@ QWidget* MainWindow::buildChatPage() {
             raise();
             activateWindow();
         });
-        tray_menu->addAction("退出", this, [this] { close(); });
+        tray_menu->addAction("退出", this, &MainWindow::requestQuit);
         tray_menu->addAction("检查更新", this,
                              &MainWindow::manualCheckForUpdates);
         tray_->setContextMenu(tray_menu);
@@ -887,10 +889,13 @@ void MainWindow::openSettings() {
     connect(&dialog, &SettingsDialog::logoutRequested, this, &MainWindow::logout,
             Qt::QueuedConnection);
     connect(&dialog, &SettingsDialog::settingsSaved, this,
-            [this](bool notifications, bool system_popup, bool autostart) {
+            [this](bool notifications, bool system_popup, bool autostart,
+                   bool close_to_tray) {
                 QSettings settings;
                 settings.setValue("settings/notifications", notifications);
                 settings.setValue("settings/system_popup", system_popup);
+                settings.setValue("settings/close_to_tray", close_to_tray);
+                close_to_tray_ = close_to_tray;
                 const bool autostart_applied = chatbox::client::setAutostartEnabled(
                     autostart, QCoreApplication::applicationFilePath());
                 // Persist the state the registry actually ended up in: a failed
@@ -1146,7 +1151,25 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
     return QMainWindow::eventFilter(watched, event);
 }
 
+void MainWindow::requestQuit() {
+    shutting_down_ = true;
+    close();
+}
+
 void MainWindow::closeEvent(QCloseEvent* event) {
+    if (chatbox::client::shouldHideToTray(
+            close_to_tray_, tray_ != nullptr, shutting_down_)) {
+        event->ignore();
+        hide();
+        if (!tray_hint_shown_ && tray_ != nullptr) {
+            tray_hint_shown_ = true;
+            tray_->showMessage(
+                QStringLiteral("ChatBox"),
+                QStringLiteral("ChatBox 仍在后台运行，右键托盘图标可退出"),
+                QSystemTrayIcon::Information, 3000);
+        }
+        return;
+    }
     shutting_down_ = true;
     if (network_ != nullptr) {
         network_->requestStop();
