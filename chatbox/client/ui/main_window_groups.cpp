@@ -10,7 +10,33 @@
 #include "ui/group_settings_dialog.h"
 #include "core/group_types.h"
 
+namespace {
 
+QIcon groupListIcon(int unread) {
+    QPixmap pixmap =
+        QPixmap::fromImage(chatbox::client::roomAvatar(30));
+    if (unread <= 0) {
+        return QIcon(pixmap);
+    }
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    const QString text =
+        unread > 99 ? QStringLiteral("99+") : QString::number(unread);
+    const int diameter = unread > 99 ? 18 : (unread > 9 ? 16 : 14);
+    const QRectF badge(pixmap.width() - diameter, 0, diameter, diameter);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(chatbox::client::theme::kAccent));
+    painter.drawEllipse(badge);
+    QFont font = painter.font();
+    font.setBold(true);
+    font.setPixelSize(unread > 99 ? 7 : 8);
+    painter.setFont(font);
+    painter.setPen(Qt::white);
+    painter.drawText(badge, Qt::AlignCenter, text);
+    return QIcon(pixmap);
+}
+
+}  // namespace
 
 QVector<chatbox::client::GroupRequestInfo>
 MainWindow::pendingGroupRequests() const {
@@ -114,17 +140,25 @@ void MainWindow::refreshGroupListView() {
     group_list_->clear();
     const QVector<chatbox::client::GroupInfo> active = group_store_.active();
     for (const chatbox::client::GroupInfo& group : active) {
+        const int unread = chatbox::client::displayedUnread(
+            notifications_enabled_, group.unread);
         auto* item = new QListWidgetItem(
             chatbox::client::groupListTitle(group), group_list_);
-        item->setIcon(QIcon(QPixmap::fromImage(chatbox::client::roomAvatar(30))));
+        item->setIcon(groupListIcon(unread));
         item->setSizeHint(QSize(0, 48));
         item->setData(Qt::UserRole, QVariant::fromValue<qulonglong>(group.room_id));
         item->setData(Qt::UserRole + 1, group.name);
         item->setData(Qt::UserRole + 2, group.status);
         item->setData(Qt::UserRole + 3, group.role);
         item->setData(Qt::UserRole + 4, group.unread);
-        item->setData(Qt::AccessibleTextRole,
-                      QString("%1，%2 人").arg(group.name).arg(group.member_count));
+        item->setData(
+            Qt::AccessibleTextRole,
+            unread > 0
+                ? QString("%1，%2 人，%3 条未读")
+                      .arg(group.name)
+                      .arg(group.member_count)
+                      .arg(unread)
+                : QString("%1，%2 人").arg(group.name).arg(group.member_count));
         if (group.room_id == static_cast<quint64>(current_room_id_)) {
             group_list_->setCurrentItem(item);
         }

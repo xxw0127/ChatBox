@@ -355,6 +355,7 @@ private slots:
     void groupDialogsValidateInput();
     void sidebarHasGroupTabs();
     void groupListTitleShowsOnlyName();
+    void groupListBadgeUsesDisplayedUnread();
     void sidebarAndMenuIconsAreDistinct();
     void rightSidebarHasRequiredPanels();
     void scrollLoadsOlderAndJumpsToSearchHit();
@@ -3693,6 +3694,18 @@ void TestClientCore::groupListTitleShowsOnlyName() {
     group.unread = 4;
     QCOMPARE(chatbox::client::groupListTitle(group),
              QString::fromUtf8("公共大厅"));
+}
+
+void TestClientCore::groupListBadgeUsesDisplayedUnread() {
+    const QString source =
+        readClientSource(QStringLiteral("ui/main_window_groups.cpp"));
+    const QString refresh = functionSection(
+        source, QStringLiteral("void MainWindow::refreshGroupListView("));
+    QVERIFY2(!refresh.isEmpty(), "refreshGroupListView must be readable");
+    QVERIFY(refresh.contains(QStringLiteral("displayedUnread(")));
+    QVERIFY(refresh.contains(QStringLiteral("notifications_enabled_")));
+    QVERIFY(refresh.contains(QStringLiteral("groupListIcon(")));
+    QVERIFY(!refresh.contains(QStringLiteral("QString(\"(%1)\"")));
 }
 
 void TestClientCore::sidebarAndMenuIconsAreDistinct() {

@@ -949,6 +949,7 @@ void MainWindow::openSettings() {
                 system_popup_enabled_ = system_popup;
                 // Badges and the title counter follow the master switch.
                 refreshFriendListView();
+                refreshGroupListView();
                 setStatus("设置已保存");
                 if (!autostart_applied) {
                     setStatus("开机自启动设置失败（其余设置已保存）", true);
