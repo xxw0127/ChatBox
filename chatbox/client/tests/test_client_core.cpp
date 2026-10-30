@@ -3226,6 +3226,10 @@ void TestClientCore::updateServiceUsesPinnedCa() {
     QVERIFY2(!header.isEmpty(), "core/update_service.h must be readable");
     QVERIFY(source.contains(QStringLiteral("QSslConfiguration")));
     QVERIFY(source.contains(QStringLiteral("QSslCertificate")));
+    QVERIFY(source.contains(QStringLiteral(":/certs/ca.crt")));
+    const QString qrc =
+        readClientSource(QStringLiteral("resources/resources.qrc"));
+    QVERIFY(qrc.contains(QStringLiteral("certs/ca.crt")));
     QVERIFY(!source.contains(QStringLiteral("setPeerVerifyMode(QSslSocket::VerifyNone)")));
     QVERIFY(header.contains(QStringLiteral("QCryptographicHash")));
     QVERIFY(source.contains(QStringLiteral("download_hash_")));

@@ -4,6 +4,7 @@
         <file>style-dark.qss</file>
         <file>update_helper.ps1</file>
         <file>app.ico</file>
+        <file alias="certs/ca.crt">../certs/ca.crt</file>
         <file>icons/search.png</file>
         <file>icons/settings.png</file>
         <file>icons/users.png</file>
