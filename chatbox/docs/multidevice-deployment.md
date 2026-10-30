@@ -132,3 +132,12 @@ cd chatbox\client\tests
 - 迁移后 `sessions` 的 64 条存量会话全部回填 `session_id`，无 NULL
 - 新二进制：`/home/ubuntu/chatbox/build/chatbox_server`，systemd `chatbox` active，监听 127.0.0.1:9100
 - 验证：服务重启后手机 1.5 秒内 RESUME 成功；同账号第二客户端与手机同时在线；双向 echo；离线期间 40 条 ×1988B（约 80 KB）消息重连后一次补齐
+## 9. 源码同步注意
+
+从 Windows 同步 `server/common/deploy/tools` 后，Linux 上的脚本可能变成 644 权限；部署前执行：
+
+```bash
+chmod +x tools/*.sh deploy/*.sh
+```
+
+否则 systemd 启动会报 `status=203/EXEC`（ExecStart 脚本不可执行）。仓库已把 `run_server.sh` 等脚本标记为 100755，新 checkout 不需要再改。
