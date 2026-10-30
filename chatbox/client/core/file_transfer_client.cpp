@@ -143,6 +143,9 @@ void FileTransferClient::onReadyRead() {
                               static_cast<int>(frame.body.size()));
         if (frame.header.flags & chatbox::kFlagError) {
             const QString message = errorText(body);
+            qWarning("file command failed cmd=0x%04x seq=%u: %s",
+                     frame.header.cmd, frame.header.seq,
+                     qPrintable(message));
             if (frame.header.cmd == chatbox::kCmdFileList ||
                 frame.header.cmd == chatbox::kCmdFileInfo ||
                 frame.header.cmd == chatbox::kCmdFileThumb ||

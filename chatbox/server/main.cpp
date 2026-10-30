@@ -283,6 +283,10 @@ int main(int argc, char** argv) {
         if (!auth_command && !room_command && !private_command && !history_command &&
             !friend_command && !profile_command && !group_command &&
             !file_command) {
+            chatbox::logMessage(
+                LogLevel::kWarn, "main",
+                "unknown command cmd=" + std::to_string(command) +
+                    " seq=" + std::to_string(frame.header.seq));
             const Frame response = makeErrorResponse(frame.header.seq, 1001, "unknown command");
             return connection->enqueue(chatbox::encodeFrame(response));
         }
