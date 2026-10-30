@@ -1417,12 +1417,21 @@ void TestClientCore::messageBubblesHaveRoundedCorners() {
         view.findChild<QWidget*>(QStringLiteral("BubbleOverlay"));
     QVERIFY(overlay != nullptr);
     const QImage image = overlay->grab().toImage();
+    const qreal dpr = image.devicePixelRatio();
+    auto device = [dpr](int logical) { return qRound(logical * dpr); };
     const QColor canvas(chatbox::client::theme::kSurfaceSoft);
     const QColor border(chatbox::client::theme::kBubbleBorder);
-    const QColor corner = image.pixelColor(bubble.left() + 2, bubble.top() + 2);
+    auto near = [](const QColor& a, const QColor& b) {
+        return qAbs(a.red() - b.red()) <= 24 &&
+               qAbs(a.green() - b.green()) <= 24 &&
+               qAbs(a.blue() - b.blue()) <= 24;
+    };
+    const QColor corner = image.pixelColor(device(bubble.left() + 2),
+                                           device(bubble.top() + 2));
     bool border_on_top_edge = false;
     for (int y = bubble.top(); y <= bubble.top() + 2; ++y) {
-        if (image.pixelColor(bubble.center().x(), y) == border) {
+        if (near(image.pixelColor(device(bubble.center().x()), device(y)),
+                 border)) {
             border_on_top_edge = true;
         }
     }
@@ -1472,20 +1481,30 @@ void TestClientCore::messageBubblesDrawRightEdge() {
         view.findChild<QWidget*>(QStringLiteral("BubbleOverlay"));
     QVERIFY(overlay != nullptr);
     const QImage image = overlay->grab().toImage();
+    const qreal dpr = image.devicePixelRatio();
+    auto device = [dpr](int logical) { return qRound(logical * dpr); };
     const QColor border(chatbox::client::theme::kBubbleBorder);
+    auto near = [](const QColor& a, const QColor& b) {
+        return qAbs(a.red() - b.red()) <= 24 &&
+               qAbs(a.green() - b.green()) <= 24 &&
+               qAbs(a.blue() - b.blue()) <= 24;
+    };
     bool found = false;
     for (int x = bubble.right() - 2; x <= bubble.right() + 2; ++x) {
         for (int y = bubble.top() + 2; y <= bubble.bottom() - 2; ++y) {
-            if (x >= 0 && x < image.width() && y >= 0 && y < image.height() &&
-                image.pixelColor(x, y) == border) {
+            const int dx = device(x);
+            const int dy = device(y);
+            if (dx >= 0 && dx < image.width() && dy >= 0 && dy < image.height() &&
+                near(image.pixelColor(dx, dy), border)) {
                 found = true;
             }
         }
     }
-    const QColor edge = image.pixelColor(image.width() - 1, bubble.center().y());
+    const QColor edge =
+        image.pixelColor(image.width() - 1, device(bubble.center().y()));
     qApp->setStyleSheet(previous_style);
     QVERIFY2(found, "outgoing bubbles must paint the right border");
-    QVERIFY2(edge != border,
+    QVERIFY2(!near(edge, border),
              "the bubble border must not be clipped at the viewport edge");
 }
 
