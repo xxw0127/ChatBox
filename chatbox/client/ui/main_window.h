@@ -212,6 +212,7 @@ private:
     void selectGroup(quint64 room_id, const QString& name);
     void selectDissolvedGroup(quint64 room_id, const QString& name);
     void refreshGroupListView();
+    void filterGroupMembers(const QString& keyword);
     void openCreateGroupDialog();
     void openJoinGroupDialog();
     void openGroupSettings();
@@ -376,12 +377,15 @@ private:
     QLabel* member_count_label_ = nullptr;
     QLineEdit* right_group_search_ = nullptr;
     QLineEdit* right_private_search_ = nullptr;
-    QPushButton* right_group_file_button_ = nullptr;
-    QPushButton* right_private_file_button_ = nullptr;
+    QLabel* member_search_empty_ = nullptr;
     QPushButton* right_profile_button_ = nullptr;
     QPushButton* right_invite_button_ = nullptr;
     QPushButton* right_leave_button_ = nullptr;
-    QToolButton* right_settings_button_ = nullptr;
+    QToolButton* right_search_button_ = nullptr;
+    QToolButton* right_more_button_ = nullptr;
+    QAction* right_search_action_ = nullptr;
+    QAction* right_files_action_ = nullptr;
+    QAction* right_group_settings_action_ = nullptr;
     QLabel* right_profile_avatar_ = nullptr;
     QLabel* right_profile_name_ = nullptr;
     QLabel* right_profile_id_ = nullptr;

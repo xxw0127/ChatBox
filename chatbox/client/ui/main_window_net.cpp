@@ -183,13 +183,15 @@ void MainWindow::handleGroupMemberList(const QByteArray& body) {
             requestPeerAvatar(member.user_id);
         }
     }
+    if (right_group_search_ != nullptr) {
+        filterGroupMembers(right_group_search_->text());
+    }
     const chatbox::client::GroupInfo* group =
         group_store_.find(static_cast<quint64>(room_id));
     if (member_count_label_ != nullptr) {
         member_count_label_->setText(
-            group != nullptr
-                ? QString("%1 · %2 人").arg(group->name).arg(members.size())
-                : QString("成员 (%1)").arg(members.size()));
+            group != nullptr ? group->name
+                             : QString("成员 (%1)").arg(members.size()));
     }
 }
 
@@ -1012,6 +1014,9 @@ void MainWindow::onFrameReceived(const QByteArray& data) {
                     // back.
                     requestPeerAvatar(member_id);
                 }
+            }
+            if (right_group_search_ != nullptr) {
+                filterGroupMembers(right_group_search_->text());
             }
             break;
         }

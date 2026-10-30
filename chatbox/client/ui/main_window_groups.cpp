@@ -151,6 +151,34 @@ void MainWindow::refreshGroupListView() {
     refreshUnreadTitle();
 }
 
+void MainWindow::filterGroupMembers(const QString& keyword) {
+    if (member_list_ == nullptr) {
+        return;
+    }
+    const QString needle = keyword.trimmed();
+    int visible = 0;
+    for (int i = 0; i < member_list_->count(); ++i) {
+        QListWidgetItem* item = member_list_->item(i);
+        bool matches = needle.isEmpty();
+        if (!matches) {
+            const QString name = item->data(Qt::UserRole + 1).toString();
+            const quint64 member_id =
+                item->data(Qt::UserRole).toULongLong();
+            matches = name.contains(needle, Qt::CaseInsensitive) ||
+                      chatbox::client::publicUserId(member_id)
+                          .contains(needle, Qt::CaseInsensitive) ||
+                      item->text().contains(needle, Qt::CaseInsensitive);
+        }
+        item->setHidden(!matches);
+        if (matches) {
+            ++visible;
+        }
+    }
+    if (member_search_empty_ != nullptr) {
+        member_search_empty_->setVisible(!needle.isEmpty() && visible == 0);
+    }
+}
+
 void MainWindow::openCreateGroupDialog() {
     if (offline_mode_) {
         setStatus("离线模式下不能创建群", true);

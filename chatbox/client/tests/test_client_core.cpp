@@ -3707,7 +3707,8 @@ void TestClientCore::sidebarAndMenuIconsAreDistinct() {
     QVERIFY(!chatbox::client::hamburgerIcon(color).pixmap(20, 20).isNull());
 
     const QString source = readMainWindowSource();
-    QVERIFY(source.contains(QStringLiteral("right_settings_button_->setIcon(")));
+    QVERIFY(source.contains(QStringLiteral("right_more_button_->setIcon(")));
+    QVERIFY(source.contains(QStringLiteral("right_search_button_->setIcon(")));
     QVERIFY(source.contains(QStringLiteral("account_menu_hint_->setPixmap(")));
     QVERIFY(source.contains(QStringLiteral("hamburgerIcon(")));
 }
@@ -3722,7 +3723,14 @@ void TestClientCore::rightSidebarHasRequiredPanels() {
     QVERIFY(source.contains(QStringLiteral("RightPrivateSearch")));
     QVERIFY(source.contains(QStringLiteral("RightSearchPage")));
     QVERIFY(source.contains(QStringLiteral("RightSearchResults")));
-    QVERIFY(source.contains(QStringLiteral("RightFileButton")));
+    QVERIFY(source.contains(QStringLiteral("RightMoreButton")));
+    QVERIFY(source.contains(QStringLiteral("RightSearchButton")));
+    QVERIFY(!source.contains(QStringLiteral("RightFileButton")));
+    QVERIFY(source.contains(QStringLiteral("搜索成员")));
+    QVERIFY(source.contains(QStringLiteral("filterGroupMembers")));
+    QVERIFY(source.contains(QStringLiteral("查找聊天内容")));
+    QVERIFY(source.contains(QStringLiteral("文件管理")));
+    QVERIFY(source.contains(QStringLiteral("群设置")));
     QVERIFY(source.contains(QStringLiteral("RightInviteButton")));
     QVERIFY(source.contains(QStringLiteral("RightLeaveButton")));
     QVERIFY(source.contains(QStringLiteral("RightProfileButton")));
@@ -4013,8 +4021,10 @@ void TestClientCore::headerUsesAvatarAndMoreMenu() {
     const QString qss = readClientSource(QStringLiteral("resources/style.qss"));
     QVERIFY2(qss.contains(QStringLiteral("QToolButton#MoreButton::menu-indicator")),
              "the header more control must hide the menu indicator arrow");
-    QVERIFY2(!source.contains(QStringLiteral("more_menu_")),
-             "the header must not keep a popup menu");
+    QVERIFY2(!source.contains(QStringLiteral("    more_button_->setMenu(")),
+             "the sidebar toggle must not become a popup menu");
+    QVERIFY2(source.contains(QStringLiteral("right_more_button_->setMenu(")),
+             "the right sidebar owns the More menu");
     QVERIFY2(source.contains(QStringLiteral("RightGroupSearch")),
              "message search lives in the right sidebar");
     QVERIFY2(source.contains(QStringLiteral("RightPrivateSearch")),

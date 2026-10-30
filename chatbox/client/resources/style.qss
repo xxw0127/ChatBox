@@ -596,11 +596,27 @@ QToolTip {
     border: none;
     padding: 6px 8px;
 }
-QToolButton#MoreButton, QToolButton#AdvancedOptionsButton {
+QToolButton#MoreButton, QToolButton#AdvancedOptionsButton,
+QToolButton#RightSearchButton, QToolButton#RightMoreButton {
     background: transparent;
     border: none;
     border-radius: 8px;
     padding: 0px;
+}
+
+QToolButton#RightSearchButton:hover, QToolButton#RightMoreButton:hover {
+    background: #E6E6E6;
+}
+
+QToolButton#RightMoreButton::menu-indicator {
+    image: none;
+    width: 0px;
+}
+
+QLabel#MemberSearchEmpty {
+    color: #6A6E74;
+    font-size: 12px;
+    padding: 12px 0;
 }
 
 QToolButton[keyboardFocus="true"]:focus {

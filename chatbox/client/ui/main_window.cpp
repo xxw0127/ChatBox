@@ -576,16 +576,37 @@ QWidget* MainWindow::buildChatPage() {
     member_count_label_ = new QLabel("成员", right_panel_);
     member_count_label_->setObjectName("RightHeader");
     right_header_row->addWidget(member_count_label_, 1);
-    right_settings_button_ = new QToolButton(right_panel_);
-    right_settings_button_->setObjectName("RightSettingsButton");
-    right_settings_button_->setIcon(
+
+    right_search_button_ = new QToolButton(right_panel_);
+    right_search_button_->setObjectName("RightSearchButton");
+    right_search_button_->setIcon(
+        tintedIcon(":/icons/search.png", QColor(theme::kMuted)));
+    right_search_button_->setIconSize(QSize(16, 16));
+    right_search_button_->setFixedSize(24, 24);
+    right_search_button_->setToolTip("搜索");
+    right_search_button_->setAutoRaise(true);
+    right_search_button_->setCursor(Qt::PointingHandCursor);
+    right_header_row->addWidget(right_search_button_, 0, Qt::AlignVCenter);
+
+    right_more_button_ = new QToolButton(right_panel_);
+    right_more_button_->setObjectName("RightMoreButton");
+    right_more_button_->setIcon(
         chatbox::client::hamburgerIcon(QColor(theme::kMuted)));
-    right_settings_button_->setIconSize(QSize(16, 16));
-    right_settings_button_->setFixedSize(24, 24);
-    right_settings_button_->setToolTip("群设置");
-    right_settings_button_->setAutoRaise(true);
-    right_settings_button_->hide();
-    right_header_row->addWidget(right_settings_button_, 0, Qt::AlignVCenter);
+    right_more_button_->setIconSize(QSize(16, 16));
+    right_more_button_->setFixedSize(24, 24);
+    right_more_button_->setToolTip("更多");
+    right_more_button_->setAutoRaise(true);
+    right_more_button_->setCursor(Qt::PointingHandCursor);
+    right_more_button_->setPopupMode(QToolButton::InstantPopup);
+    auto* right_more_menu = new QMenu(right_more_button_);
+    right_search_action_ = right_more_menu->addAction(
+        "查找聊天内容", this, &MainWindow::openMessageSearch);
+    right_files_action_ = right_more_menu->addAction(
+        "文件管理", this, &MainWindow::openFileManager);
+    right_group_settings_action_ = right_more_menu->addAction(
+        "群设置", this, &MainWindow::openGroupSettings);
+    right_more_button_->setMenu(right_more_menu);
+    right_header_row->addWidget(right_more_button_, 0, Qt::AlignVCenter);
     right->addLayout(right_header_row);
 
     right_mode_stack_ = new QStackedWidget(right_panel_);
@@ -597,8 +618,13 @@ QWidget* MainWindow::buildChatPage() {
     group_layout->setSpacing(6);
     right_group_search_ = new QLineEdit(right_group_page_);
     right_group_search_->setObjectName("RightGroupSearch");
-    right_group_search_->setPlaceholderText("搜索消息");
+    right_group_search_->setPlaceholderText("搜索成员");
     group_layout->addWidget(right_group_search_);
+    member_search_empty_ = new QLabel("没有匹配的成员", right_group_page_);
+    member_search_empty_->setObjectName("MemberSearchEmpty");
+    member_search_empty_->setAlignment(Qt::AlignCenter);
+    member_search_empty_->hide();
+    group_layout->addWidget(member_search_empty_);
     member_list_ = new QListWidget(right_group_page_);
     member_list_->setObjectName("RightMemberList");
     member_list_->setAccessibleName("群成员");
@@ -619,14 +645,15 @@ QWidget* MainWindow::buildChatPage() {
     group_action_row->addWidget(right_invite_button_);
     group_action_row->addWidget(right_leave_button_);
     group_layout->addLayout(group_action_row);
-    right_group_file_button_ = new QPushButton("文件管理", right_group_page_);
-    right_group_file_button_->setObjectName("RightFileButton");
-    group_layout->addWidget(right_group_file_button_);
 
     right_private_page_ = new QWidget(right_mode_stack_);
     auto* private_layout = new QVBoxLayout(right_private_page_);
     private_layout->setContentsMargins(0, 0, 0, 0);
     private_layout->setSpacing(8);
+    right_private_search_ = new QLineEdit(right_private_page_);
+    right_private_search_->setObjectName("RightPrivateSearch");
+    right_private_search_->setPlaceholderText("搜索消息");
+    private_layout->addWidget(right_private_search_);
     auto* profile_card = new QWidget(right_private_page_);
     profile_card->setObjectName("RightProfileCard");
     auto* profile_card_layout = new QVBoxLayout(profile_card);
@@ -654,15 +681,7 @@ QWidget* MainWindow::buildChatPage() {
     right_profile_button_ = new QPushButton("查看资料", right_private_page_);
     right_profile_button_->setObjectName("RightProfileButton");
     private_layout->addWidget(right_profile_button_);
-    right_private_file_button_ =
-        new QPushButton("文件管理", right_private_page_);
-    right_private_file_button_->setObjectName("RightFileButton");
-    private_layout->addWidget(right_private_file_button_);
     private_layout->addStretch(1);
-    right_private_search_ = new QLineEdit(right_private_page_);
-    right_private_search_->setObjectName("RightPrivateSearch");
-    right_private_search_->setPlaceholderText("搜索消息");
-    private_layout->addWidget(right_private_search_);
 
     right_search_page_ = new QWidget(right_mode_stack_);
     right_search_page_->setObjectName("RightSearchPage");
@@ -710,21 +729,40 @@ QWidget* MainWindow::buildChatPage() {
     splitter->setStretchFactor(1, 1);
     splitter->setStretchFactor(2, 0);
 
-    connect(right_group_search_, &QLineEdit::returnPressed, this,
-            [this] { startPanelSearch(right_group_search_->text()); });
+    connect(right_group_search_, &QLineEdit::textChanged, this,
+            &MainWindow::filterGroupMembers);
     connect(right_private_search_, &QLineEdit::returnPressed, this,
             [this] { startPanelSearch(right_private_search_->text()); });
-    connect(right_settings_button_, &QToolButton::clicked, this,
-            &MainWindow::openGroupSettings);
+    connect(right_search_button_, &QToolButton::clicked, this, [this] {
+        if (right_mode_stack_->currentWidget() == right_group_page_) {
+            right_group_search_->setFocus();
+            right_group_search_->selectAll();
+        } else if (right_mode_stack_->currentWidget() == right_private_page_) {
+            right_private_search_->setFocus();
+            right_private_search_->selectAll();
+        } else if (right_search_input_ != nullptr) {
+            right_search_input_->setFocus();
+            right_search_input_->selectAll();
+        }
+    });
+    connect(right_more_button_->menu(), &QMenu::aboutToShow, this, [this] {
+        const bool has_context = context_type_ != ContextType::None;
+        right_search_action_->setEnabled(has_context);
+        right_files_action_->setEnabled(has_context);
+        bool can_manage_group = false;
+        if (context_type_ == ContextType::Room) {
+            const chatbox::client::GroupInfo* group =
+                group_store_.find(static_cast<quint64>(current_room_id_));
+            can_manage_group = group != nullptr && group->status == 0 &&
+                               (group->role == 1 || group->role == 2);
+        }
+        right_group_settings_action_->setVisible(can_manage_group);
+    });
     connect(right_profile_button_, &QPushButton::clicked, this, [this] {
         if (current_peer_id_ != 0) {
             openProfile(current_peer_id_, current_peer_name_);
         }
     });
-    connect(right_group_file_button_, &QPushButton::clicked, this,
-            &MainWindow::openFileManager);
-    connect(right_private_file_button_, &QPushButton::clicked, this,
-            &MainWindow::openFileManager);
     connect(right_invite_button_, &QPushButton::clicked, this, [this] {
         openGroupInviteDialog(static_cast<quint64>(current_room_id_));
     });
@@ -856,8 +894,12 @@ void MainWindow::refreshThemeDependentIcons() {
             right_panel_ != nullptr && right_panel_->isVisible(),
             QColor(theme::kMuted)));
     }
-    if (right_settings_button_ != nullptr) {
-        right_settings_button_->setIcon(
+    if (right_search_button_ != nullptr) {
+        right_search_button_->setIcon(
+            tintedIcon(":/icons/search.png", QColor(theme::kMuted)));
+    }
+    if (right_more_button_ != nullptr) {
+        right_more_button_->setIcon(
             chatbox::client::hamburgerIcon(QColor(theme::kMuted)));
     }
     if (account_menu_hint_ != nullptr) {
