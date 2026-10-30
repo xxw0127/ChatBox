@@ -403,6 +403,7 @@ private slots:
     void rendererShowsLargeImagePreview();
     void rendererShowsVideoPreviewWithPlayMarker();
     void rendererFallsBackToFileCardForVideoWithoutThumbnail();
+    void thumbnailCacheUsesVersionedPath();
     void historyStoreReportsOpenFailure();
     void historyStoreRejectsSecondInstance();
     void historyStoreSaveAndLoadRecent();
@@ -4507,6 +4508,25 @@ void TestClientCore::historyStorePreservesFileMediaDimensions() {
     QCOMPARE(loaded.first().file.duration_ms, quint32(23000));
     QVERIFY(loaded.first().file.thumb_available);
     store.close();
+}
+
+void TestClientCore::thumbnailCacheUsesVersionedPath() {
+    const quint64 file_id = 990010;
+    QVERIFY(QDir().mkpath(chatbox::client::thumbnailCacheDirectory()));
+    const QString legacy = QDir(chatbox::client::thumbnailCacheDirectory())
+                               .filePath(QString::number(file_id) +
+                                         QStringLiteral(".jpg"));
+    QFile old_file(legacy);
+    QVERIFY(old_file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    old_file.write("old");
+    old_file.close();
+
+    QVERIFY(chatbox::client::thumbnailCachePath(file_id)
+                .endsWith(QStringLiteral("990010-v2.jpg")));
+    QVERIFY(saveTestThumbnail(file_id, 32, 32));
+    QVERIFY(!QFile::exists(legacy));
+    QVERIFY(QFile::exists(chatbox::client::thumbnailCachePath(file_id)));
+    QFile::remove(chatbox::client::thumbnailCachePath(file_id));
 }
 
 void TestClientCore::historyStoreFileDeleteIsConversationScoped() {
