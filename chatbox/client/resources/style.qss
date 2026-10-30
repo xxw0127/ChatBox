@@ -1,7 +1,22 @@
 * {
-    font-family: "Segoe UI", "Microsoft YaHei UI";
+    font-family: "Microsoft YaHei UI", "Segoe UI";
     font-size: 13px;
     color: #000000;
+}
+
+QDialog#UpdateDialog {
+    font-family: "Microsoft YaHei UI", "Segoe UI";
+}
+
+QLabel#UpdateTitleLabel {
+    font-size: 14px;
+    font-weight: 600;
+    padding: 2px 0;
+}
+
+QLabel#UpdateNotesLabel {
+    font-size: 13px;
+    padding: 2px 0;
 }
 
 QMainWindow, QDialog {
@@ -223,10 +238,8 @@ QPushButton#MyProfileButton:pressed {
 }
 
 QLabel#AccountMenuHint {
-    color: #6A6E74;
-    font-size: 18px;
-    font-weight: 600;
-    padding-right: 4px;
+    background: transparent;
+    padding: 0;
 }
 
 QLabel#MyProfileName {

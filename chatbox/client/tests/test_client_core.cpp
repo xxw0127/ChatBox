@@ -368,6 +368,7 @@ private slots:
     void updateServiceCancelIsSafe();
     void updateServiceRejectsShaMismatch();
     void updateDialogHasRequiredActions();
+    void updateDialogTextFitsFontMetrics();
     void updateDialogShowsCancelDuringDownload();
     void startupSchedulesOneUpdateCheck();
     void updateInstallerValidatesPackage();
@@ -3309,6 +3310,36 @@ void TestClientCore::updateDialogHasRequiredActions() {
     QVERIFY2(!source.isEmpty(), "ui/main_window_update.cpp must be readable");
     QVERIFY(source.contains(QStringLiteral("update_dialog_->show()")));
     QVERIFY(!source.contains(QStringLiteral("update_dialog_->exec()")));
+}
+
+void TestClientCore::updateDialogTextFitsFontMetrics() {
+    const QString light = readClientSource(QStringLiteral("resources/style.qss"));
+    const QString dark =
+        readClientSource(QStringLiteral("resources/style-dark.qss"));
+    QVERIFY(light.contains(
+        QStringLiteral("\"Microsoft YaHei UI\", \"Segoe UI\"")));
+    QVERIFY(dark.contains(
+        QStringLiteral("\"Microsoft YaHei UI\", \"Segoe UI\"")));
+    QVERIFY(light.contains(QStringLiteral("QLabel#UpdateTitleLabel")));
+    QVERIFY(light.contains(QStringLiteral("QLabel#UpdateNotesLabel")));
+    QVERIFY(dark.contains(QStringLiteral("QLabel#UpdateTitleLabel")));
+    QVERIFY(dark.contains(QStringLiteral("QLabel#UpdateNotesLabel")));
+
+    chatbox::client::UpdateManifest manifest;
+    manifest.version = QStringLiteral("0.4.2");
+    manifest.notes = QString::fromUtf8(
+        "这是一段用于检查更新弹窗行高的说明文字，包含中文和 English mixed text。");
+    UpdateDialog dialog(manifest);
+    dialog.show();
+    QTest::qWait(50);
+    auto* title = dialog.findChild<QLabel*>(QStringLiteral("UpdateTitleLabel"));
+    auto* notes = dialog.findChild<QLabel*>(QStringLiteral("UpdateNotesLabel"));
+    QVERIFY(title != nullptr);
+    QVERIFY(notes != nullptr);
+    QVERIFY2(title->height() >= title->fontMetrics().height(),
+             "update title must not clip the font's ascent/descent");
+    QVERIFY2(notes->height() >= notes->fontMetrics().height(),
+             "update notes must not clip the font's ascent/descent");
 }
 
 void TestClientCore::updateDialogShowsCancelDuringDownload() {
