@@ -46,7 +46,7 @@ APK：`com.chatbox.mobile` 0.1.0，arm64-v8a，Debug 签名
   client_tests.exe              209 passed, 0 failed
 
 clientcore（Qt 6）
-  clientcore_tests              42 checks passed（SessionClient/MobileStore/SecureStore/IPC/ChatService）
+  clientcore_tests              47 checks passed（SessionClient/MobileStore/SecureStore/IPC/ChatService）
 ```
 
 ## 4. 真机已确认的交互

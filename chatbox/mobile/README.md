@@ -60,7 +60,7 @@ qmake6 clientcore_tests.pro && make -j4
 QT_QPA_PLATFORM=offscreen ./clientcore_tests
 ```
 
-覆盖 SessionClient、MobileStore、SecureStore、IPC 和 ChatService（42 项检查）。真机验收步骤和结果见 `docs/acceptance.md`。
+覆盖 SessionClient、MobileStore、SecureStore、IPC 和 ChatService（47 项检查）。真机验收步骤和结果见 `docs/acceptance.md`。
 
 ## 结构
 
