@@ -14,6 +14,7 @@ private slots:
     void outboxLifecycle();
     void metaRoundTrip();
     void recalledMessageContentCleared();
+    void recallClearsConversationPreview();
 };
 
 #endif  // CHATBOX_CLIENTCORE_TESTS_TEST_MOBILE_STORE_H

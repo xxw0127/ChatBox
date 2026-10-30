@@ -67,6 +67,12 @@ bool ServiceApp::start(QString* error) {
                 if (notifications_) {
                     notifications_->setForegroundState(foregroundText(state));
                 }
+                if (state == QStringLiteral("logged_out")) {
+                    for (const int id : notification_ids_) {
+                        notifications_->cancel(id);
+                    }
+                    notification_ids_.clear();
+                }
                 QJsonObject data;
                 data.insert(QStringLiteral("state"), state);
                 data.insert(QStringLiteral("detail"), detail);
@@ -129,6 +135,14 @@ bool ServiceApp::start(QString* error) {
     server_->setRequestHandler([this](quint64 id, const QJsonObject& request) {
         return handleRequest(id, request);
     });
+    connect(server_, &chatbox::clientcore::IpcServer::clientDisconnected, this,
+            [this]() {
+                active_kind_ = 0;
+                active_target_id_ = 0;
+                if (chat_ != nullptr) {
+                    chat_->setActiveConversation(0, 0);
+                }
+            });
     if (!server_->listen(chatbox::clientcore::ipcServerPath(), error)) {
         return false;
     }
@@ -224,6 +238,10 @@ QJsonObject ServiceApp::handleRequest(quint64 id, const QJsonObject& request) {
             return chatbox::clientcore::ipcError(
                 id, 400, QStringLiteral("invalid send_text arguments"));
         }
+        if (content.toUtf8().size() > 2000) {
+            return chatbox::clientcore::ipcError(
+                id, 400, QStringLiteral("message too long"));
+        }
         chat_->sendText(kind, target_id, content);
         QJsonObject data;
         data.insert(QStringLiteral("accepted"), true);
@@ -242,6 +260,12 @@ QJsonObject ServiceApp::handleRequest(quint64 id, const QJsonObject& request) {
         if ((kind != 1 && kind != 2) || target_id == 0 || message_id == 0) {
             return chatbox::clientcore::ipcError(
                 id, 400, QStringLiteral("invalid mark_read arguments"));
+        }
+        if (kind != active_kind_ || target_id != active_target_id_) {
+            // A background ChatPage must not clear unread it did not show.
+            QJsonObject data;
+            data.insert(QStringLiteral("accepted"), false);
+            return chatbox::clientcore::ipcOk(id, data);
         }
         chat_->markRead(kind, target_id, message_id);
         QJsonObject data;
@@ -265,6 +289,7 @@ QJsonObject ServiceApp::handleRequest(quint64 id, const QJsonObject& request) {
         }
         if (notifications_ != nullptr && kind != 0 && target_id != 0) {
             notifications_->cancel(notificationId(kind, target_id));
+            notification_ids_.remove(notificationId(kind, target_id));
         }
         QJsonObject data;
         data.insert(QStringLiteral("accepted"), true);
@@ -330,6 +355,9 @@ void ServiceApp::postMessageNotification(const QJsonObject& event) {
     }
     const QJsonObject message =
         event.value(QStringLiteral("message")).toObject();
+    if (message.value(QStringLiteral("outgoing")).toBool()) {
+        return;
+    }
     QString title = message.value(QStringLiteral("nickname")).toString();
     if (title.isEmpty()) {
         title = QStringLiteral("ChatBox");
@@ -345,6 +373,7 @@ void ServiceApp::postMessageNotification(const QJsonObject& event) {
     }
     notifications_->postMessage(notificationId(kind, target_id), title, body,
                                 kind, target_id);
+    notification_ids_.insert(notificationId(kind, target_id));
 }
 
 int ServiceApp::notificationId(int kind, quint64 target_id) {

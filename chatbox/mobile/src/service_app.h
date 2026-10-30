@@ -3,6 +3,7 @@
 
 #include <QJsonObject>
 #include <QObject>
+#include <QSet>
 #include <QString>
 
 #include <memory>
@@ -39,6 +40,7 @@ private:
     std::unique_ptr<chatbox::mobile::AndroidSecureStore> secure_;
     int active_kind_ = 0;
     quint64 active_target_id_ = 0;
+    QSet<int> notification_ids_;
 };
 
 #endif  // CHATBOX_MOBILE_SERVICE_APP_H

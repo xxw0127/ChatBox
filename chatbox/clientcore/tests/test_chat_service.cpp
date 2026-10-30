@@ -19,6 +19,7 @@
 using chatbox::clientcore::ChatService;
 using chatbox::clientcore::ConversationRow;
 using chatbox::clientcore::MemorySecureStore;
+using chatbox::clientcore::MessageRow;
 using chatbox::clientcore::MobileStore;
 using chatbox::clientcore::OutboxRow;
 using chatbox::clientcore::ServiceConfig;
@@ -125,6 +126,48 @@ chatbox::Frame makeSyncResponse(
     writer.putU16(static_cast<uint16_t>(messages.size()));
     writer.putU8(0);
     writer.putU64(next_after);
+    for (const auto& message : messages) {
+        writer.putU64(message.first);
+        writer.putU64(kind == 2 ? 9 : 1);
+        writer.putString("Bob");
+        writer.putString(message.second.toStdString());
+        writer.putString("2026-10-29 10:00:00");
+        writer.putU64(0);
+        writer.putString("");
+        writer.putString("");
+        writer.putU8(0);
+    }
+    writer.putU16(0);
+    frame.body = writer.data();
+    return frame;
+}
+
+chatbox::Frame makeEmptySyncResponse(uint32_t seq) {
+    chatbox::Frame frame;
+    frame.header.flags = chatbox::kFlagResponse;
+    frame.header.cmd = chatbox::kCmdSyncResp;
+    frame.header.seq = seq;
+    chatbox::ByteWriter writer;
+    writer.putU16(0);
+    writer.putU16(0);
+    writer.putU8(0);
+    frame.body = writer.data();
+    return frame;
+}
+
+chatbox::Frame makeHistoryResponse(
+    uint32_t seq, int kind, quint64 target_id,
+    const std::vector<std::pair<quint64, QString>>& messages) {
+    chatbox::Frame frame;
+    frame.header.flags = chatbox::kFlagResponse;
+    frame.header.cmd = chatbox::kCmdHistoryResp;
+    frame.header.seq = seq;
+    chatbox::ByteWriter writer;
+    writer.putU8(static_cast<uint8_t>(kind));
+    writer.putU64(target_id);
+    writer.putU16(static_cast<uint16_t>(messages.size()));
+    writer.putU8(0);
+    writer.putU64(messages.empty() ? 0 : messages.front().first);
     for (const auto& message : messages) {
         writer.putU64(message.first);
         writer.putU64(kind == 2 ? 9 : 1);
@@ -562,4 +605,193 @@ void TestChatService::syncErrorFallsBackToOnline() {
 
     QCOMPARE(service.snapshot().value(QStringLiteral("state")).toString(),
              QStringLiteral("online"));
+}
+
+void TestChatService::largeSyncResponseIsAccepted() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath("chatbox.db");
+    {
+        MobileStore seed;
+        QString error;
+        QVERIFY2(seed.open(path, &error), qPrintable(error));
+        ConversationRow row;
+        row.kind = 2;
+        row.target_id = 9;
+        row.title = QStringLiteral("Bob");
+        row.last_message_id = 4;
+        seed.upsertConversation(row, &error);
+    }
+
+    FakeTransport transport;
+    MemorySecureStore secure;
+    ChatService service(&transport);
+    QString error;
+    QVERIFY2(service.start(makeConfig(path, secure), &error), qPrintable(error));
+    QVERIFY(loginAndSucceed(service, transport, 42, QStringLiteral("Alice"),
+                            makeToken()));
+
+    const int sync_index = findFrame(transport, chatbox::kCmdSyncPull);
+    QVERIFY(sync_index >= 0);
+    const chatbox::Frame request = transport.sentFrame(sync_index);
+    std::vector<std::pair<quint64, QString>> messages;
+    for (quint64 i = 0; i < 40; ++i) {
+        messages.push_back({5 + i, QString(2000, QLatin1Char('x'))});
+    }
+    transport.deliver(makeSyncResponse(request.header.seq, 2, 9, messages,
+                                       messages.back().first));
+    QCOMPARE(service.snapshot().value(QStringLiteral("state")).toString(),
+             QStringLiteral("online"));
+
+    service.setActiveConversation(2, 9);
+    const QJsonArray stored =
+        service.snapshot()
+            .value(QStringLiteral("active"))
+            .toObject()
+            .value(QStringLiteral("messages"))
+            .toArray();
+    QCOMPARE(stored.size(), 40);
+}
+
+void TestChatService::historyFetchedForEmptyConversation() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath("chatbox.db");
+    {
+        MobileStore seed;
+        QString error;
+        QVERIFY2(seed.open(path, &error), qPrintable(error));
+        ConversationRow row;
+        row.kind = 2;
+        row.target_id = 9;
+        row.title = QStringLiteral("Bob");
+        row.last_message_id = 100;
+        seed.upsertConversation(row, &error);
+        seed.setMeta(QStringLiteral("user_id"), QStringLiteral("42"), &error);
+    }
+
+    FakeTransport transport;
+    MemorySecureStore secure;
+    ChatService service(&transport);
+    QString error;
+    QVERIFY2(service.start(makeConfig(path, secure), &error), qPrintable(error));
+    QVERIFY(loginAndSucceed(service, transport, 42, QStringLiteral("Alice"),
+                            makeToken()));
+
+    const int sync_index = findFrame(transport, chatbox::kCmdSyncPull);
+    QVERIFY(sync_index >= 0);
+    transport.deliver(
+        makeEmptySyncResponse(transport.sentFrame(sync_index).header.seq));
+
+    const int history_index = findFrame(transport, chatbox::kCmdHistory);
+    QVERIFY(history_index >= 0);
+    const chatbox::Frame request = transport.sentFrame(history_index);
+    chatbox::ByteReader reader(request.body.data(), request.body.size());
+    uint8_t kind = 0;
+    uint64_t target_id = 0;
+    uint64_t before_id = 0;
+    uint16_t limit = 0;
+    QVERIFY(reader.getU8(kind));
+    QVERIFY(reader.getU64(target_id));
+    QVERIFY(reader.getU64(before_id));
+    QVERIFY(reader.getU16(limit));
+    QCOMPARE(kind, static_cast<uint8_t>(2));
+    QCOMPARE(target_id, static_cast<uint64_t>(9));
+    QCOMPARE(before_id, static_cast<uint64_t>(0));
+    QCOMPARE(limit, static_cast<uint16_t>(50));
+
+    transport.deliver(makeHistoryResponse(
+        request.header.seq, 2, 9,
+        {{99, QStringLiteral("old")}, {100, QStringLiteral("new")}}));
+
+    service.setActiveConversation(2, 9);
+    const QJsonArray stored =
+        service.snapshot()
+            .value(QStringLiteral("active"))
+            .toObject()
+            .value(QStringLiteral("messages"))
+            .toArray();
+    QCOMPARE(stored.size(), 2);
+    QCOMPARE(stored.at(0).toObject().value(QStringLiteral("content")).toString(),
+             QStringLiteral("old"));
+    QCOMPARE(stored.at(1).toObject().value(QStringLiteral("content")).toString(),
+             QStringLiteral("new"));
+}
+
+void TestChatService::accountSwitchClearsLocalData() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath("chatbox.db");
+    {
+        MobileStore seed;
+        QString error;
+        QVERIFY2(seed.open(path, &error), qPrintable(error));
+        ConversationRow row;
+        row.kind = 2;
+        row.target_id = 9;
+        row.title = QStringLiteral("Old account chat");
+        row.last_message_id = 50;
+        QVERIFY2(seed.upsertConversation(row, &error), qPrintable(error));
+        MessageRow message;
+        message.kind = 2;
+        message.target_id = 9;
+        message.message_id = 50;
+        message.content = QStringLiteral("secret");
+        QVERIFY2(seed.saveMessage(message, &error), qPrintable(error));
+        OutboxRow outbox;
+        outbox.client_msg_id = QStringLiteral("old-pending");
+        outbox.kind = 2;
+        outbox.target_id = 9;
+        outbox.content = QStringLiteral("pending");
+        outbox.created_at = QStringLiteral("2026-10-29 10:00:00");
+        QVERIFY2(seed.enqueueOutbox(outbox, &error), qPrintable(error));
+        QVERIFY2(seed.setMeta(QStringLiteral("user_id"), QStringLiteral("100"),
+                              &error),
+                 qPrintable(error));
+    }
+
+    FakeTransport transport;
+    MemorySecureStore secure;
+    ChatService service(&transport);
+    QString error;
+    QVERIFY2(service.start(makeConfig(path, secure), &error), qPrintable(error));
+    QVERIFY(loginAndSucceed(service, transport, 200, QStringLiteral("Bob"),
+                            makeToken()));
+
+    QCOMPARE(service.snapshot()
+                 .value(QStringLiteral("conversations"))
+                 .toArray()
+                 .size(),
+             0);
+    MobileStore inspector;
+    QVERIFY2(inspector.open(path, &error), qPrintable(error));
+    QVector<OutboxRow> pending;
+    QVERIFY2(inspector.pendingOutbox(pending, &error), qPrintable(error));
+    QVERIFY(pending.isEmpty());
+    QCOMPARE(inspector.meta(QStringLiteral("user_id")), QStringLiteral("200"));
+}
+
+void TestChatService::oversizeMessageRejected() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath("chatbox.db");
+    FakeTransport transport;
+    MemorySecureStore secure;
+    ChatService service(&transport);
+    QString error;
+    QVERIFY2(service.start(makeConfig(path, secure), &error), qPrintable(error));
+    QVERIFY(loginAndSucceed(service, transport, 42, QStringLiteral("Alice"),
+                            makeToken()));
+
+    QSignalSpy events(&service, &ChatService::eventReceived);
+    service.sendText(2, 9, QString(2001, QLatin1Char('x')));
+    QVERIFY(!events.isEmpty());
+    QCOMPARE(events.last().at(0).toJsonObject().value(QStringLiteral("type")).toString(),
+             QStringLiteral("send_failed"));
+
+    MobileStore inspector;
+    QVERIFY2(inspector.open(path, &error), qPrintable(error));
+    QVector<OutboxRow> pending;
+    QVERIFY2(inspector.pendingOutbox(pending, &error), qPrintable(error));
+    QVERIFY(pending.isEmpty());
 }

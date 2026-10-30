@@ -16,6 +16,10 @@ private slots:
     void readStatePushUpdatesUnread();
     void syncPullAppliesAfterCursor();
     void syncErrorFallsBackToOnline();
+    void largeSyncResponseIsAccepted();
+    void historyFetchedForEmptyConversation();
+    void accountSwitchClearsLocalData();
+    void oversizeMessageRejected();
 };
 
 #endif  // CHATBOX_CLIENTCORE_TESTS_TEST_CHAT_SERVICE_H

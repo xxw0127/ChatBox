@@ -34,12 +34,13 @@ ApplicationWindow {
         if (window.chatState !== "online") {
             return
         }
-        if (window.pageName === "" || window.pageName === "ChatPage"
-                || window.pageName === "SettingsPage") {
-            return
-        }
         const pending = ipc.takePendingConversation()
         if (!pending || !pending.kind || !pending.target_id) {
+            return
+        }
+        if (window.pageName === "ChatPage" && pageLoader.item
+                && pageLoader.item.kind === pending.kind
+                && String(pageLoader.item.targetId) === String(pending.target_id)) {
             return
         }
         window.loadPage("ChatPage", {

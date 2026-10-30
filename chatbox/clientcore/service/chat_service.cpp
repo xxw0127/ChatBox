@@ -83,7 +83,8 @@ bool decodeFrame(const QByteArray& raw, chatbox::Frame& frame) {
         return false;
     }
     std::string error;
-    if (!chatbox::validateHeader(header, chatbox::kMaxInFrameBody, error)) {
+    // Sync responses can be up to 512 KiB; ordinary frames stay well below.
+    if (!chatbox::validateHeader(header, chatbox::kMaxOutFrameBody, error)) {
         return false;
     }
     if (header.body_len !=
@@ -120,6 +121,17 @@ ChatService::ChatService(Transport* transport, QObject* parent)
             return;
         }
         session_->sendRequest(chatbox::kCmdPing, std::string());
+    });
+    sync_timer_ = new QTimer(this);
+    sync_timer_->setSingleShot(true);
+    sync_timer_->setInterval(15000);
+    connect(sync_timer_, &QTimer::timeout, this, [this]() {
+        if (sync_seq_ == 0) {
+            return;
+        }
+        qWarning() << "sync response timed out, falling back to online";
+        sync_seq_ = 0;
+        finishSync();
     });
 }
 
@@ -229,6 +241,9 @@ void ChatService::stop() {
     if (heartbeat_timer_ != nullptr) {
         heartbeat_timer_->stop();
     }
+    if (sync_timer_ != nullptr) {
+        sync_timer_->stop();
+    }
     if (session_ != nullptr) {
         delete session_;
         session_ = nullptr;
@@ -237,6 +252,8 @@ void ChatService::stop() {
         transport_->stop();
     }
     pending_sends_.clear();
+    pending_history_.clear();
+    sync_seq_ = 0;
     store_.close();
     running_ = false;
     setState(QStringLiteral("disconnected"), QStringLiteral("stopped"));
@@ -282,6 +299,11 @@ void ChatService::onTransportDisconnected(const QString& reason) {
         return;
     }
     pending_sends_.clear();
+    pending_history_.clear();
+    sync_seq_ = 0;
+    if (sync_timer_ != nullptr) {
+        sync_timer_->stop();
+    }
     setState(QStringLiteral("reconnecting"), reason);
     scheduleReconnect();
 }
@@ -308,6 +330,12 @@ void ChatService::handleTerminal(int code, const QString& message) {
     username_.clear();
     password_.clear();
     pending_sends_.clear();
+    pending_history_.clear();
+    sync_seq_ = 0;
+    if (sync_timer_ != nullptr) {
+        sync_timer_->stop();
+    }
+    store_.clearOutbox(nullptr);
     if (secure_ != nullptr) {
         secure_->clearToken();
     }
@@ -343,9 +371,19 @@ void ChatService::onLoginFailed(int code, const QString& message) {
 }
 
 void ChatService::onLoginSucceeded(const LoginResult& result) {
+    const QString stored_user = store_.meta(QStringLiteral("user_id"));
+    if (!stored_user.isEmpty() &&
+        stored_user != QString::number(result.user_id)) {
+        // One local database is shared by all accounts; never let account B
+        // see account A's history or resend its outbox.
+        qInfo() << "ChatService switching account, clearing local data";
+        store_.clearAll(nullptr);
+    }
     user_id_ = result.user_id;
     nickname_ = result.nickname;
     server_caps_ = result.server_caps;
+    password_.clear();
+    pending_history_.clear();
     if (!result.token.isEmpty()) {
         token_ = result.token;
         if (secure_ != nullptr) {
@@ -373,6 +411,11 @@ void ChatService::login(const QString& username, const QString& password) {
     username_ = username;
     password_ = password;
     logged_out_ = false;
+    // An explicit login always overrides a stored resume token, otherwise a
+    // different account entered by the user could be ignored on reconnect.
+    resume_token_.clear();
+    token_.clear();
+    pending_history_.clear();
     if (transport_ != nullptr && transport_->isConnected()) {
         setState(QStringLiteral("authenticating"));
         session_->login(username_, password_);
@@ -401,6 +444,12 @@ void ChatService::logout() {
     username_.clear();
     password_.clear();
     pending_sends_.clear();
+    pending_history_.clear();
+    sync_seq_ = 0;
+    if (sync_timer_ != nullptr) {
+        sync_timer_->stop();
+    }
+    store_.clearOutbox(nullptr);
     if (secure_ != nullptr) {
         secure_->clearToken();
     }
@@ -436,7 +485,7 @@ void ChatService::beginSync() {
     store_.loadConversations(rows, nullptr);
     std::vector<chatbox::SyncCursor> cursors;
     for (const ConversationRow& row : rows) {
-        if (row.last_message_id == 0) {
+        if (row.last_message_id == 0 || row.kind == 0) {
             continue;
         }
         chatbox::SyncCursor cursor;
@@ -444,6 +493,9 @@ void ChatService::beginSync() {
         cursor.target_id = row.target_id;
         cursor.last_message_id = row.last_message_id;
         cursors.push_back(cursor);
+        if (cursors.size() >= 1024) {
+            break;
+        }
     }
     if (cursors.empty()) {
         finishSync();
@@ -456,11 +508,19 @@ void ChatService::beginSync() {
         finishSync();
         return;
     }
+    if (sync_timer_ != nullptr) {
+        sync_timer_->start();
+    }
     setState(QStringLiteral("syncing"));
 }
 
 void ChatService::finishSync() {
+    if (sync_timer_ != nullptr) {
+        sync_timer_->stop();
+    }
+    sync_seq_ = 0;
     setState(QStringLiteral("online"));
+    requestMissingHistory();
     flushOutbox();
 }
 
@@ -525,6 +585,9 @@ void ChatService::onFrame(const QByteArray& raw) {
         case chatbox::kCmdMessageEchoPush:
             handleEcho(frame);
             break;
+        case chatbox::kCmdMessageRecall:
+            handleRecall(frame);
+            break;
         case chatbox::kCmdPrivateSendResp:
             handleSendResponse(frame, true);
             break;
@@ -536,6 +599,9 @@ void ChatService::onFrame(const QByteArray& raw) {
             break;
         case chatbox::kCmdPrivateConversations:
             handlePrivateConversations(frame);
+            break;
+        case chatbox::kCmdHistoryResp:
+            handleHistoryResponse(frame);
             break;
         case chatbox::kCmdProfileGet:
             handleProfile(frame);
@@ -565,6 +631,9 @@ void ChatService::handleErrorFrame(const chatbox::Frame& frame) {
     if (sync_seq_ != 0 && frame.header.seq == sync_seq_) {
         // Older servers do not implement SYNC_PULL; stay usable without it.
         sync_seq_ = 0;
+        if (sync_timer_ != nullptr) {
+            sync_timer_->stop();
+        }
         qWarning() << "sync pull rejected, falling back to online:" << message;
         finishSync();
         return;
@@ -735,10 +804,17 @@ void ChatService::handleReadState(const chatbox::Frame& frame) {
     store_.loadConversations(rows, nullptr);
     const ConversationRow* existing =
         findConversation(rows, state.kind, state.target_id);
+    quint32 effective_unread = state.unread;
     if (existing != nullptr) {
-        ConversationRow row = *existing;
-        row.unread = state.unread;
-        store_.upsertConversation(row, nullptr);
+        if (state.unread == 0 &&
+            state.last_read_message_id < existing->last_message_id) {
+            // A newer message arrived after this read cursor; do not hide it.
+            effective_unread = existing->unread;
+        } else {
+            ConversationRow row = *existing;
+            row.unread = state.unread;
+            store_.upsertConversation(row, nullptr);
+        }
     }
     QJsonObject event;
     event.insert(QStringLiteral("type"), QStringLiteral("read_state"));
@@ -747,7 +823,7 @@ void ChatService::handleReadState(const chatbox::Frame& frame) {
                  static_cast<qint64>(state.target_id));
     event.insert(QStringLiteral("last_read_message_id"),
                  static_cast<qint64>(state.last_read_message_id));
-    event.insert(QStringLiteral("unread"), static_cast<int>(state.unread));
+    event.insert(QStringLiteral("unread"), static_cast<int>(effective_unread));
     emitEvent(event);
     emitSnapshot();
 }
@@ -792,9 +868,33 @@ void ChatService::handleEcho(const chatbox::Frame& frame) {
     saveIncoming(message, QString(), false);
 }
 
+void ChatService::handleRecall(const chatbox::Frame& frame) {
+    chatbox::ByteReader reader(frame.body.data(), frame.body.size());
+    uint8_t kind = 0;
+    uint64_t target_id = 0;
+    uint64_t message_id = 0;
+    if (!reader.getU8(kind) || !reader.getU64(target_id) ||
+        !reader.getU64(message_id)) {
+        return;
+    }
+    if (kind != 1 && kind != 2) {
+        return;
+    }
+    store_.markMessageRecalled(static_cast<int>(kind), target_id, message_id,
+                               nullptr);
+    QJsonObject event;
+    event.insert(QStringLiteral("type"), QStringLiteral("recall"));
+    event.insert(QStringLiteral("kind"), static_cast<int>(kind));
+    event.insert(QStringLiteral("target_id"),
+                 static_cast<qint64>(target_id));
+    event.insert(QStringLiteral("message_id"),
+                 static_cast<qint64>(message_id));
+    emitEvent(event);
+    emitSnapshot();
+}
+
 void ChatService::handleSendResponse(const chatbox::Frame& frame,
-                                     bool private_send) {
-    Q_UNUSED(private_send);
+                                     bool private_send) {    Q_UNUSED(private_send);
     auto pending_it = pending_sends_.find(frame.header.seq);
     if (pending_it == pending_sends_.end()) {
         return;
@@ -822,7 +922,15 @@ void ChatService::handleSendResponse(const chatbox::Frame& frame,
     message.content = pending.content;
     message.created_at = created_at;
     message.client_msg_id = pending.client_msg_id;
-    store_.saveMessage(message, nullptr);
+    if (!store_.saveMessage(message, nullptr)) {
+        QJsonObject event;
+        event.insert(QStringLiteral("type"), QStringLiteral("send_failed"));
+        event.insert(QStringLiteral("client_msg_id"), pending.client_msg_id);
+        event.insert(QStringLiteral("message"),
+                     QStringLiteral("local store write failed"));
+        emitEvent(event);
+        return;
+    }
     store_.markOutboxSent(pending.client_msg_id, message_id, nullptr);
     touchConversation(message, QString(), false);
     emitEvent(QJsonObject{
@@ -835,6 +943,9 @@ void ChatService::handleSendResponse(const chatbox::Frame& frame,
 
 void ChatService::handleSyncResponse(const chatbox::Frame& frame) {
     sync_seq_ = 0;
+    if (sync_timer_ != nullptr) {
+        sync_timer_->stop();
+    }
     chatbox::ByteReader reader(frame.body.data(), frame.body.size());
     uint16_t conversation_count = 0;
     uint16_t next_index = 0;
@@ -923,7 +1034,11 @@ void ChatService::handleSyncResponse(const chatbox::Frame& frame) {
             }
         }
         for (const MessageRow& message : messages) {
-            store_.saveMessage(message, nullptr);
+            if (!store_.saveMessage(message, nullptr)) {
+                qWarning() << "sync message save failed, will retry later";
+                finishSync();
+                return;
+            }
         }
         if (!messages.isEmpty()) {
             touchConversation(messages.last(), title, false);
@@ -972,6 +1087,128 @@ void ChatService::handlePrivateConversations(const chatbox::Frame& frame) {
         row.last_time = last_time;
         row.unread = unread;
         store_.upsertConversation(row, nullptr);
+    }
+    requestMissingHistory();
+    emitSnapshot();
+}
+
+void ChatService::requestMissingHistory() {
+    QVector<ConversationRow> rows;
+    store_.loadConversations(rows, nullptr);
+    for (const ConversationRow& row : rows) {
+        if (row.kind != 2 || row.last_message_id == 0) {
+            continue;
+        }
+        QVector<MessageRow> recent;
+        if (!store_.loadRecentMessages(row.kind, row.target_id, 1, recent,
+                                       nullptr)) {
+            continue;
+        }
+        if (!recent.isEmpty()) {
+            continue;
+        }
+        requestHistory(row.kind, row.target_id);
+    }
+}
+
+void ChatService::requestHistory(int kind, quint64 target_id) {
+    if (session_ == nullptr || target_id == 0) {
+        return;
+    }
+    for (auto it = pending_history_.constBegin();
+         it != pending_history_.constEnd(); ++it) {
+        if (it.value().first == kind && it.value().second == target_id) {
+            return;
+        }
+    }
+    chatbox::ByteWriter writer;
+    writer.putU8(static_cast<uint8_t>(kind));
+    writer.putU64(target_id);
+    writer.putU64(0);
+    writer.putU16(50);
+    const quint32 seq =
+        session_->sendRequest(chatbox::kCmdHistory, writer.data());
+    if (seq != 0) {
+        pending_history_.insert(seq, qMakePair(kind, target_id));
+    }
+}
+
+void ChatService::handleHistoryResponse(const chatbox::Frame& frame) {
+    auto pending = pending_history_.find(frame.header.seq);
+    if (pending == pending_history_.end()) {
+        return;
+    }
+    const QPair<int, quint64> request = pending.value();
+    pending_history_.erase(pending);
+
+    chatbox::ByteReader reader(frame.body.data(), frame.body.size());
+    uint8_t kind = 0;
+    uint64_t target_id = 0;
+    uint16_t count = 0;
+    uint8_t has_more = 0;
+    uint64_t next_before = 0;
+    if (!reader.getU8(kind) || !reader.getU64(target_id) ||
+        !reader.getU16(count) || !reader.getU8(has_more) ||
+        !reader.getU64(next_before)) {
+        return;
+    }
+    Q_UNUSED(has_more);
+    Q_UNUSED(next_before);
+    if (kind != request.first || target_id != request.second) {
+        return;
+    }
+
+    QVector<MessageRow> messages;
+    messages.reserve(static_cast<int>(count));
+    for (uint16_t i = 0; i < count; ++i) {
+        MessageRow message;
+        message.kind = kind;
+        message.target_id = target_id;
+        uint64_t message_id = 0;
+        uint64_t sender_id = 0;
+        uint64_t reply_to_id = 0;
+        uint8_t recalled = 0;
+        if (!reader.getU64(message_id) || !reader.getU64(sender_id) ||
+            !readString(reader, message.nickname) ||
+            !readString(reader, message.content) ||
+            !readString(reader, message.created_at) ||
+            !reader.getU64(reply_to_id) ||
+            !readString(reader, message.reply_sender_name) ||
+            !readString(reader, message.reply_content) ||
+            !reader.getU8(recalled)) {
+            return;
+        }
+        message.message_id = message_id;
+        message.sender_id = sender_id;
+        message.reply_to_id = reply_to_id;
+        message.recalled = recalled != 0;
+        messages.push_back(message);
+    }
+    uint16_t meta_count = 0;
+    if (!reader.getU16(meta_count)) {
+        return;
+    }
+    for (uint16_t i = 0; i < meta_count; ++i) {
+        uint16_t index = 0;
+        chatbox::FileMeta meta;
+        if (!reader.getU16(index) || !chatbox::readFileMeta(reader, meta)) {
+            return;
+        }
+        if (index < messages.size() && meta.file_id != 0) {
+            messages[index].msg_type = 1;
+            messages[index].file_id = meta.file_id;
+        }
+    }
+
+    QString title;
+    for (const MessageRow& message : messages) {
+        if (message.kind == 2 && message.sender_id != user_id_) {
+            title = message.nickname;
+        }
+        store_.saveMessage(message, nullptr);
+    }
+    if (!messages.isEmpty()) {
+        touchConversation(messages.last(), title, false);
     }
     emitSnapshot();
 }
@@ -1031,6 +1268,15 @@ void ChatService::handleGroupPush(const chatbox::Frame& frame) {
 void ChatService::sendText(int kind, quint64 target_id,
                            const QString& content) {
     if (content.isEmpty() || target_id == 0 || !running_) {
+        return;
+    }
+    if (content.toUtf8().size() > 2000) {
+        QJsonObject event;
+        event.insert(QStringLiteral("type"), QStringLiteral("send_failed"));
+        event.insert(QStringLiteral("client_msg_id"), QString());
+        event.insert(QStringLiteral("message"),
+                     QStringLiteral("消息过长（最多 2000 字节）"));
+        emitEvent(event);
         return;
     }
     const QString client_msg_id =

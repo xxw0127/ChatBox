@@ -233,3 +233,35 @@ void TestMobileStore::recalledMessageContentCleared() {
     QVERIFY(rows[0].recalled);
     QVERIFY(rows[0].content.isEmpty());
 }
+
+void TestMobileStore::recallClearsConversationPreview() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    MobileStore store;
+    QString error;
+    QVERIFY2(store.open(databasePath(dir), &error), qPrintable(error));
+
+    MessageRow message;
+    fillMessage(message, 9, QStringLiteral("secret"));
+    QVERIFY2(store.saveMessage(message, &error), qPrintable(error));
+    ConversationRow row;
+    row.kind = 2;
+    row.target_id = 100;
+    row.title = QStringLiteral("Alice");
+    row.last_message_id = 9;
+    row.last_content = QStringLiteral("secret");
+    QVERIFY2(store.upsertConversation(row, &error), qPrintable(error));
+
+    QVERIFY2(store.markMessageRecalled(2, 100, 9, &error), qPrintable(error));
+    QVector<MessageRow> messages;
+    QVERIFY2(store.loadRecentMessages(2, 100, 10, messages, &error),
+             qPrintable(error));
+    QCOMPARE(messages.size(), 1);
+    QVERIFY(messages[0].recalled);
+    QVERIFY(messages[0].content.isEmpty());
+
+    QVector<ConversationRow> conversations;
+    QVERIFY2(store.loadConversations(conversations, &error), qPrintable(error));
+    QCOMPARE(conversations.size(), 1);
+    QVERIFY(conversations[0].last_content.isEmpty());
+}

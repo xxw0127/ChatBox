@@ -139,6 +139,7 @@ void IpcServer::onDisconnected() {
     }
     buffers_.remove(socket);
     socket->deleteLater();
+    emit clientDisconnected();
 }
 
 }  // namespace clientcore

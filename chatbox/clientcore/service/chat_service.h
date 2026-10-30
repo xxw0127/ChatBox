@@ -86,11 +86,15 @@ private:
     void handleChatPush(const chatbox::Frame& frame);
     void handleReadState(const chatbox::Frame& frame);
     void handleEcho(const chatbox::Frame& frame);
+    void handleRecall(const chatbox::Frame& frame);
     void handleSendResponse(const chatbox::Frame& frame, bool private_send);
     void handleSyncResponse(const chatbox::Frame& frame);
     void handlePrivateConversations(const chatbox::Frame& frame);
+    void handleHistoryResponse(const chatbox::Frame& frame);
     void handleProfile(const chatbox::Frame& frame);
     void handleGroupPush(const chatbox::Frame& frame);
+    void requestHistory(int kind, quint64 target_id);
+    void requestMissingHistory();
 
     bool saveIncoming(const MessageRow& message, const QString& title,
                       bool increment_unread);
@@ -103,6 +107,7 @@ private:
     SessionClient* session_ = nullptr;
     QTimer* reconnect_timer_ = nullptr;
     QTimer* heartbeat_timer_ = nullptr;
+    QTimer* sync_timer_ = nullptr;
     MobileStore store_;
     ServiceConfig config_;
     SecureStore* secure_ = nullptr;
@@ -123,6 +128,7 @@ private:
     quint64 active_target_id_ = 0;
     quint32 sync_seq_ = 0;
     QHash<quint32, PendingSend> pending_sends_;
+    QHash<quint32, QPair<int, quint64>> pending_history_;
 };
 
 }  // namespace clientcore

@@ -13,6 +13,17 @@ Page {
     signal openConversation(int kind, var targetId, string title)
     signal openSettings()
 
+    function formatTime(value) {
+        if (!value) {
+            return ""
+        }
+        const date = new Date(value.replace(" ", "T") + "Z")
+        if (isNaN(date.getTime())) {
+            return value
+        }
+        return Qt.formatDateTime(date, "MM-dd HH:mm")
+    }
+
     header: ToolBar {
         background: Rectangle { color: "#ffffff" }
         RowLayout {
@@ -143,7 +154,7 @@ Page {
                                 color: "#1a1a1a"
                             }
                             Label {
-                                text: modelData.last_time || ""
+                                text: page.formatTime(modelData.last_time)
                                 font.pixelSize: 11
                                 color: "#9aa0a6"
                             }

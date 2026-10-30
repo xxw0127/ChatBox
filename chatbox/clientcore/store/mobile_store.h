@@ -65,10 +65,15 @@ public:
     bool saveMessage(const MessageRow& row, QString* error);
     bool loadRecentMessages(int kind, quint64 target_id, int limit,
                             QVector<MessageRow>& rows, QString* error) const;
+    bool markMessageRecalled(int kind, quint64 target_id, quint64 message_id,
+                             QString* error);
     bool enqueueOutbox(const OutboxRow& row, QString* error);
     bool markOutboxSent(const QString& client_msg_id, quint64 message_id,
                         QString* error);
     bool pendingOutbox(QVector<OutboxRow>& rows, QString* error) const;
+    bool clearOutbox(QString* error);
+    // Removes messages, conversations, outbox and meta for account switches.
+    bool clearAll(QString* error);
     bool setMeta(const QString& key, const QString& value, QString* error);
     QString meta(const QString& key) const;
 

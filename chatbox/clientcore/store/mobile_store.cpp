@@ -348,6 +348,43 @@ bool MobileStore::loadRecentMessages(int kind, quint64 target_id, int limit,
     return true;
 }
 
+bool MobileStore::markMessageRecalled(int kind, quint64 target_id,
+                                      quint64 message_id, QString* error) {
+    if (!isOpen()) {
+        setError(error, QStringLiteral("database not open"));
+        return false;
+    }
+    QSqlQuery query(db_);
+    if (!query.prepare(QStringLiteral(
+            "UPDATE messages SET recalled = 1, content = ''"
+            " WHERE kind = ? AND target_id = ? AND message_id = ?"))) {
+        setError(error, query.lastError().text());
+        return false;
+    }
+    query.addBindValue(kind);
+    query.addBindValue(u64Value(target_id));
+    query.addBindValue(u64Value(message_id));
+    if (!query.exec()) {
+        setError(error, query.lastError().text());
+        return false;
+    }
+    QSqlQuery summary(db_);
+    if (!summary.prepare(QStringLiteral(
+            "UPDATE conversations SET last_content = ''"
+            " WHERE kind = ? AND target_id = ? AND last_message_id = ?"))) {
+        setError(error, summary.lastError().text());
+        return false;
+    }
+    summary.addBindValue(kind);
+    summary.addBindValue(u64Value(target_id));
+    summary.addBindValue(u64Value(message_id));
+    if (!summary.exec()) {
+        setError(error, summary.lastError().text());
+        return false;
+    }
+    return true;
+}
+
 bool MobileStore::enqueueOutbox(const OutboxRow& row, QString* error) {
     if (!isOpen()) {
         setError(error, QStringLiteral("database not open"));
@@ -431,6 +468,43 @@ bool MobileStore::pendingOutbox(QVector<OutboxRow>& rows, QString* error) const 
         row.state = query.value(5).toString();
         row.retry_count = query.value(6).toInt();
         rows.push_back(row);
+    }
+    return true;
+}
+
+bool MobileStore::clearOutbox(QString* error) {
+    if (!isOpen()) {
+        setError(error, QStringLiteral("database not open"));
+        return false;
+    }
+    return execSql(QStringLiteral("DELETE FROM outbox"), error);
+}
+
+bool MobileStore::clearAll(QString* error) {
+    if (!isOpen()) {
+        setError(error, QStringLiteral("database not open"));
+        return false;
+    }
+    if (!db_.transaction()) {
+        setError(error, db_.lastError().text());
+        return false;
+    }
+    const QStringList statements = {
+        QStringLiteral("DELETE FROM messages"),
+        QStringLiteral("DELETE FROM conversations"),
+        QStringLiteral("DELETE FROM outbox"),
+        QStringLiteral("DELETE FROM meta"),
+    };
+    for (const QString& statement : statements) {
+        if (!execSql(statement, error)) {
+            db_.rollback();
+            return false;
+        }
+    }
+    if (!db_.commit()) {
+        setError(error, db_.lastError().text());
+        db_.rollback();
+        return false;
     }
     return true;
 }

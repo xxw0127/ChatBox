@@ -31,6 +31,8 @@ public:
 
 signals:
     void requestReceived(QLocalSocket* socket, quint64 id, const QJsonObject& request);
+    // Emitted when the UI process closes its socket (crash or app exit).
+    void clientDisconnected();
 
 private slots:
     void onNewConnection();

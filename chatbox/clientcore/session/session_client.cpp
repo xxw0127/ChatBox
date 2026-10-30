@@ -184,7 +184,9 @@ void SessionClient::handleFrame(const QByteArray& raw) {
         return;
     }
     std::string error;
-    if (!chatbox::validateHeader(header, chatbox::kMaxInFrameBody, error)) {
+    // SYNC_RESP batches may use the full 512 KiB outbound budget, not the
+    // 64 KiB ordinary inbound limit.
+    if (!chatbox::validateHeader(header, chatbox::kMaxOutFrameBody, error)) {
         return;
     }
     if (header.body_len !=
