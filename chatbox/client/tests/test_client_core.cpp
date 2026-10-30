@@ -268,7 +268,8 @@ private slots:
     void rendererQuoteBlockWithoutInlineActions();
     void rendererCapsWideBubbleWidth();
     void rendererQuoteBubbleStaysNarrow();
-    void rendererShowsAvatarAndPublicId();
+    void rendererShowsAvatarAndNameOnly();
+    void rendererTightensConsecutiveBubbleGap();
     void rendererOwnMessageHidesNameAndId();
     void rendererHidesAvatarForConsecutiveMessages();
     void messageGroupingUsesPreviousMessage();
@@ -1172,7 +1173,7 @@ void TestClientCore::rendererQuoteBubbleStaysNarrow() {
                             .arg(limit)));
 }
 
-void TestClientCore::rendererShowsAvatarAndPublicId() {
+void TestClientCore::rendererShowsAvatarAndNameOnly() {
     const QDateTime created = chatbox::client::parseServerUtc("2026-10-18 12:00:00");
     chatbox::client::ChatMessage message;
     message.message_id = 1;
@@ -1188,9 +1189,54 @@ void TestClientCore::rendererShowsAvatarAndPublicId() {
         chatbox::client::renderConversationHtml({message}, 99999, nullptr, avatars);
 
     QVERIFY(html.contains(QStringLiteral("chatbox-avatar://10001?v=3")));
-    QVERIFY(html.contains(QStringLiteral("U00010001")));
+    QVERIFY(!html.contains(QStringLiteral("U00010001")));
+    QCOMPARE(html.count(QStringLiteral("profile-open:///10001")), 2);
     QVERIFY(html.contains(QStringLiteral("width=\"36\"")));
     QVERIFY(html.contains(QString::fromUtf8("李硬")));
+
+    const QString window = readMainWindowSource();
+    QVERIFY(window.contains(QStringLiteral("profile-open")));
+    QVERIFY(window.contains(QStringLiteral("openOwnProfile")));
+}
+
+void TestClientCore::rendererTightensConsecutiveBubbleGap() {
+    const QDateTime created = chatbox::client::parseServerUtc("2026-10-18 12:00:00");
+    chatbox::client::ChatMessage first;
+    first.message_id = 1;
+    first.sender_id = 2;
+    first.sender_name = "Bob";
+    first.content = "one";
+    first.created_at_utc = created;
+    chatbox::client::ChatMessage second = first;
+    second.message_id = 2;
+    second.content = "two";
+    second.created_at_utc = created.addSecs(30);
+    chatbox::client::ChatMessage third = first;
+    third.message_id = 3;
+    third.content = "three";
+    third.created_at_utc = created.addSecs(60);
+
+    QVector<chatbox::client::MessageKey> keys;
+    const QString html =
+        chatbox::client::renderConversationHtml({first, second, third}, 1, &keys);
+    ChatView view;
+    view.resize(640, 500);
+    view.show();
+    QTest::qWait(30);
+    view.setConversationHtml(html, keys);
+
+    const QRect first_bubble = view.messageBubbleRect(1);
+    const QRect second_bubble = view.messageBubbleRect(2);
+    const QRect third_bubble = view.messageBubbleRect(3);
+    QVERIFY(!first_bubble.isNull());
+    QVERIFY(!second_bubble.isNull());
+    QVERIFY(!third_bubble.isNull());
+    const int gap_12 = second_bubble.top() - first_bubble.bottom();
+    const int gap_23 = third_bubble.top() - second_bubble.bottom();
+    QVERIFY2(gap_12 <= 6,
+             qPrintable(QStringLiteral("first continuation gap %1").arg(gap_12)));
+    QVERIFY2(gap_23 <= 6,
+             qPrintable(QStringLiteral("second continuation gap %1").arg(gap_23)));
 }
 
 void TestClientCore::rendererOwnMessageHidesNameAndId() {
@@ -1210,6 +1256,7 @@ void TestClientCore::rendererOwnMessageHidesNameAndId() {
         chatbox::client::renderConversationHtml({own}, 7, nullptr, avatars);
 
     QVERIFY(html.contains(QStringLiteral("chatbox-avatar://7?v=0")));
+    QVERIFY(html.contains(QStringLiteral("profile-open:///7")));
     QVERIFY(!html.contains(QStringLiteral("ZeldaUnique")));
     QVERIFY(!html.contains(QStringLiteral("U00000007")));
 }
@@ -1234,7 +1281,7 @@ void TestClientCore::rendererHidesAvatarForConsecutiveMessages() {
 
     QCOMPARE(html.count(QStringLiteral("chatbox-avatar://11?v=2")), 1);
     QCOMPARE(html.count(QStringLiteral("OnlyOnceName")), 1);
-    QVERIFY(html.contains(QStringLiteral("td width=\"44\"")));
+    QVERIFY(html.contains(QStringLiteral("td width=\"41\"")));
 }
 
 void TestClientCore::messageGroupingUsesPreviousMessage() {

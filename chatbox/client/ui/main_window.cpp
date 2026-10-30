@@ -160,6 +160,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                         message_id = url.path().mid(1).toULongLong();
                     }
                     openFileMessage(message_id);
+                } else if (url.scheme() == "profile-open") {
+                    quint64 profile_user_id = url.host().toULongLong();
+                    if (profile_user_id == 0) {
+                        profile_user_id = url.path().mid(1).toULongLong();
+                    }
+                    if (profile_user_id == 0) {
+                        return;
+                    }
+                    if (profile_user_id == user_id_) {
+                        openOwnProfile();
+                    } else {
+                        openProfile(profile_user_id);
+                    }
                 }
             });
     connect(chat_view_, &ChatView::messageMenuRequested, this,
