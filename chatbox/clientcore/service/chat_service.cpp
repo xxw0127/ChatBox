@@ -639,6 +639,13 @@ void ChatService::handleErrorFrame(const chatbox::Frame& frame) {
         return;
     }
 
+    auto history_it = pending_history_.find(frame.header.seq);
+    if (history_it != pending_history_.end()) {
+        pending_history_.erase(history_it);
+        qWarning() << "history request failed:" << message;
+        return;
+    }
+
     auto pending_it = pending_sends_.find(frame.header.seq);
     if (pending_it != pending_sends_.end()) {
         const PendingSend pending = pending_it.value();
